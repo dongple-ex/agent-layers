@@ -3,7 +3,7 @@ import path from 'node:path';
 import { loadManifest, listProjects } from './manifest.js';
 import { loadLayer, mergeLayers } from './layers.js';
 import { ADAPTERS } from './adapters/registry.js';
-import { listFiles, isProbablyText } from './util/fsx.js';
+import { listFiles, isProbablyText, isDir } from './util/fsx.js';
 import { findSecretRefs } from './template.js';
 
 export const TOKEN_PATTERNS = [
@@ -38,7 +38,18 @@ export function validateSource(sourceDir, { os = 'windows' } = {}) {
       }
     }
   }
-  const layerDirs = [...manifest.extends.map((e) => [e.name, e.dir]), ['base', manifest.baseDir], ...listProjects(manifest).map((pr) => [`project:${pr.name}`, pr.dir])];
+  for (const e of manifest.extends) {
+    if (e.projectsDir && !e.optional && !isDir(e.projectsDir)) {
+      add('error', manifest.file, `extends "${e.name}": projects folder not found at ${e.projectsDir}`);
+    }
+  }
+  let projects = [];
+  try {
+    projects = listProjects(manifest);
+  } catch (err) {
+    add('error', manifest.file, err.message);
+  }
+  const layerDirs = [...manifest.extends.filter((e) => e.dir).map((e) => [e.name, e.dir]), ['base', manifest.baseDir], ...projects.map((pr) => [`project:${pr.name}`, pr.dir])];
   for (const [name, dir] of layerDirs) {
     for (const osName of ['windows', 'macos', 'linux']) {
       let layer;

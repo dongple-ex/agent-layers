@@ -108,6 +108,8 @@ projects/<name>/
   instructions/ skills/ commands/ agents/ mcp/ settings/ files/project/
 ```
 
+Projects of another setup repository are imported with the `projects` field of `extends`. See "Projects from another setup repository" in the [guide](docs/GUIDE.en.md).
+
 Neutral MCP definition:
 
 ```jsonc

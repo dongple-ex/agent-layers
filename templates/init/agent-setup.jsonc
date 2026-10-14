@@ -11,6 +11,7 @@
 
   // Shared layers applied before base, lowest priority first (for example a team repository checkout).
   // "extends": [{ "name": "team", "path": "../team-agent-setup/base", "git": "https://github.com/acme/team-agent-setup.git", "optional": true }],
+  // Add "projects": "../team-agent-setup/projects" to also use that repository's project layers ("path" can then be left out).
   "extends": [],
 
   "base": "base",

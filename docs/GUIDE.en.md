@@ -386,6 +386,28 @@ Settings in `project.jsonc` you will change most often:
 
 ⚠️ `project purge` is not an undo command. With `agentData` set to `true`, it also removes the project's Claude transcripts and memory, Gemini history and Codex sessions. Add `--keep-agent-data` to keep them.
 
+### Projects from another setup repository
+
+To share a single project with someone, keep it in a separate setup repository that holds only that project, and pull it in with the `projects` field of `extends`. Imported projects work like the ones in your own `projects/` with `project detect`, `project apply` and `project purge`.
+
+```jsonc
+"extends": [
+  { "name": "a6a", "projects": "../a6a-agent-setup/projects", "git": "https://github.com/<account>/a6a-agent-setup.git", "optional": true }
+]
+```
+
+| Field | Meaning |
+| --- | --- |
+| `projects` | The `projects` folder of the other repository, relative to your setup repository |
+| `path` | The base layer of the other repository. Leave it out to import projects only |
+| `git` | Clone URL used by `agent-setup sync` when the folder is missing. Without `path`, it clones into the parent folder of `projects` |
+| `optional` | With `true`, `validate` does not report a missing folder as an error |
+
+- `agent-setup sync` also runs `git pull --ff-only` in the imported repository.
+- The `from` column of `agent-setup project list` shows `source` (your repository) or `extends:<name>`.
+- A project name that exists in both repositories is an error, because applied records are keyed by project name. Rename one of them.
+- `project purge --remove-source` deletes projects of your own repository only. Delete an imported project in its own repository.
+
 ## Syncing machines and choosing target agents
 
 Push changes from one machine and run `agent-setup sync` on another to reach the same state. `sync` runs `git pull --ff-only` on the setup repository and then applies the base layer.

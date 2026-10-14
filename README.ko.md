@@ -98,6 +98,8 @@ projects/<name>/
   instructions/ skills/ commands/ agents/ mcp/ settings/ files/project/
 ```
 
+다른 설정 저장소의 프로젝트는 `extends`의 `projects` 필드로 가져옵니다. 자세한 내용은 [가이드](docs/GUIDE.ko.md)의 "다른 설정 저장소의 프로젝트 가져오기"를 봅니다.
+
 ## 지원 에이전트
 
 | 에이전트 | 사용자 지시문 | 사용자 스킬 | 사용자 MCP | 프로젝트 파일 |

@@ -51,12 +51,13 @@ export function loadManifest(sourceDir) {
   }
   const extendsList = (raw.extends || []).map((e, i) => {
     const entry = typeof e === 'string' ? { path: e } : e;
-    if (!entry.path) {
-      throw new Error(`${file}: extends[${i}] needs a "path" (a checkout of the shared layer)`);
+    if (!entry.path && !entry.projects) {
+      throw new Error(`${file}: extends[${i}] needs a "path" (a checkout of the shared layer) or a "projects" folder`);
     }
     return {
       name: entry.name || `extends${i + 1}`,
-      dir: path.resolve(sourceDir, entry.path),
+      dir: entry.path ? path.resolve(sourceDir, entry.path) : null,
+      projectsDir: entry.projects ? path.resolve(sourceDir, entry.projects) : null,
       optional: Boolean(entry.optional),
       git: entry.git || null,
     };
@@ -74,18 +75,31 @@ export function loadManifest(sourceDir) {
   };
 }
 
+export function projectSources(manifest) {
+  return [{ dir: manifest.projectsDir, origin: null }, ...(manifest.extends || []).filter((e) => e.projectsDir).map((e) => ({ dir: e.projectsDir, origin: e.name }))];
+}
+
 export function listProjects(manifest) {
-  if (!isDir(manifest.projectsDir)) {
-    return [];
-  }
   const out = [];
-  for (const name of listDirs(manifest.projectsDir)) {
-    const dir = path.join(manifest.projectsDir, name);
-    const file = PROJECT_MANIFEST_NAMES.map((n) => path.join(dir, n)).find(isFile);
-    if (!file) {
+  const seen = new Map();
+  for (const source of projectSources(manifest)) {
+    if (!isDir(source.dir)) {
       continue;
     }
-    out.push(loadProjectManifest(dir, file, name));
+    for (const name of listDirs(source.dir)) {
+      const dir = path.join(source.dir, name);
+      const file = PROJECT_MANIFEST_NAMES.map((n) => path.join(dir, n)).find(isFile);
+      if (!file) {
+        continue;
+      }
+      const project = { ...loadProjectManifest(dir, file, name), origin: source.origin };
+      const prev = seen.get(project.name);
+      if (prev) {
+        throw new Error(`project "${project.name}" is defined twice: ${prev.dir} and ${project.dir}. Rename one of them.`);
+      }
+      seen.set(project.name, project);
+      out.push(project);
+    }
   }
   return out;
 }
@@ -118,7 +132,7 @@ export function loadProjectManifest(dir, file, folderName) {
 export function getProject(manifest, name) {
   const p = listProjects(manifest).find((x) => x.name === name);
   if (!p) {
-    throw new Error(`project "${name}" not found under ${manifest.projectsDir}`);
+    throw new Error(`project "${name}" not found under ${projectSources(manifest).map((s) => s.dir).join(', ')}`);
   }
   return p;
 }

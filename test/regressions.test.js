@@ -487,3 +487,106 @@ test('#15 purge results name the block they removed, and the source hint follows
   assert.match(out, /Commit the deletion in the setup repository/);
   assert.ok(!fs.existsSync(path.join(sb.source, 'projects', 'c')));
 });
+
+function extendsManifest(sb, ext) {
+  manifest(sb, ['claude']);
+  const m = JSON.parse(read(path.join(sb.source, 'agent-setup.jsonc')));
+  write(path.join(sb.source, 'agent-setup.jsonc'), JSON.stringify({ ...m, extends: ext }));
+}
+
+function sharedProject(dir, name, match) {
+  write(path.join(dir, name, 'project.jsonc'), JSON.stringify({ name, mode: 'private', match: { dirName: [match] } }));
+  write(path.join(dir, name, 'instructions', '00.md'), `# ${name}\n\n- Shared rule for ${name}.\n`);
+}
+
+function gitFolder(dir) {
+  write(path.join(dir, 'README.md'), '# repo\n');
+  spawnSync('git', ['init', '-q', dir]);
+}
+
+test('#16 extends projects: a project from another setup repository is listed, detected and applied', { skip: !HAS_GIT }, () => {
+  const sb = sandbox();
+  extendsManifest(sb, [{ name: 'team', projects: '../team-setup/projects' }]);
+  sharedProject(path.join(sb.root, 'team-setup', 'projects'), 'a6a', 'a6a-repo');
+  const repo = path.join(sb.root, 'a6a-repo');
+  gitFolder(repo);
+  let r = cli(sb, ['project', 'list']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /a6a\s+extends:team/);
+  r = cli(sb, ['project', 'detect'], { cwd: repo });
+  assert.match(r.out, /-> a6a \(matched by/);
+  r = cli(sb, ['project', 'apply', '--yes'], { cwd: repo });
+  assert.equal(r.code, 0, r.out);
+  assert.match(read(path.join(repo, '.claude', 'rules', 'agent-setup', 'project-a6a.md')), /Shared rule for a6a/);
+  r = cli(sb, ['apply', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  r = cli(sb, ['validate']);
+  assert.equal(r.code, 0, r.out);
+});
+
+test('#17 extends projects: a name defined twice is an error, and init refuses names taken by extends', () => {
+  const sb = sandbox();
+  extendsManifest(sb, [{ name: 'team', projects: '../team-setup/projects' }]);
+  const shared = path.join(sb.root, 'team-setup', 'projects');
+  sharedProject(shared, 'taken', 'taken-repo');
+  let r = cli(sb, ['project', 'init', 'taken']);
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /project "taken" already exists in/);
+  assert.ok(!fs.existsSync(path.join(sb.source, 'projects', 'taken')));
+  sharedProject(shared, 'dup', 'dup-repo');
+  sharedProject(path.join(sb.source, 'projects'), 'dup', 'dup-repo');
+  r = cli(sb, ['project', 'list']);
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /project "dup" is defined twice/);
+  r = cli(sb, ['validate']);
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /project "dup" is defined twice/);
+});
+
+test('#18 extends projects: purge --remove-source never deletes a project of another repository', { skip: !HAS_GIT }, () => {
+  const sb = sandbox();
+  extendsManifest(sb, [{ name: 'team', projects: '../team-setup/projects' }]);
+  const shared = path.join(sb.root, 'team-setup', 'projects');
+  sharedProject(shared, 'a6a', 'a6a-repo');
+  const repo = path.join(sb.root, 'a6a-repo');
+  gitFolder(repo);
+  const rule = path.join(repo, '.claude', 'rules', 'agent-setup', 'project-a6a.md');
+  let r = cli(sb, ['project', 'apply', '--yes'], { cwd: repo });
+  assert.equal(r.code, 0, r.out);
+  r = cli(sb, ['project', 'purge', 'a6a', '--remove-source', '--yes'], { cwd: repo });
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /comes from extends layer "team"/);
+  assert.ok(fs.existsSync(path.join(shared, 'a6a', 'project.jsonc')));
+  assert.ok(fs.existsSync(rule), 'a refused purge must not remove anything');
+  r = cli(sb, ['project', 'purge', 'a6a', '--yes'], { cwd: repo });
+  assert.equal(r.code, 0, r.out);
+  assert.ok(!fs.existsSync(rule));
+  assert.ok(fs.existsSync(path.join(shared, 'a6a', 'project.jsonc')));
+});
+
+test('#19 extends projects: a missing folder is reported unless optional, and sync clones then pulls it', { skip: !HAS_GIT }, () => {
+  const sb = sandbox();
+  extendsManifest(sb, [{ name: 'team', projects: '../team-clone/projects' }]);
+  let r = cli(sb, ['validate']);
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /extends "team": projects folder not found/);
+  r = cli(sb, ['apply', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  extendsManifest(sb, [{ name: 'team', projects: '../team-clone/projects', optional: true }]);
+  r = cli(sb, ['validate']);
+  assert.equal(r.code, 0, r.out);
+  const origin = path.join(sb.root, 'team-origin');
+  sharedProject(path.join(origin, 'projects'), 'a6a', 'a6a-repo');
+  spawnSync('git', ['init', '-q', origin]);
+  spawnSync('git', ['-C', origin, 'add', '.']);
+  spawnSync('git', ['-C', origin, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init']);
+  extendsManifest(sb, [{ name: 'team', projects: '../team-clone/projects', git: origin }]);
+  r = cli(sb, ['sync', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(fs.existsSync(path.join(sb.root, 'team-clone', 'projects', 'a6a', 'project.jsonc')));
+  r = cli(sb, ['sync', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /git pull --ff-only \(.*team-clone\)/);
+  r = cli(sb, ['project', 'list']);
+  assert.match(r.out, /a6a\s+extends:team/);
+});

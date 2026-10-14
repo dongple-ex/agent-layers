@@ -3,7 +3,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { createContext, hasSource } from './context.js';
-import { loadManifest, listProjects, getProject } from './manifest.js';
+import { loadManifest, listProjects, getProject, projectSources } from './manifest.js';
 import { loadLayer, mergeLayers } from './layers.js';
 import { ADAPTERS, getAdapter } from './adapters/registry.js';
 import { renderScope, resolveTargets, detectAdapters, gitDir, normalizeKey, trackedFiles } from './render.js';
@@ -146,6 +146,9 @@ async function promptHidden(question) {
 function loadUserLayers(ctx, manifest) {
   const layers = [];
   for (const e of manifest.extends) {
+    if (!e.dir) {
+      continue;
+    }
     if (!isDir(e.dir)) {
       if (e.optional) {
         warn(`extends layer "${e.name}" not found at ${e.dir}; skipped`);
@@ -272,7 +275,7 @@ function userRender(ctx, manifest, flags) {
 function projectRender(ctx, manifest, flags, nameArg) {
   const { project, root, how } = resolveProject(ctx, manifest, { name: nameArg || null, at: flags.path || null });
   if (!project) {
-    throw new Error(`no project in ${short(ctx, manifest.projectsDir)} matches ${root}. Pass a name, or add a "match" rule to the project's project.jsonc.`);
+    throw new Error(`no project in ${projectSources(manifest).map((s) => short(ctx, s.dir)).join(', ')} matches ${root}. Pass a name, or add a "match" rule to the project's project.jsonc.`);
   }
   if (flags.mode) {
     project.mode = flags.mode;
@@ -294,7 +297,7 @@ async function cmdPlanApply(ctx, flags, positional, apply) {
   if (doUser) {
     const { rendered, adapters } = userRender(ctx, manifest, flags);
     const plan = buildPlan(ctx, { outputs: rendered.outputs, state, scopeKey: 'user', removals: !flags['no-removals'], selected: flags.prune ? null : adapters.map((a) => a.id) });
-    runs.push({ plan, rendered, scope: 'user', title: `User scope (layers: ${[...manifest.extends.map((e) => e.name), 'base'].join(', ')}; agents: ${adapters.map((a) => a.id).join(', ') || 'none'})` });
+    runs.push({ plan, rendered, scope: 'user', title: `User scope (layers: ${[...manifest.extends.filter((e) => e.dir).map((e) => e.name), 'base'].join(', ')}; agents: ${adapters.map((a) => a.id).join(', ') || 'none'})` });
   }
   if (doProject) {
     const name = typeof projectFlag === 'string' ? projectFlag : positional[0];
@@ -593,12 +596,12 @@ async function cmdProject(ctx, flags, positional) {
   const manifest = prepare(ctx);
   if (!sub || sub === 'list') {
     const state = loadState(ctx);
-    const rows = listProjects(manifest).map((p) => [p.name, p.mode, p.match.gitRemote.join(' ') || p.match.dirName.join(' ') || p.match.path.join(' ') || '-', state.projects[p.name] ? short(ctx, state.projects[p.name].root) : '-']);
+    const rows = listProjects(manifest).map((p) => [p.name, p.origin ? `extends:${p.origin}` : 'source', p.mode, p.match.gitRemote.join(' ') || p.match.dirName.join(' ') || p.match.path.join(' ') || '-', state.projects[p.name] ? short(ctx, state.projects[p.name].root) : '-']);
     if (!rows.length) {
       info(`No projects in ${short(ctx, manifest.projectsDir)}. Create one with "agent-setup project init <name>".`);
       return 0;
     }
-    table(rows, ['project', 'mode', 'match', 'applied at']);
+    table(rows, ['project', 'from', 'mode', 'match', 'applied at']);
     return 0;
   }
   if (sub === 'init') {
@@ -609,6 +612,10 @@ async function cmdProject(ctx, flags, positional) {
     const dir = path.join(manifest.projectsDir, name);
     if (exists(dir)) {
       throw new Error(`${dir} already exists`);
+    }
+    const taken = listProjects(manifest).find((p) => p.name === name);
+    if (taken) {
+      throw new Error(`project "${name}" already exists in ${taken.dir}`);
     }
     const match = {};
     if (flags.remote) {
@@ -643,7 +650,10 @@ async function cmdProject(ctx, flags, positional) {
     }
     const recorded = state.projects[name]?.root || null;
     if (!project && !recorded) {
-      throw new Error(`unknown project "${name}": it is not in ${short(ctx, manifest.projectsDir)} and was never applied on this machine`);
+      throw new Error(`unknown project "${name}": it is not in ${projectSources(manifest).map((s) => short(ctx, s.dir)).join(', ')} and was never applied on this machine`);
+    }
+    if (flags['remove-source'] && project?.origin) {
+      throw new Error(`project "${name}" comes from extends layer "${project.origin}" (${project.dir}); --remove-source only deletes projects of this setup repository. Remove it in that repository instead.`);
     }
     if (!flags.path && !recorded) {
       throw new Error(`project "${name}" was never applied on this machine; pass --path <project folder> to choose the folder to purge`);
@@ -719,7 +729,7 @@ async function cmdProject(ctx, flags, positional) {
 
 function collectSecretNames(ctx, manifest) {
   const names = new Set();
-  const dirs = [...manifest.extends.map((e) => e.dir), manifest.baseDir, ...listProjects(manifest).map((p) => p.dir)];
+  const dirs = [...manifest.extends.filter((e) => e.dir).map((e) => e.dir), manifest.baseDir, ...listProjects(manifest).map((p) => p.dir)];
   for (const d of dirs) {
     const layer = loadLayer(d, 'x', ctx.os);
     findSecretRefs(layer.mcp.map((m) => m.def), names);
@@ -817,7 +827,8 @@ function cmdExec(ctx, flags, rest) {
 
 async function cmdSync(ctx, flags) {
   const manifest = prepare(ctx);
-  const repos = [ctx.sourceDir, ...manifest.extends.filter((e) => isDir(path.join(e.dir, '.git')) || isDir(path.join(path.dirname(e.dir), '.git'))).map((e) => (isDir(path.join(e.dir, '.git')) ? e.dir : path.dirname(e.dir)))];
+  const repoOf = (d) => (isDir(path.join(d, '.git')) ? d : isDir(path.join(path.dirname(d), '.git')) ? path.dirname(d) : null);
+  const repos = [ctx.sourceDir, ...manifest.extends.flatMap((e) => [e.dir, e.projectsDir]).filter(Boolean).map(repoOf).filter(Boolean)];
   for (const repo of [...new Set(repos)]) {
     if (!isDir(path.join(repo, '.git'))) {
       warn(`${repo} is not a git checkout; skipped pull`);
@@ -831,9 +842,10 @@ async function cmdSync(ctx, flags) {
     }
   }
   for (const e of manifest.extends) {
-    if (!isDir(e.dir) && e.git) {
-      info(c.bold(`git clone ${e.git} -> ${short(ctx, e.dir)}`));
-      if (runInherit('git', ['clone', e.git, e.dir]) !== 0) {
+    const cloneDir = e.dir || path.dirname(e.projectsDir);
+    if (!isDir(cloneDir) && e.git) {
+      info(c.bold(`git clone ${e.git} -> ${short(ctx, cloneDir)}`));
+      if (runInherit('git', ['clone', e.git, cloneDir]) !== 0) {
         return 1;
       }
     }

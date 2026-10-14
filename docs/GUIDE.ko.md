@@ -386,6 +386,28 @@ project 레이어는 특정 프로젝트 폴더에서만 쓰는 내 설정입니
 
 ⚠️ `project purge`는 되돌리기용 명령이 아닙니다. `agentData`가 `true`이면 그 프로젝트의 Claude 대화 기록과 메모리, Gemini 기록, Codex 세션 기록까지 지웁니다. 기록을 남기려면 `--keep-agent-data`를 붙입니다.
 
+### 다른 설정 저장소의 프로젝트 가져오기
+
+프로젝트 하나만 다른 사람과 함께 쓰려면, 그 프로젝트만 들어 있는 설정 저장소를 따로 만들고 `extends`의 `projects` 필드로 가져옵니다. 가져온 프로젝트는 내 `projects/`에 있는 프로젝트와 똑같이 `project detect`, `project apply`, `project purge`로 다룹니다.
+
+```jsonc
+"extends": [
+  { "name": "a6a", "projects": "../a6a-agent-setup/projects", "git": "https://github.com/<계정>/a6a-agent-setup.git", "optional": true }
+]
+```
+
+| 필드 | 뜻 |
+| --- | --- |
+| `projects` | 가져올 저장소의 `projects` 폴더. 설정 저장소 기준 상대 경로로 씁니다 |
+| `path` | 가져올 저장소의 base 레이어. 프로젝트만 가져올 때는 생략합니다 |
+| `git` | 폴더가 없을 때 `agent-setup sync`가 clone할 주소. `path`가 없으면 `projects`의 상위 폴더에 clone합니다 |
+| `optional` | `true`이면 폴더가 없어도 `validate`가 오류로 보지 않습니다 |
+
+- `agent-setup sync`는 가져온 저장소도 `git pull --ff-only`합니다.
+- `agent-setup project list`의 `from` 열에 `source`(내 저장소) 또는 `extends:<이름>`이 표시됩니다.
+- 내 저장소와 가져온 저장소에 같은 이름의 프로젝트가 있으면 오류가 납니다. 적용 기록을 프로젝트 이름으로 구분하기 때문입니다. 한쪽 이름을 바꿉니다.
+- `project purge --remove-source`는 내 저장소의 프로젝트만 지웁니다. 가져온 프로젝트의 소스는 그 저장소에서 지웁니다.
+
 ## 여러 PC 동기화와 적용 대상 조절
 
 한 PC에서 고친 설정을 push하고, 다른 PC에서 `agent-setup sync`를 실행하면 같은 상태가 됩니다. `sync`는 설정 저장소를 `git pull --ff-only`한 뒤 base 레이어를 적용합니다.
