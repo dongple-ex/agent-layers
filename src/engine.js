@@ -86,7 +86,7 @@ function planFile(o, record) {
   const curHash = cur ? (desiredBuf ? sha256(cur) : sha256(curText)) : null;
   const item = { before: curText, after: desiredText, hash: desiredHash, beforeHash: cur ? sha256(cur) : null };
   if (isSymlink(o.path)) {
-    item.reason = `symbolic link; agent-setup writes to its target ${fs.realpathSync(o.path)}`;
+    item.reason = `symbolic link; agent-layers writes to its target ${fs.realpathSync(o.path)}`;
   }
   if (!cur) {
     return { ...item, action: 'create' };
@@ -97,7 +97,7 @@ function planFile(o, record) {
   if (record && record.hash === curHash) {
     return { ...item, action: 'update' };
   }
-  return { ...item, action: record ? 'drift' : 'conflict', reason: record ? 'modified outside agent-setup since the last apply' : 'file exists and is not managed by agent-setup' };
+  return { ...item, action: record ? 'drift' : 'conflict', reason: record ? 'modified outside agent-layers since the last apply' : 'file exists and is not managed by agent-layers' };
 }
 
 function applyFile(o) {
@@ -112,7 +112,7 @@ function applyFile(o) {
 function planDir(o, record) {
   const desiredHash = hashFiles(o.files);
   if (isSymlink(o.path)) {
-    return { action: 'error', hash: desiredHash, reason: 'is a symbolic link; agent-setup does not write through linked folders. Remove the link or exclude this skill.' };
+    return { action: 'error', hash: desiredHash, reason: 'is a symbolic link; agent-layers does not write through linked folders. Remove the link or exclude this skill.' };
   }
   if (!isDir(o.path)) {
     return { action: 'create', hash: desiredHash, beforeHash: null, before: null, after: o.files.map((f) => f.rel).join('\n') };
@@ -142,7 +142,7 @@ function planDir(o, record) {
   if (record && record.hash === curHash) {
     return { ...base, action: 'update' };
   }
-  return { ...base, action: record ? 'drift' : 'conflict', reason: record ? 'skill folder modified outside agent-setup since the last apply' : 'folder exists and is not managed by agent-setup' };
+  return { ...base, action: record ? 'drift' : 'conflict', reason: record ? 'skill folder modified outside agent-layers since the last apply' : 'folder exists and is not managed by agent-layers' };
 }
 
 function applyDir(o) {
@@ -182,7 +182,7 @@ function planBlock(o, record) {
   if (!record || record.hash === sha256(curBlock)) {
     return { ...item, action: 'update' };
   }
-  return { ...item, action: 'drift', reason: 'managed block edited outside agent-setup since the last apply' };
+  return { ...item, action: 'drift', reason: 'managed block edited outside agent-layers since the last apply' };
 }
 
 function applyBlock(o, item) {
@@ -214,7 +214,7 @@ function planJson(o, record) {
     return { ...item, action: 'noop' };
   }
   if (merge.drift.length) {
-    return { ...item, action: 'drift', reason: `managed keys changed outside agent-setup: ${merge.drift.map((d) => pathKey(d.path)).join(', ')}` };
+    return { ...item, action: 'drift', reason: `managed keys changed outside agent-layers: ${merge.drift.map((d) => pathKey(d.path)).join(', ')}` };
   }
   if (conflicts.length) {
     return { ...item, action: 'conflict', reason: `would overwrite existing unmanaged values: ${conflicts.map((c) => pathKey(c.path)).join(', ')}` };
@@ -309,7 +309,7 @@ function planToml(o, record) {
     return { ...item, action: 'noop' };
   }
   if (drift.length) {
-    return { ...item, action: 'drift', reason: `managed keys changed outside agent-setup: ${drift.map(pathKey).join(', ')}` };
+    return { ...item, action: 'drift', reason: `managed keys changed outside agent-layers: ${drift.map(pathKey).join(', ')}` };
   }
   if (conflicts.length) {
     return { ...item, action: 'conflict', reason: `would overwrite existing unmanaged values: ${conflicts.map(pathKey).join(', ')}` };
@@ -397,10 +397,10 @@ function planClaudeMcp(o, record) {
     return { ...base, action: 'error', reason: 'the claude CLI is not on PATH; install Claude Code or set options.claude.mcp to "json"' };
   }
   if (drift.length) {
-    return { ...base, action: 'drift', reason: `MCP servers changed outside agent-setup: ${drift.join(', ')}` };
+    return { ...base, action: 'drift', reason: `MCP servers changed outside agent-layers: ${drift.join(', ')}` };
   }
   if (conflicts.length) {
-    return { ...base, action: 'conflict', reason: `MCP servers with the same name already exist and are not managed by agent-setup: ${conflicts.join(', ')}` };
+    return { ...base, action: 'conflict', reason: `MCP servers with the same name already exist and are not managed by agent-layers: ${conflicts.join(', ')}` };
   }
   return { ...base, action: ops.length ? 'update' : 'noop' };
 }
@@ -556,7 +556,7 @@ function planRemoval(rec) {
       }
       return {
         action: removable.length ? 'remove' : 'drift',
-        reason: changed.length ? `changed outside agent-setup and left in place: ${changed.join(', ')}` : undefined,
+        reason: changed.length ? `changed outside agent-layers and left in place: ${changed.join(', ')}` : undefined,
         details: removable.map((n) => `- MCP server ${n}`),
         apply: () => removable.forEach((n) => run('claude', ['mcp', 'remove', n, '-s', rec.scope], { cwd: rec.cwd || undefined })),
       };

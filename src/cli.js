@@ -154,7 +154,7 @@ function loadUserLayers(ctx, manifest) {
         warn(`extends layer "${e.name}" not found at ${e.dir}; skipped`);
         continue;
       }
-      throw new Error(`extends layer "${e.name}" not found at ${e.dir}${e.git ? ` (clone ${e.git} there, or run "agent-setup sync")` : ''}`);
+      throw new Error(`extends layer "${e.name}" not found at ${e.dir}${e.git ? ` (clone ${e.git} there, or run "agent-layers sync")` : ''}`);
     }
     layers.push(loadLayer(e.dir, e.name, ctx.os));
   }
@@ -164,7 +164,7 @@ function loadUserLayers(ctx, manifest) {
 
 function prepare(ctx) {
   if (!hasSource(ctx)) {
-    throw new Error(`no setup repository at ${ctx.sourceDir}. Run "agent-setup init" (new) or "agent-setup init --from <git-url>" (existing), or pass --source <dir>.`);
+    throw new Error(`no setup repository at ${ctx.sourceDir}. Run "agent-layers init" (new) or "agent-layers init --from <git-url>" (existing), or pass --source <dir>.`);
   }
   const manifest = loadManifest(ctx.sourceDir);
   ctx.manifestOptions = manifest.options;
@@ -373,7 +373,7 @@ function cmdStatus(ctx, flags) {
     return 0;
   }
   if (!rows.length) {
-    info('No managed outputs yet. Run "agent-setup apply".');
+    info('No managed outputs yet. Run "agent-layers apply".');
     return 0;
   }
   table(rows, ['status', 'scope', 'type', 'agents', 'path']);
@@ -488,10 +488,10 @@ function cmdShow(ctx, flags, positional) {
     printLayerSummary(ctx, v);
   });
   if (!projectViews.length) {
-    info(`\nNo projects. Create one with "agent-setup project init <name>".`);
+    info(`\nNo projects. Create one with "agent-layers project init <name>".`);
     return 0;
   }
-  info(`\n${c.bold(`Projects (${projectViews.length})`)}  details: agent-setup show <name>`);
+  info(`\n${c.bold(`Projects (${projectViews.length})`)}  details: agent-layers show <name>`);
   table(projectViews.map((v) => ['  ', v.project.name, v.project.mode, `match ${matchText(v.project.match)}`, v.project.appliedAt ? `applied at ${short(ctx, v.project.appliedAt)}` : 'not applied', Object.entries(countItems(v)).map(([k, n]) => `${k} ${n}`).join(', ') || 'empty']));
   return 0;
 }
@@ -524,7 +524,7 @@ function cmdDoctor(ctx, flags) {
   table(report.env.map(([k, v]) => [`  ${k}`, v]));
   info(c.bold('\nAgents found on this machine'));
   if (report.agents.length) {
-    table(report.agents.map((r) => r.map((x, i) => (i === 4 ? short(ctx, String(x)) : x))), ['id', 'name', 'command', 'version', 'user instructions', 'agent-setup']);
+    table(report.agents.map((r) => r.map((x, i) => (i === 4 ? short(ctx, String(x)) : x))), ['id', 'name', 'command', 'version', 'user instructions', 'agent-layers']);
   } else {
     info('  none');
   }
@@ -573,7 +573,7 @@ async function cmdInit(ctx, flags, positional) {
         throw new Error(`git clone failed (${code})`);
       }
     }
-  } else if (!exists(path.join(dir, 'agent-setup.jsonc'))) {
+  } else if (!exists(path.join(dir, 'agent-layers.jsonc'))) {
     copyTemplate(TEMPLATE_DIR, dir);
     info(`Created a new setup repository in ${dir}`);
   } else {
@@ -582,9 +582,9 @@ async function cmdInit(ctx, flags, positional) {
   saveConfig(ctx, { source: dir });
   info(`Registered ${dir} as the source in ${short(ctx, ctx.configFile)}`);
   info('\nNext steps:');
-  info('  agent-setup doctor        # see which agents were found');
-  info('  agent-setup plan --diff   # preview what would be written');
-  info('  agent-setup apply         # write the base layer');
+  info('  agent-layers doctor        # see which agents were found');
+  info('  agent-layers plan --diff   # preview what would be written');
+  info('  agent-layers apply         # write the base layer');
   if (!flags.from) {
     info(`  cd "${dir}" && git init && git add . && git commit -m "agent setup"   # then push to a private repository`);
   }
@@ -598,7 +598,7 @@ async function cmdProject(ctx, flags, positional) {
     const state = loadState(ctx);
     const rows = listProjects(manifest).map((p) => [p.name, p.origin ? `extends:${p.origin}` : 'source', p.mode, p.match.gitRemote.join(' ') || p.match.dirName.join(' ') || p.match.path.join(' ') || '-', state.projects[p.name] ? short(ctx, state.projects[p.name].root) : '-']);
     if (!rows.length) {
-      info(`No projects in ${short(ctx, manifest.projectsDir)}. Create one with "agent-setup project init <name>".`);
+      info(`No projects in ${short(ctx, manifest.projectsDir)}. Create one with "agent-layers project init <name>".`);
       return 0;
     }
     table(rows, ['project', 'from', 'mode', 'match', 'applied at']);
@@ -607,7 +607,7 @@ async function cmdProject(ctx, flags, positional) {
   if (sub === 'init') {
     const name = positional[1];
     if (!name || !/^[a-z0-9][a-z0-9._-]*$/i.test(name)) {
-      throw new Error('usage: agent-setup project init <name> [--mode private|shared] [--remote <glob>] [--dir-name <glob>]');
+      throw new Error('usage: agent-layers project init <name> [--mode private|shared] [--remote <glob>] [--dir-name <glob>]');
     }
     const dir = path.join(manifest.projectsDir, name);
     if (exists(dir)) {
@@ -630,7 +630,7 @@ async function cmdProject(ctx, flags, positional) {
     fs.mkdirSync(path.join(dir, 'skills'), { recursive: true });
     fs.mkdirSync(path.join(dir, 'mcp'), { recursive: true });
     info(`Created ${dir}`);
-    info(`Bind it on this machine with "agent-setup project apply ${name} --path <project folder>"`);
+    info(`Bind it on this machine with "agent-layers project apply ${name} --path <project folder>"`);
     return 0;
   }
   if (sub === 'plan' || sub === 'apply') {
@@ -639,7 +639,7 @@ async function cmdProject(ctx, flags, positional) {
   if (sub === 'purge') {
     const name = positional[1];
     if (!name) {
-      throw new Error('usage: agent-setup project purge <name> [--path <folder>] [--yes] [--keep-agent-data] [--remove-source]');
+      throw new Error('usage: agent-layers project purge <name> [--path <folder>] [--yes] [--keep-agent-data] [--remove-source]');
     }
     const state = loadState(ctx);
     let project = null;
@@ -669,7 +669,7 @@ async function cmdProject(ctx, flags, positional) {
     const scopeKey = scopeKeyOf('project', name, root);
     const plan = buildPlan(ctx, { outputs: [], state, scopeKey, removals: true, backup: false });
     info(c.bold(`Purge project "${name}" at ${short(ctx, root)}`));
-    printPlan(ctx, plan, { notes: [], requiredEnv: [] }, { ...flags, all: true }, 'Files written by agent-setup');
+    printPlan(ctx, plan, { notes: [], requiredEnv: [] }, { ...flags, all: true }, 'Files written by agent-layers');
     const wantAgentData = !flags['keep-agent-data'] && (project ? project.purge.agentData !== false : true);
     const otherRoots = Object.entries(state.projects).filter(([n]) => n !== name).map(([, v]) => v.root).filter(Boolean);
     const data = wantAgentData ? findAgentData(ctx, root, { otherRoots }) : [];
@@ -745,7 +745,7 @@ async function cmdSecrets(ctx, flags, positional) {
   }
   if (sub === 'set') {
     if (!name) {
-      throw new Error('usage: agent-setup secrets set <name> [--value <v>]');
+      throw new Error('usage: agent-layers secrets set <name> [--value <v>]');
     }
     const value = typeof flags.value === 'string' ? flags.value : await promptHidden(`Value for ${name}: `);
     if (!value) {
@@ -780,7 +780,7 @@ async function cmdSecrets(ctx, flags, positional) {
     table(rows, ['secret', 'use', 'value']);
     const missing = wanted.filter((n) => have[n] === undefined);
     if (missing.length) {
-      info(`\nSet the missing ones with: ${missing.map((n) => `agent-setup secrets set ${n}`).join(' ; ')}`);
+      info(`\nSet the missing ones with: ${missing.map((n) => `agent-layers secrets set ${n}`).join(' ; ')}`);
       return sub === 'check' ? 1 : 0;
     }
     return 0;
@@ -790,7 +790,7 @@ async function cmdSecrets(ctx, flags, positional) {
 
 function cmdExec(ctx, flags, rest) {
   if (!rest || !rest.length) {
-    throw new Error('usage: agent-setup exec [--env KEY=VALUE]... -- <command> [args...]');
+    throw new Error('usage: agent-layers exec [--env KEY=VALUE]... -- <command> [args...]');
   }
   if (hasSource(ctx)) {
     ctx.manifestOptions = loadManifest(ctx.sourceDir).options;
@@ -814,7 +814,7 @@ function cmdExec(ctx, flags, rest) {
   const values = getSecrets(ctx, [...names]);
   const missing = [...names].filter((n) => values[n] === undefined);
   if (missing.length) {
-    process.stderr.write(`agent-setup exec: missing secret(s): ${missing.join(', ')}. Run "agent-setup secrets set <name>".\n`);
+    process.stderr.write(`agent-layers exec: missing secret(s): ${missing.join(', ')}. Run "agent-layers secrets set <name>".\n`);
     return 1;
   }
   const sub = (s) => s.replace(token, (_, n) => values[n]);
@@ -837,7 +837,7 @@ async function cmdSync(ctx, flags) {
     info(c.bold(`git pull --ff-only (${short(ctx, repo)})`));
     const code = runInherit('git', ['-C', repo, 'pull', '--ff-only']);
     if (code !== 0) {
-      error(`git pull failed in ${repo}; resolve it and run "agent-setup apply"`);
+      error(`git pull failed in ${repo}; resolve it and run "agent-layers apply"`);
       return 1;
     }
   }
@@ -867,7 +867,7 @@ async function cmdImport(ctx, flags) {
   }
   if (plan.secrets.length) {
     info(c.bold('\nPlain-text secrets were replaced by references. Store them on this machine with:'));
-    plan.secrets.forEach((s) => info(`  agent-setup secrets set ${s}`));
+    plan.secrets.forEach((s) => info(`  agent-layers secrets set ${s}`));
   }
   if (!plan.writes.length) {
     info('Nothing to import.');
@@ -901,7 +901,7 @@ async function cmdUninstall(ctx, flags) {
   const state = loadState(ctx);
   const scopes = [...new Set(Object.values(state.outputs).map((r) => r.scopeKey))];
   if (!scopes.length) {
-    info('agent-setup has not written anything on this machine.');
+    info('agent-layers has not written anything on this machine.');
     return 0;
   }
   const plans = scopes.map((s) => buildPlan(ctx, { outputs: [], state, scopeKey: s, removals: true }));
@@ -919,12 +919,12 @@ async function cmdUninstall(ctx, flags) {
   return 0;
 }
 
-const HELP = `agent-setup ${PKG.version}
+const HELP = `agent-layers ${PKG.version}
 Keep AI coding agent configuration (instructions, skills, commands, MCP servers, settings)
 in one repository, split into a base layer that follows you to every machine and project
 layers you can drop when a project ends.
 
-Usage: agent-setup <command> [options]
+Usage: agent-layers <command> [options]
 
 Setup
   init [dir] [--from <git-url|dir>]   create or clone a setup repository and register it
@@ -939,7 +939,7 @@ Base layer (home directory)
   apply [--yes] [--force] [--prune]     write the base layer; --prune also removes outputs of unselected agents
   sync [--yes]                        git pull the setup repository, then apply
   status                              list managed outputs and local drift
-  uninstall [--yes]                   remove everything agent-setup wrote
+  uninstall [--yes]                   remove everything agent-layers wrote
 
 Project layers
   project list | init <name> [--mode private|shared] [--remote <glob>] [--dir-name <glob>]
@@ -952,7 +952,7 @@ Secrets (OS keychain: Windows Credential Manager, macOS Keychain, libsecret)
   exec [--env KEY=VALUE]... -- <command> [args]   run an MCP server with secrets injected
 
 Options
-  --source <dir>   setup repository (default from ~/.agent-setup/config.jsonc)
+  --source <dir>   setup repository (default from ~/.agent-layers/config.jsonc)
   --home <dir>     use <dir> as the home directory (sandbox / testing)
   --only a,b       limit to these agents     --skip a,b   skip these agents
   --json           machine-readable output   --quiet      less output
@@ -1004,7 +1004,7 @@ export async function main(argv) {
     case 'uninstall':
       return cmdUninstall(ctx, flags);
     default:
-      error(`unknown command "${cmd}". Run "agent-setup help".`);
+      error(`unknown command "${cmd}". Run "agent-layers help".`);
       return 2;
   }
 }

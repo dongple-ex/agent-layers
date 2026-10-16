@@ -111,7 +111,7 @@ function writeAtomic(file, data, opts) {
   const target = resolveWriteTarget(file);
   const mode = targetMode(target, opts);
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  const tmp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.agent-setup.tmp`);
+  const tmp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.agent-layers.tmp`);
   fs.writeFileSync(tmp, data, mode !== null ? { mode } : undefined);
   if (mode !== null) {
     tryChmod(tmp, mode);

@@ -136,7 +136,7 @@ export function assertSafeRoot(ctx, root) {
   if (path.dirname(r) === r) {
     reasons.push('it is a drive or filesystem root');
   }
-  for (const [label, p] of [['your home folder', ctx.paths.home], ['the agent-setup state folder', ctx.paths.stateDir], ['the setup repository', ctx.sourceDir]]) {
+  for (const [label, p] of [['your home folder', ctx.paths.home], ['the agent-layers state folder', ctx.paths.stateDir], ['the setup repository', ctx.sourceDir]]) {
     if (p && isWithin(p, r)) {
       reasons.push(`it contains ${label}`);
     }
@@ -375,9 +375,9 @@ export function findAgentData(ctx, root, { otherRoots = [] } = {}) {
     }
   }
 
-  const localDir = path.join(root, '.agent-setup');
+  const localDir = path.join(root, '.agent-layers');
   if (isDir(localDir)) {
-    items.push({ agent: 'agent-setup', kind: 'local project folder (Claude memory written there by the memory option)', path: localDir, bytes: dirSize(localDir), remove: 'dir' });
+    items.push({ agent: 'agent-layers', kind: 'local project folder (Claude memory written there by the memory option)', path: localDir, bytes: dirSize(localDir), remove: 'dir' });
   }
   const backups = path.join(p.stateDir, 'backups');
   const mangled = path.resolve(root).replace(/^([A-Za-z]):/, '$1').replace(/[\\/:]+/g, '_').toLowerCase();
@@ -385,7 +385,7 @@ export function findAgentData(ctx, root, { otherRoots = [] } = {}) {
     for (const entry of fs.readdirSync(path.join(backups, stamp))) {
       const e = entry.toLowerCase();
       if (e === mangled || e.startsWith(`${mangled}_`)) {
-        items.push({ agent: 'agent-setup', kind: 'backup of a project file', path: path.join(backups, stamp, entry), remove: 'dir' });
+        items.push({ agent: 'agent-layers', kind: 'backup of a project file', path: path.join(backups, stamp, entry), remove: 'dir' });
       }
     }
   }

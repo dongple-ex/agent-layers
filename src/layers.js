@@ -68,9 +68,9 @@ function loadSkills(dir) {
     }
     const { data } = splitFrontmatter(r.text);
     const files = listFiles(skillDir).map((f) => ({ rel: f.rel, content: readFileContent(f.abs), mode: fileMode(f.abs) }));
-    const sidecarText = readText(path.join(skillDir, 'agent-setup.jsonc'));
-    const sidecar = sidecarText ? parseJsonc(sidecarText.text, path.join(skillDir, 'agent-setup.jsonc')) : {};
-    const targets = sidecar.targets || data['agent-setup-targets'];
+    const sidecarText = readText(path.join(skillDir, 'agent-layers.jsonc'));
+    const sidecar = sidecarText ? parseJsonc(sidecarText.text, path.join(skillDir, 'agent-layers.jsonc')) : {};
+    const targets = sidecar.targets || data['agent-layers-targets'];
     out.push({
       name,
       dir: skillDir,

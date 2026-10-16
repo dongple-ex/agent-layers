@@ -2,13 +2,13 @@ param([string]$Op, [string]$Target)
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
-if (-not ('AgentSetupCred' -as [type])) {
+if (-not ('AgentLayersCred' -as [type])) {
 Add-Type -TypeDefinition @"
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
-public static class AgentSetupCred {
+public static class AgentLayersCred {
   [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
   public struct CREDENTIAL {
     public UInt32 Flags; public UInt32 Type; public string TargetName; public string Comment;
@@ -38,7 +38,7 @@ public static class AgentSetupCred {
   public static void Write(string target, string secret) {
     byte[] bytes = Encoding.Unicode.GetBytes(secret);
     CREDENTIAL c = new CREDENTIAL();
-    c.Type = 1; c.TargetName = target; c.UserName = "agent-setup"; c.Persist = 2;
+    c.Type = 1; c.TargetName = target; c.UserName = "agent-layers"; c.Persist = 2;
     c.CredentialBlobSize = (UInt32)bytes.Length;
     c.CredentialBlob = Marshal.AllocCoTaskMem(Math.Max(bytes.Length, 1));
     try {
@@ -65,25 +65,25 @@ public static class AgentSetupCred {
 }
 switch ($Op) {
   'get' {
-    $v = [AgentSetupCred]::Read($Target)
+    $v = [AgentLayersCred]::Read($Target)
     if ($null -eq $v) { exit 3 }
     [Console]::Out.Write($v)
   }
   'getmany' {
     $names = [Console]::In.ReadToEnd() -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
     $out = @{}
-    foreach ($n in $names) { $v = [AgentSetupCred]::Read($n); if ($null -ne $v) { $out[$n] = $v } }
+    foreach ($n in $names) { $v = [AgentLayersCred]::Read($n); if ($null -ne $v) { $out[$n] = $v } }
     [Console]::Out.Write(($out | ConvertTo-Json -Compress))
   }
   'set' {
     $v = [Console]::In.ReadToEnd()
-    [AgentSetupCred]::Write($Target, $v)
+    [AgentLayersCred]::Write($Target, $v)
   }
   'delete' {
-    if (-not [AgentSetupCred]::Delete($Target)) { exit 3 }
+    if (-not [AgentLayersCred]::Delete($Target)) { exit 3 }
   }
   'list' {
-    [Console]::Out.Write(([AgentSetupCred]::List($Target) -join "`n"))
+    [Console]::Out.Write(([AgentLayersCred]::List($Target) -join "`n"))
   }
   default { exit 2 }
 }

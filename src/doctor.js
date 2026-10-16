@@ -22,7 +22,7 @@ function version(cmd) {
 }
 
 function symlinkCapable() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-setup-probe-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-layers-probe-'));
   try {
     fs.mkdirSync(dir, { recursive: true });
     const target = path.join(dir, 't.txt');
@@ -99,7 +99,7 @@ export function projectSecretChecks(root) {
     try {
       const hits = plaintextSecrets(f.endsWith('.toml') ? new TomlDocument(t.text).plain : parseJsonc(t.text));
       if (hits.length) {
-        checks.push({ level: 'error', msg: `${path.join(root, f)}: possible plaintext secrets at ${hits.join(', ')}; replace them with \${secret:NAME} in the source and let agent-setup render references` });
+        checks.push({ level: 'error', msg: `${path.join(root, f)}: possible plaintext secrets at ${hits.join(', ')}; replace them with \${secret:NAME} in the source and let agent-layers render references` });
       }
     } catch {
       continue;
@@ -115,7 +115,7 @@ export function runDoctor(ctx) {
   report.env.push(['Node.js', process.version]);
   report.env.push(['Home', ctx.paths.home + (ctx.sandbox ? ' (sandbox)' : '')]);
   report.env.push(['State dir', ctx.paths.stateDir]);
-  report.env.push(['Source repo', `${ctx.sourceDir}${hasSource(ctx) ? '' : ' (missing: run "agent-setup init")'}`]);
+  report.env.push(['Source repo', `${ctx.sourceDir}${hasSource(ctx) ? '' : ' (missing: run "agent-layers init")'}`]);
   report.env.push(['git', which('git') ? version('git') || 'found' : 'not found']);
   let backend = 'unavailable';
   try {
@@ -125,11 +125,11 @@ export function runDoctor(ctx) {
   }
   report.env.push(['Secrets backend', backend]);
   if (process.platform === 'win32') {
-    report.env.push(['Symlinks', symlinkCapable() ? 'allowed' : 'not allowed (Developer Mode off); agent-setup copies files, so this is fine']);
+    report.env.push(['Symlinks', symlinkCapable() ? 'allowed' : 'not allowed (Developer Mode off); agent-layers copies files, so this is fine']);
   }
   const major = Number(process.versions.node.split('.')[0]);
   if (major < 18) {
-    add('error', `Node.js ${process.version} is too old; agent-setup needs 18.17 or newer`);
+    add('error', `Node.js ${process.version} is too old; agent-layers needs 18.17 or newer`);
   }
   if (!which('git')) {
     add('warn', 'git is not installed; "init --from", "sync" and private-mode git excludes need it');

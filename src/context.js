@@ -30,18 +30,18 @@ export function resolvePaths({ home, env = process.env, sandbox = false } = {}) 
     codexHome: pick('CODEX_HOME', path.join(h, '.codex')),
     geminiHome: pick('GEMINI_CLI_HOME', path.join(h, '.gemini')),
     copilotHome: pick('COPILOT_HOME', path.join(h, '.copilot')),
-    stateDir: pick('AGENT_SETUP_HOME', path.join(h, '.agent-setup')),
+    stateDir: pick('AGENT_LAYERS_HOME', path.join(h, '.agent-layers')),
   };
 }
 
 export function createContext(opts = {}) {
   const env = opts.env || process.env;
-  const sandboxHome = opts.home || env.AGENT_SETUP_TARGET_HOME || null;
+  const sandboxHome = opts.home || env.AGENT_LAYERS_TARGET_HOME || null;
   const paths = resolvePaths({ home: sandboxHome || undefined, env, sandbox: Boolean(sandboxHome) });
   const configFile = path.join(paths.stateDir, 'config.jsonc');
   const cfgText = readText(configFile);
   const config = cfgText ? parseJsonc(cfgText.text, configFile) : {};
-  const sourceDir = path.resolve(opts.source || env.AGENT_SETUP_SOURCE || config.source || path.join(paths.stateDir, 'source'));
+  const sourceDir = path.resolve(opts.source || env.AGENT_LAYERS_SOURCE || config.source || path.join(paths.stateDir, 'source'));
   return {
     env,
     os: OS_NAME,
@@ -53,14 +53,14 @@ export function createContext(opts = {}) {
     hostname: os.hostname(),
     user: os.userInfo().username,
     nodePath: process.execPath,
-    cliPath: fileURLToPath(new URL('../bin/agent-setup.js', import.meta.url)),
+    cliPath: fileURLToPath(new URL('../bin/agent-layers.js', import.meta.url)),
     cwd: path.resolve(opts.cwd || process.cwd()),
     flags: opts.flags || {},
   };
 }
 
 export function hasSource(ctx) {
-  return isDir(ctx.sourceDir) && (isFile(path.join(ctx.sourceDir, 'agent-setup.jsonc')) || isFile(path.join(ctx.sourceDir, 'agent-setup.json')));
+  return isDir(ctx.sourceDir) && (isFile(path.join(ctx.sourceDir, 'agent-layers.jsonc')) || isFile(path.join(ctx.sourceDir, 'agent-layers.json')));
 }
 
 export function builtinVars(ctx, extra = {}) {
@@ -72,7 +72,7 @@ export function builtinVars(ctx, extra = {}) {
     sep: path.sep,
     source: ctx.sourceDir,
     node: ctx.nodePath,
-    agentSetup: ctx.cliPath,
+    agentLayers: ctx.cliPath,
     appData: ctx.paths.appData,
     localAppData: ctx.paths.localAppData,
     xdgConfig: ctx.paths.xdgConfig,

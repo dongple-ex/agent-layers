@@ -1,10 +1,10 @@
 {
-  "name": "agent-setup",
+  "name": "agent-layers",
   "version": "0.1.0",
   "description": "Manage instructions, skills, commands, MCP servers and settings for AI coding agents (Claude Code, Codex, Gemini CLI, Antigravity, Copilot, Cursor, ...) as a base layer that follows you to every machine and project layers you can drop when a project ends.",
   "type": "module",
   "bin": {
-    "agent-setup": "bin/agent-setup.js"
+    "agent-layers": "bin/agent-layers.js"
   },
   "files": [
     "bin",
@@ -35,5 +35,13 @@
     "mcp",
     "dotfiles"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dongple-ex/agent-layers.git"
+  },
+  "homepage": "https://github.com/dongple-ex/agent-layers#readme",
+  "bugs": {
+    "url": "https://github.com/dongple-ex/agent-layers/issues"
+  }
 }

@@ -1,33 +1,33 @@
 <#
 .SYNOPSIS
-  Bootstrap agent-setup on a Windows machine (Windows PowerShell 5.1 or PowerShell 7).
+  Bootstrap agent-layers on a Windows machine (Windows PowerShell 5.1 or PowerShell 7).
 
 .DESCRIPTION
-  Installs git and Node.js with winget when they are missing, installs the agent-setup CLI,
+  Installs git and Node.js with winget when they are missing, installs the agent-layers CLI,
   registers your setup repository and shows a dry-run plan. Nothing is written into agent
   folders unless you pass -Apply.
 
 .EXAMPLE
   # Download, read, then run (recommended over piping to iex):
-  Invoke-RestMethod https://raw.githubusercontent.com/dongple-ex/agent-setup/main/install/install.ps1 -OutFile install-agent-setup.ps1
-  notepad .\install-agent-setup.ps1
-  powershell -ExecutionPolicy Bypass -File .\install-agent-setup.ps1 -Repo https://github.com/you/my-agent-setup.git
+  Invoke-RestMethod https://raw.githubusercontent.com/dongple-ex/agent-layers/main/install/install.ps1 -OutFile install-agent-layers.ps1
+  notepad .\install-agent-layers.ps1
+  powershell -ExecutionPolicy Bypass -File .\install-agent-layers.ps1 -Repo https://github.com/you/my-agent-layers.git
 
 .PARAMETER Repo
   Git URL (or local folder) of your setup repository. Empty creates a new repository from the template.
 
 .PARAMETER Package
-  npm package spec of the CLI, for example "github:dongple-ex/agent-setup" (default) or "github:dongple-ex/agent-setup#v0.1.0".
+  npm package spec of the CLI, for example "agent-layers" (default), "agent-layers@0.1.0" or "github:dongple-ex/agent-layers#v0.1.0".
 
 .PARAMETER InstallAgents
   Also install Claude Code, Codex and GitHub Copilot CLI with winget.
 
 .PARAMETER Apply
-  Run "agent-setup apply" at the end (you are still asked to confirm).
+  Run "agent-layers apply" at the end (you are still asked to confirm).
 #>
 param(
   [string]$Repo = '',
-  [string]$Package = 'github:dongple-ex/agent-setup',
+  [string]$Package = 'agent-layers',
   [switch]$InstallAgents,
   [switch]$Apply
 )
@@ -80,24 +80,24 @@ if ($InstallAgents) {
   Update-SessionPath
 }
 
-Write-Host "Installing the agent-setup CLI ($Package)..."
+Write-Host "Installing the agent-layers CLI ($Package)..."
 Invoke-Checked 'npm' @('install', '--global', $Package)
 Update-SessionPath
 
 if ($Repo) {
-  Invoke-Checked 'agent-setup' @('init', '--from', $Repo)
+  Invoke-Checked 'agent-layers' @('init', '--from', $Repo)
 } else {
-  Invoke-Checked 'agent-setup' @('init')
+  Invoke-Checked 'agent-layers' @('init')
 }
 
-& agent-setup doctor
-& agent-setup secrets check
-& agent-setup plan
+& agent-layers doctor
+& agent-layers secrets check
+& agent-layers plan
 
 if ($Apply) {
-  & agent-setup apply
+  & agent-layers apply
 } else {
   Write-Host ''
-  Write-Host 'Review the plan above, store missing secrets with "agent-setup secrets set <name>",'
-  Write-Host 'then run "agent-setup apply".'
+  Write-Host 'Review the plan above, store missing secrets with "agent-layers secrets set <name>",'
+  Write-Host 'then run "agent-layers apply".'
 }

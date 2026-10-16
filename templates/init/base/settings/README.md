@@ -1,6 +1,6 @@
 # Settings fragments
 
-Each file is merged key by key into one agent's own settings file. agent-setup only touches the keys
+Each file is merged key by key into one agent's own settings file. agent-layers only touches the keys
 listed here and remembers them, so values the agent or you add later are preserved.
 
 | File | Merged into |

@@ -8,12 +8,12 @@ import { fileURLToPath } from 'node:url';
 import { parseTomlValue } from '../src/formats/toml.js';
 import { run } from '../src/util/proc.js';
 
-const BIN = fileURLToPath(new URL('../bin/agent-setup.js', import.meta.url));
+const BIN = fileURLToPath(new URL('../bin/agent-layers.js', import.meta.url));
 const HAS_GIT = spawnSync('git', ['--version']).status === 0;
 const IS_WIN = process.platform === 'win32';
 
 function sandbox() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-setup-reg-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-layers-reg-'));
   const home = path.join(root, 'home');
   const source = path.join(root, 'source');
   fs.mkdirSync(home, { recursive: true });
@@ -39,7 +39,7 @@ function cli(sb, args, { env = {}, cwd } = {}) {
 }
 
 function manifest(sb, targets, options = {}) {
-  write(path.join(sb.source, 'agent-setup.jsonc'), JSON.stringify({ version: 1, targets, options: { secrets: { backend: 'file', mode: 'auto' }, claude: { mcp: 'json' }, ...options } }));
+  write(path.join(sb.source, 'agent-layers.jsonc'), JSON.stringify({ version: 1, targets, options: { secrets: { backend: 'file', mode: 'auto' }, claude: { mcp: 'json' }, ...options } }));
   write(path.join(sb.source, 'base', 'instructions', '00-core.md'), '# Core\n\n- Be precise.\n');
 }
 
@@ -76,7 +76,7 @@ if (args[0] === 'mcp' && args[1] === 'add-json') {
 `;
 
 test('#9 windows shims: JSON with quotes, backslashes and %VARS% survives a .cmd round trip', { skip: !IS_WIN }, () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-setup-shim-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-layers-shim-'));
   fakeCommand(dir, 'echoargs', "process.stdout.write(JSON.stringify(process.argv.slice(2)));");
   const tricky = ['{"a":"C:\\\\x\\\\","b":"say \\"hi\\"","c":"%USERPROFILE%","d":"x&y|z<w>!"}', 'trail\\', 'spaced arg', '^caret', ''];
   const r = run(path.join(dir, 'echoargs.cmd'), tricky);
@@ -94,10 +94,10 @@ test('#2 claude CLI route: conflicts are reported, --force backs up, failed add 
   fs.writeFileSync(log, '');
   write(store, JSON.stringify({ mcpServers: { github: { type: 'http', url: 'https://hand-made.example' }, failing: { type: 'stdio', command: 'old', args: [] } } }));
   write(path.join(sb.source, 'base', 'mcp', 'github.jsonc'), JSON.stringify({ command: 'npx', args: ['gh-mcp', '%USERPROFILE%', 'quote"in"arg', 'trail\\'] }));
-  const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}`, AGENT_SETUP_SANDBOX_CLAUDE_CLI: '1', FAKE_CLAUDE_JSON: store, FAKE_CLAUDE_LOG: log };
+  const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}`, AGENT_LAYERS_SANDBOX_CLAUDE_CLI: '1', FAKE_CLAUDE_JSON: store, FAKE_CLAUDE_LOG: log };
   let r = cli(sb, ['plan'], { env });
   assert.match(r.out, /conflict/);
-  assert.match(r.out, /not managed by agent-setup: github/);
+  assert.match(r.out, /not managed by agent-layers: github/);
   r = cli(sb, ['apply', '--yes'], { env });
   assert.equal(JSON.parse(read(store)).mcpServers.github.url, 'https://hand-made.example', 'conflicts must not be applied without --force');
   r = cli(sb, ['apply', '--yes', '--force'], { env });
@@ -105,7 +105,7 @@ test('#2 claude CLI route: conflicts are reported, --force backs up, failed add 
   const after = JSON.parse(read(store)).mcpServers.github;
   assert.equal(after.command, 'npx');
   assert.deepEqual(after.args, ['gh-mcp', '%USERPROFILE%', 'quote"in"arg', 'trail\\']);
-  const backups = fs.readdirSync(path.join(sb.home, '.agent-setup', 'backups'));
+  const backups = fs.readdirSync(path.join(sb.home, '.agent-layers', 'backups'));
   assert.ok(backups.length >= 1, 'the previous ~/.claude.json must be backed up');
 
   write(path.join(sb.source, 'base', 'mcp', 'failing.jsonc'), JSON.stringify({ command: 'new', args: [] }));
@@ -124,7 +124,7 @@ test('#2 claude CLI route: removals are kept as errors when the CLI is missing',
   const log = path.join(sb.root, 'claude.log');
   fs.writeFileSync(log, '');
   write(path.join(sb.source, 'base', 'mcp', 'svc.jsonc'), JSON.stringify({ command: 'svc', args: [] }));
-  const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}`, AGENT_SETUP_SANDBOX_CLAUDE_CLI: '1', FAKE_CLAUDE_JSON: store, FAKE_CLAUDE_LOG: log };
+  const env = { PATH: `${bin}${path.delimiter}${process.env.PATH}`, AGENT_LAYERS_SANDBOX_CLAUDE_CLI: '1', FAKE_CLAUDE_JSON: store, FAKE_CLAUDE_LOG: log };
   let r = cli(sb, ['apply', '--yes'], { env });
   assert.equal(r.code, 0, r.out);
   fs.rmSync(path.join(sb.source, 'base', 'mcp', 'svc.jsonc'));
@@ -132,7 +132,7 @@ test('#2 claude CLI route: removals are kept as errors when the CLI is missing',
   r = cli(sb, ['plan'], { env: noClaude });
   assert.match(r.out, /error/);
   assert.match(r.out, /record is kept/);
-  const state = JSON.parse(read(path.join(sb.home, '.agent-setup', 'state.json')));
+  const state = JSON.parse(read(path.join(sb.home, '.agent-layers', 'state.json')));
   assert.ok(Object.values(state.outputs).some((o) => o.type === 'claude-mcp'));
 });
 
@@ -242,12 +242,12 @@ test('#6 purge removes the local memory folder and keeps exclude entries for fil
   write(path.join(sb.source, 'projects', 'c', 'instructions', '00.md'), '# Client rule\n');
   let r = cli(sb, ['project', 'apply', '--yes'], { cwd: repo });
   assert.equal(r.code, 0, r.out);
-  write(path.join(repo, '.agent-setup', 'memory', 'claude', 'MEMORY.md'), 'client facts\n');
-  write(path.join(repo, '.cursor', 'rules', 'agent-setup-c.mdc'), 'edited by hand\n');
+  write(path.join(repo, '.agent-layers', 'memory', 'claude', 'MEMORY.md'), 'client facts\n');
+  write(path.join(repo, '.cursor', 'rules', 'agent-layers-c.mdc'), 'edited by hand\n');
   r = cli(sb, ['project', 'purge', 'c', '--yes'], { cwd: repo });
   assert.equal(r.code, 0, r.out);
-  assert.ok(!fs.existsSync(path.join(repo, '.agent-setup')), 'the memory folder must be removed');
-  assert.ok(fs.existsSync(path.join(repo, '.cursor', 'rules', 'agent-setup-c.mdc')), 'locally edited files are kept');
+  assert.ok(!fs.existsSync(path.join(repo, '.agent-layers')), 'the memory folder must be removed');
+  assert.ok(fs.existsSync(path.join(repo, '.cursor', 'rules', 'agent-layers-c.mdc')), 'locally edited files are kept');
   const status = spawnSync('git', ['-C', repo, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8' }).stdout;
   assert.equal(status.trim(), '', `kept files must stay excluded, got:\n${status}`);
 });
@@ -255,7 +255,7 @@ test('#6 purge removes the local memory folder and keeps exclude entries for fil
 test('#7 apply skips files that changed after the plan was made', async () => {
   const { buildPlan, applyPlan } = await import('../src/engine.js');
   const sb = sandbox();
-  const ctx = { paths: { stateDir: path.join(sb.home, '.agent-setup') } };
+  const ctx = { paths: { stateDir: path.join(sb.home, '.agent-layers') } };
   const file = path.join(sb.home, 'settings.json');
   write(file, '{"a":1}\n');
   const state = { version: 1, outputs: {}, projects: {}, history: [] };
@@ -290,7 +290,7 @@ test('#10 materialized secrets are redacted in plan --diff and --json output', (
   const sb = sandbox();
   manifest(sb, ['copilot'], { secrets: { backend: 'file', mode: 'materialize' } });
   write(path.join(sb.source, 'base', 'mcp', 'remote.jsonc'), JSON.stringify({ transport: 'http', url: 'https://x.example/mcp', headers: { Authorization: 'Bearer ${secret:remote/token}' } }));
-  const env = { AGENT_SETUP_SECRET_REMOTE_TOKEN: 'materialized-secret-value-42' };
+  const env = { AGENT_LAYERS_SECRET_REMOTE_TOKEN: 'materialized-secret-value-42' };
   let r = cli(sb, ['plan', '--diff'], { env });
   assert.match(r.out, /mcp-config\.json/);
   assert.doesNotMatch(r.out, /materialized-secret-value-42/);
@@ -302,7 +302,7 @@ test('#10 auto mode does not write HTTP secrets into agents without env referenc
   const sb = sandbox();
   manifest(sb, ['copilot']);
   write(path.join(sb.source, 'base', 'mcp', 'remote.jsonc'), JSON.stringify({ transport: 'http', url: 'https://x.example/mcp', headers: { Authorization: 'Bearer ${secret:remote/token}' } }));
-  const r = cli(sb, ['apply', '--yes'], { env: { AGENT_SETUP_SECRET_REMOTE_TOKEN: 'never-written-777' } });
+  const r = cli(sb, ['apply', '--yes'], { env: { AGENT_LAYERS_SECRET_REMOTE_TOKEN: 'never-written-777' } });
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /not written for it/);
   const f = path.join(sb.home, '.copilot', 'mcp-config.json');
@@ -389,7 +389,7 @@ test('plan --diff does not print plaintext secrets that already exist in a confl
     'INSTANCE_CONFIG = "{\\"prod\\":{\\"password\\":\\"nested-secret-789\\"}}"',
     '',
   ].join('\n'));
-  const r = cli(sb, ['plan', '--diff'], { env: { AGENT_SETUP_SECRET_SVC_PASSWORD: 'keychain-value-456' } });
+  const r = cli(sb, ['plan', '--diff'], { env: { AGENT_LAYERS_SECRET_SVC_PASSWORD: 'keychain-value-456' } });
   assert.match(r.out, /conflict/);
   assert.match(r.out, /SVC_PASSWORD/);
   assert.doesNotMatch(r.out, /plain-secret-123|nested-secret-789|keychain-value-456/);
@@ -490,8 +490,8 @@ test('#15 purge results name the block they removed, and the source hint follows
 
 function extendsManifest(sb, ext) {
   manifest(sb, ['claude']);
-  const m = JSON.parse(read(path.join(sb.source, 'agent-setup.jsonc')));
-  write(path.join(sb.source, 'agent-setup.jsonc'), JSON.stringify({ ...m, extends: ext }));
+  const m = JSON.parse(read(path.join(sb.source, 'agent-layers.jsonc')));
+  write(path.join(sb.source, 'agent-layers.jsonc'), JSON.stringify({ ...m, extends: ext }));
 }
 
 function sharedProject(dir, name, match) {
@@ -517,7 +517,7 @@ test('#16 extends projects: a project from another setup repository is listed, d
   assert.match(r.out, /-> a6a \(matched by/);
   r = cli(sb, ['project', 'apply', '--yes'], { cwd: repo });
   assert.equal(r.code, 0, r.out);
-  assert.match(read(path.join(repo, '.claude', 'rules', 'agent-setup', 'project-a6a.md')), /Shared rule for a6a/);
+  assert.match(read(path.join(repo, '.claude', 'rules', 'agent-layers', 'project-a6a.md')), /Shared rule for a6a/);
   r = cli(sb, ['apply', '--yes']);
   assert.equal(r.code, 0, r.out);
   r = cli(sb, ['validate']);
@@ -550,7 +550,7 @@ test('#18 extends projects: purge --remove-source never deletes a project of ano
   sharedProject(shared, 'a6a', 'a6a-repo');
   const repo = path.join(sb.root, 'a6a-repo');
   gitFolder(repo);
-  const rule = path.join(repo, '.claude', 'rules', 'agent-setup', 'project-a6a.md');
+  const rule = path.join(repo, '.claude', 'rules', 'agent-layers', 'project-a6a.md');
   let r = cli(sb, ['project', 'apply', '--yes'], { cwd: repo });
   assert.equal(r.code, 0, r.out);
   r = cli(sb, ['project', 'purge', 'a6a', '--remove-source', '--yes'], { cwd: repo });

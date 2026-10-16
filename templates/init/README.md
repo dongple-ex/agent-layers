@@ -1,12 +1,12 @@
 # My agent setup
 
-This repository holds my AI coding agent configuration for [agent-setup](https://github.com/).
+This repository holds my AI coding agent configuration for [agent-layers](https://github.com/).
 
 | Folder | Applied to | Lifetime |
 |---|---|---|
 | `base/` | the home folder of every machine (`~/.claude`, `~/.codex`, `~/.gemini`, `~/.copilot`, `~/.agents`, ...) | permanent |
-| `projects/<name>/` | one project folder, recognized by git remote or folder name | until `agent-setup project purge <name>` |
-| `~/.agent-setup/config.jsonc` (not in this repo) | machine-specific variables, secrets backend, project paths | per machine |
+| `projects/<name>/` | one project folder, recognized by git remote or folder name | until `agent-layers project purge <name>` |
+| `~/.agent-layers/config.jsonc` (not in this repo) | machine-specific variables, secrets backend, project paths | per machine |
 
 Inside each layer:
 
@@ -23,17 +23,17 @@ Inside each layer:
 ## New machine
 
 ```sh
-npm install --global github:dongple-ex/agent-setup
-agent-setup init --from <this repository's git URL>
-agent-setup doctor
-agent-setup secrets check
-agent-setup apply
+npm install --global agent-layers
+agent-layers init --from <this repository's git URL>
+agent-layers doctor
+agent-layers secrets check
+agent-layers apply
 ```
 
 ## Daily use
 
 ```sh
-agent-setup sync                 # pull and apply
-agent-setup project apply        # inside a project folder
-agent-setup project purge <name> # at the end of a project
+agent-layers sync                 # pull and apply
+agent-layers project apply        # inside a project folder
+agent-layers project purge <name> # at the end of a project
 ```

@@ -1,37 +1,35 @@
-# agent-setup beginner's guide
+# agent-layers beginner's guide
 
 Written: 2026-10-05 · [한국어](GUIDE.ko.md)
 
 ## Before you start
 
-This guide walks a first-time user through agent-setup, from installation to everyday use. If you are new, read PART 1, then follow one of the two scenarios in PART 2 step by step.
+This guide walks a first-time user through agent-layers, from installation to everyday use. If you are new, read PART 1, then follow one of the two scenarios in PART 2 step by step.
 
 | Item | Details |
 | --- | --- |
 | Audience | People who use two or more AI coding agents (Claude Code, Codex, Gemini CLI, ...) or want the same setup on several machines |
-| Version | agent-setup 0.1.0 (prototype) |
-| Engine repository | [github.com/dongple-ex/agent-setup](https://github.com/dongple-ex/agent-setup) |
+| Version | agent-layers 0.1.0 (prototype) |
+| Engine repository | [github.com/dongple-ex/agent-layers](https://github.com/dongple-ex/agent-layers) |
 | Tested on | Windows 11. macOS and Linux specific features (keychain storage, file mode preservation) have not been run yet |
 
 | PART | Covers | Read first if you |
 | --- | --- | --- |
-| 1 Concepts | What the tool does, the terms you need, how the repositories relate | are new to agent-setup |
+| 1 Concepts | What the tool does, the terms you need, how the repositories relate | are new to agent-layers |
 | 2 First install | Create a new setup repository, bring an existing one to a new machine | are about to install |
 | 3 Everyday use | Add rules, skills and MCP servers, per-project settings, syncing machines | have finished installing |
 | 4 Checks and troubleshooting | Check commands, FAQ, undo, command summary | ran into a problem |
-
-⚠️ agent-setup is not published to npm yet. Always install from the GitHub spec (`github:dongple-ex/agent-setup`). `npm install agent-setup` with the bare name may install an unrelated package.
 
 ---
 ---
 
 # PART 1 — Concepts
 
-## What agent-setup does
+## What agent-layers does
 
-agent-setup is a command-line tool that takes the rules, skills, MCP servers and settings you keep in one git repository and writes them to the locations and formats each AI agent on your machine reads. It is not a plugin of any agent; it is a separate program you run in a terminal.
+agent-layers is a command-line tool that takes the rules, skills, MCP servers and settings you keep in one git repository and writes them to the locations and formats each AI agent on your machine reads. It is not a plugin of any agent; it is a separate program you run in a terminal.
 
-| Problem without it | With agent-setup |
+| Problem without it | With agent-layers |
 | --- | --- |
 | Every agent uses a different rules file name and location (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, ...) | Write once; it is converted to each agent's location |
 | A new machine means rebuilding your setup by hand | Restore it from a git repository with a few commands |
@@ -39,9 +37,9 @@ agent-setup is a command-line tool that takes the rules, skills, MCP servers and
 | MCP config files hold passwords in plain text | Passwords live in the OS keychain; config files hold only references |
 | It is hard to tell what a change will touch | A dry run (`plan`) shows every change before writing, and overwritten files are backed up |
 
-Sixteen agents are supported: Claude Code, Codex, Gemini CLI, Antigravity, GitHub Copilot CLI, Cursor, OpenCode, Zed, Junie, Kiro, Amp, Factory, Devin, Qwen Code, Cline and Goose. Run `agent-setup agents` to see where each one reads its configuration.
+Sixteen agents are supported: Claude Code, Codex, Gemini CLI, Antigravity, GitHub Copilot CLI, Cursor, OpenCode, Zed, Junie, Kiro, Amp, Factory, Devin, Qwen Code, Cline and Goose. Run `agent-layers agents` to see where each one reads its configuration.
 
-What agent-setup does not do:
+What agent-layers does not do:
 
 - It does not sync agent state such as sign-in data, conversation history or caches.
 - It does not commit or push for you. Publishing the repository is your step.
@@ -53,12 +51,12 @@ These six terms are enough to follow the rest of the guide. The key distinction:
 
 | Term | Meaning | Example |
 | --- | --- | --- |
-| Engine | The `agent-setup` program you install and run | `npm install --global github:dongple-ex/agent-setup` |
-| Setup repository | The git repository with the source of your rules, skills, MCP servers and settings. Usually a private GitHub repository | `github.com/<account>/my-agent-setup`, cloned to `~/.agent-setup/source` |
+| Engine | The `agent-layers` program you install and run | `npm install --global agent-layers` |
+| Setup repository | The git repository with the source of your rules, skills, MCP servers and settings. Usually a private GitHub repository | `github.com/<account>/my-agent-layers`, cloned to `~/.agent-layers/source` |
 | Base layer | The `base/` folder of the setup repository. Applied on every machine and in every project | Working rules you always follow, skills you use often |
 | Project layer | A `projects/<name>/` folder. Applied only in that project folder and removed when the project ends | A client-only MCP server, personal rules for one project |
 | Secret reference | `${secret:name}` written in place of a value. The real value is stored in the OS keychain on each machine | `${secret:acme/api-token}` |
-| plan / apply | `plan` is a dry run that only shows changes; `apply` writes them | `agent-setup plan --diff`, then `agent-setup apply` |
+| plan / apply | `plan` is a dry run that only shows changes; `apply` writes them | `agent-layers plan --diff`, then `agent-layers apply` |
 
 - The OS keychain is Credential Manager on Windows, Keychain on macOS and libsecret on Linux.
 - `~` is your home folder. On Windows it is `C:\Users\<user>`.
@@ -68,12 +66,12 @@ These six terms are enough to follow the rest of the guide. The key distinction:
 ```mermaid
 flowchart LR
   subgraph GH["GitHub"]
-    SR["Setup repository<br/>github.com/(account)/my-agent-setup<br/>private · one per person"]
-    ER["Engine repository<br/>github.com/dongple-ex/agent-setup<br/>public · same for everyone"]
+    SR["Setup repository<br/>github.com/(account)/my-agent-layers<br/>private · one per person"]
+    ER["Engine repository<br/>github.com/dongple-ex/agent-layers<br/>public · same for everyone"]
   end
   subgraph PC["This machine: where you edit"]
-    SRC["Local source<br/>~/.agent-setup/source<br/>edit, commit and push here"]
-    ENG["agent-setup engine<br/>global npm install"]
+    SRC["Local source<br/>~/.agent-layers/source<br/>edit, commit and push here"]
+    ENG["agent-layers engine<br/>global npm install"]
   end
   subgraph AG["This machine: what agents read"]
     HOME["Home folder config (base layer)<br/>~/.claude, ~/.codex, ..."]
@@ -96,7 +94,7 @@ flowchart LR
 
 You edit one place, the local source, and agent configuration is generated from it by `apply`. After you edit the local source and run `apply`, the engine writes each agent's own format. `git push` to GitHub and `import` of existing machine settings into the source are steps you run yourself when needed.
 
-A project repository shared with a client or team is separate from this picture. agent-setup does not change what that repository commits; it writes only git-ignored files there (private mode).
+A project repository shared with a client or team is separate from this picture. agent-layers does not change what that repository commits; it writes only git-ignored files there (private mode).
 
 ---
 ---
@@ -110,9 +108,9 @@ Node.js and git are required. To share your setup repository between machines yo
 | Requirement | Why | How to check |
 | --- | --- | --- |
 | Node.js 18.17 or later | Runs the engine. No other packages are needed | `node --version` |
-| git | Downloads the engine and the setup repository from GitHub and keeps them in sync | `git --version` |
+| git | Downloads the setup repository from GitHub and keeps it in sync | `git --version` |
 | GitHub account | Keeps the setup repository private. Not needed if you use only one machine | Sign in to github.com |
-| At least one AI agent | The target of your configuration | `agent-setup doctor` after installing |
+| At least one AI agent | The target of your configuration | `agent-layers doctor` after installing |
 | GitHub CLI (`gh`), optional | Convenient for creating the private repository from the command line. The web works too | `gh --version` |
 
 - On Windows the installer (`install.ps1`) installs git and Node.js with winget when they are missing.
@@ -126,38 +124,38 @@ Follow these steps if you do not have a setup repository yet. You create one fro
 1. Install the engine.
 
    ```text
-   npm install --global github:dongple-ex/agent-setup
-   agent-setup --help
+   npm install --global agent-layers
+   agent-layers --help
    ```
 
-2. Create the setup repository. The template is copied to `~/.agent-setup/source`, and that folder is registered as your source.
+2. Create the setup repository. The template is copied to `~/.agent-layers/source`, and that folder is registered as your source.
 
    ```text
-   agent-setup init
+   agent-layers init
    ```
 
 3. Check the agents found on this machine and any risky settings. Nothing is written.
 
    ```text
-   agent-setup doctor
+   agent-layers doctor
    ```
 
 4. Replace the template examples with your own content. PART 3 shows what goes where.
    - Rewrite the three example rules in `base/instructions/`.
    - Delete examples you do not need (`projects/example/`, `base/skills/commit-message/`, ...).
    - `base/mcp/github.jsonc` has `"enabled": false`, so it is not applied unless you change that.
-   - To bring in settings you already use, run `agent-setup import` (see the FAQ in PART 4).
+   - To bring in settings you already use, run `agent-layers import` (see the FAQ in PART 4).
 
 5. Preview the changes. Each file is marked as create (`create`), update (`update`) or conflict (`conflict`).
 
    ```text
-   agent-setup plan --diff
+   agent-layers plan --diff
    ```
 
 6. Apply. Answer `y` at the prompt to write.
 
    ```text
-   agent-setup apply
+   agent-layers apply
    ```
 
 7. Start your agents again and check that the rules are in effect. Rules are read when a session starts.
@@ -165,11 +163,11 @@ Follow these steps if you do not have a setup repository yet. You create one fro
 8. Push the repository to GitHub as a private repository. The commands below assume you are signed in to GitHub CLI.
 
    ```text
-   cd ~/.agent-setup/source
+   cd ~/.agent-layers/source
    git init
    git add .
    git commit -m "agent setup"
-   gh repo create my-agent-setup --private --source . --remote origin --push
+   gh repo create my-agent-layers --private --source . --remote origin --push
    ```
 
 - Without GitHub CLI, create an empty private repository (no README) on the web, then run `git remote add origin <repository URL>` and `git push -u origin HEAD`.
@@ -184,48 +182,48 @@ If your setup repository is already on GitHub, one installer script does the wor
 Windows (PowerShell):
 
 ```text
-Invoke-RestMethod https://raw.githubusercontent.com/dongple-ex/agent-setup/main/install/install.ps1 -OutFile install-agent-setup.ps1
-powershell -ExecutionPolicy Bypass -File .\install-agent-setup.ps1 -Repo https://github.com/<account>/my-agent-setup.git
+Invoke-RestMethod https://raw.githubusercontent.com/dongple-ex/agent-layers/main/install/install.ps1 -OutFile install-agent-layers.ps1
+powershell -ExecutionPolicy Bypass -File .\install-agent-layers.ps1 -Repo https://github.com/<account>/my-agent-layers.git
 ```
 
 macOS and Linux:
 
 ```text
-curl -fsSL https://raw.githubusercontent.com/dongple-ex/agent-setup/main/install/install.sh -o install-agent-setup.sh
-sh install-agent-setup.sh https://github.com/<account>/my-agent-setup.git
+curl -fsSL https://raw.githubusercontent.com/dongple-ex/agent-layers/main/install/install.sh -o install-agent-layers.sh
+sh install-agent-layers.sh https://github.com/<account>/my-agent-layers.git
 ```
 
 Both scripts do the same steps:
 
 1. Install git and Node.js if they are missing.
 2. Install the engine.
-3. Clone the setup repository to `~/.agent-setup/source` and register it as your source.
+3. Clone the setup repository to `~/.agent-layers/source` and register it as your source.
 4. Run `doctor`, `secrets check` and `plan` and show the results.
 
 Then store any missing secrets and apply:
 
 ```text
-agent-setup secrets set <secret name>
-agent-setup apply
+agent-layers secrets set <secret name>
+agent-layers apply
 ```
 
 Without the script, run these commands:
 
 ```text
-npm install --global github:dongple-ex/agent-setup
-agent-setup init --from https://github.com/<account>/my-agent-setup.git
-agent-setup doctor
-agent-setup secrets check
-agent-setup plan --diff
-agent-setup apply
+npm install --global agent-layers
+agent-layers init --from https://github.com/<account>/my-agent-layers.git
+agent-layers doctor
+agent-layers secrets check
+agent-layers plan --diff
+agent-layers apply
 ```
 
 - The first clone of a private repository opens a GitHub sign-in window once.
 - The script is downloaded to a file instead of being piped into a shell so you can read it before running it.
-- To let the script run apply at the end, add `-Apply` on Windows or set `AGENT_SETUP_APPLY=1` on macOS and Linux. You are still asked to confirm before anything is written.
+- To let the script run apply at the end, add `-Apply` on Windows or set `AGENT_LAYERS_APPLY=1` on macOS and Linux. You are still asked to confirm before anything is written.
 - Existing settings on the new machine are kept. Rules files get a managed block added, and settings files get only the keys your repository defines.
 
-⚠️ `init --from` stops if `~/.agent-setup/source` already contains files. To use another folder, pass it explicitly: `agent-setup init <folder> --from <URL>`.
+⚠️ `init --from` stops if `~/.agent-layers/source` already contains files. To use another folder, pass it explicitly: `agent-layers init <folder> --from <URL>`.
 
 ---
 ---
@@ -234,11 +232,11 @@ agent-setup apply
 
 ## Changing rules and skills
 
-Do not edit an agent's config files directly. Edit the setup repository (`~/.agent-setup/source`) and apply. The steps are always the same:
+Do not edit an agent's config files directly. Edit the setup repository (`~/.agent-layers/source`) and apply. The steps are always the same:
 
 1. Edit files in the setup repository.
-2. Check the changes with `agent-setup plan --diff`.
-3. Apply with `agent-setup apply`.
+2. Check the changes with `agent-layers plan --diff`.
+3. Apply with `agent-layers apply`.
 4. Commit and push with `git commit` and `git push`.
 
 Use this table to decide where things go. All paths are relative to the setup repository.
@@ -268,10 +266,10 @@ description: "Commit message rules (subject length, body format). Use when writi
 Body
 ```
 
-- To deploy a skill to specific agents only, add `agent-setup.jsonc` to the skill folder with `{ "targets": ["claude"] }`.
+- To deploy a skill to specific agents only, add `agent-layers.jsonc` to the skill folder with `{ "targets": ["claude"] }`.
 - Keep always-on rules short, since agents read them in every session. Put long, occasional procedures in skills. Codex reads only the first 32 KiB of rules by default.
 
-⚠️ If you edit a file that agent-setup wrote, such as `~/.claude/rules/agent-setup/`, the next apply reports it as changed outside agent-setup (drift) and skips it. Always edit the setup repository.
+⚠️ If you edit a file that agent-layers wrote, such as `~/.claude/rules/agent-layers/`, the next apply reports it as changed outside agent-layers (drift) and skips it. Always edit the setup repository.
 
 ## MCP servers and secrets
 
@@ -315,15 +313,15 @@ A remote server (HTTP). This is `base/mcp/github.jsonc` from the template withou
 Manage secrets with these commands. Names may use letters, digits and `_ . / -`; a `project/purpose` style is easy to read.
 
 ```text
-agent-setup secrets set example/api-token
-agent-setup secrets check
-agent-setup secrets list
-agent-setup secrets delete example/api-token
+agent-layers secrets set example/api-token
+agent-layers secrets check
+agent-layers secrets list
+agent-layers secrets delete example/api-token
 ```
 
 - `secrets set` asks for the value and does not echo what you type.
 - `secrets check` lists secrets the setup repository refers to that this machine does not have yet.
-- Servers that run on your machine are registered wrapped in `agent-setup exec`. When the server starts, exec reads the values from the keychain and passes them as environment variables.
+- Servers that run on your machine are registered wrapped in `agent-layers exec`. When the server starts, exec reads the values from the keychain and passes them as environment variables.
 - Remote servers are registered with environment variable references. Agents that cannot reference environment variables get a warning and the server is not written for them.
 
 Sometimes you do not need the keychain at all:
@@ -332,10 +330,10 @@ Sometimes you do not need the keychain at all:
 | --- | --- |
 | A server without secrets | Nothing. Just the definition file |
 | A remote server that signs in through the browser (OAuth) | Nothing. The agent opens a sign-in window on first use and stores the token itself |
-| You prefer environment variables | An `AGENT_SETUP_SECRET_<NAME>` variable. The name is upper-cased and every character other than letters and digits becomes `_`. Example: `example/api-token` → `AGENT_SETUP_SECRET_EXAMPLE_API_TOKEN` |
+| You prefer environment variables | An `AGENT_LAYERS_SECRET_<NAME>` variable. The name is upper-cased and every character other than letters and digits becomes `_`. Example: `example/api-token` → `AGENT_LAYERS_SECRET_EXAMPLE_API_TOKEN` |
 | You use 1Password | Map the secret name to an `op://` path |
 
-⚠️ A server registered with keychain secrets does not start if agent-setup is uninstalled or the keychain entry is deleted.
+⚠️ A server registered with keychain secrets does not start if agent-layers is uninstalled or the keychain entry is deleted.
 
 ## Per-project settings (project layer)
 
@@ -344,7 +342,7 @@ A project layer holds your own settings for one project folder only. Use it to a
 1. Create it. `projects/acme/project.jsonc` is added to the setup repository.
 
    ```text
-   agent-setup project init acme --mode private --remote "github.com/acme/*"
+   agent-layers project init acme --mode private --remote "github.com/acme/*"
    ```
 
 2. Add content. The folders are the same as in base: `projects/acme/instructions/`, `skills/`, `mcp/`.
@@ -352,14 +350,14 @@ A project layer holds your own settings for one project folder only. Use it to a
 3. Go to the project folder, preview and apply. Without a name, the project is found from the current folder.
 
    ```text
-   agent-setup project plan --diff
-   agent-setup project apply
+   agent-layers project plan --diff
+   agent-layers project apply
    ```
 
 4. When the project ends, purge it, then delete `projects/acme/` from the setup repository and commit.
 
    ```text
-   agent-setup project purge acme
+   agent-layers project purge acme
    ```
 
 Projects are recognized by the rules below, not by folder path, so the same project is found even if its folder is in a different place on each machine.
@@ -373,7 +371,7 @@ There are two modes:
 
 | Mode | Files written in the project folder | Use for |
 | --- | --- | --- |
-| private | Only git-ignored files (`.claude/rules/agent-setup/project-<name>.md`, ...). Their paths are added to `.git/info/exclude` | Client and team repositories. Files that git tracks are never edited |
+| private | Only git-ignored files (`.claude/rules/agent-layers/project-<name>.md`, ...). Their paths are added to `.git/info/exclude` | Client and team repositories. Files that git tracks are never edited |
 | shared | Committable files (an `AGENTS.md` block, a `.mcp.json` with environment variable references only) | Repositories you maintain and share with a team |
 
 Settings in `project.jsonc` you will change most often:
@@ -392,7 +390,7 @@ To share a single project with someone, keep it in a separate setup repository t
 
 ```jsonc
 "extends": [
-  { "name": "a6a", "projects": "../a6a-agent-setup/projects", "git": "https://github.com/<account>/a6a-agent-setup.git", "optional": true }
+  { "name": "a6a", "projects": "../a6a-agent-layers/projects", "git": "https://github.com/<account>/a6a-agent-layers.git", "optional": true }
 ]
 ```
 
@@ -400,37 +398,37 @@ To share a single project with someone, keep it in a separate setup repository t
 | --- | --- |
 | `projects` | The `projects` folder of the other repository, relative to your setup repository |
 | `path` | The base layer of the other repository. Leave it out to import projects only |
-| `git` | Clone URL used by `agent-setup sync` when the folder is missing. Without `path`, it clones into the parent folder of `projects` |
+| `git` | Clone URL used by `agent-layers sync` when the folder is missing. Without `path`, it clones into the parent folder of `projects` |
 | `optional` | With `true`, `validate` does not report a missing folder as an error |
 
-- `agent-setup sync` also runs `git pull --ff-only` in the imported repository.
-- The `from` column of `agent-setup project list` shows `source` (your repository) or `extends:<name>`.
+- `agent-layers sync` also runs `git pull --ff-only` in the imported repository.
+- The `from` column of `agent-layers project list` shows `source` (your repository) or `extends:<name>`.
 - A project name that exists in both repositories is an error, because applied records are keyed by project name. Rename one of them.
 - `project purge --remove-source` deletes projects of your own repository only. Delete an imported project in its own repository.
 
 ## Syncing machines and choosing target agents
 
-Push changes from one machine and run `agent-setup sync` on another to reach the same state. `sync` runs `git pull --ff-only` on the setup repository and then applies the base layer.
+Push changes from one machine and run `agent-layers sync` on another to reach the same state. `sync` runs `git pull --ff-only` on the setup repository and then applies the base layer.
 
 | Task | Command |
 | --- | --- |
-| Get changes from another machine and apply | `agent-setup sync` |
-| Also update project settings | `agent-setup project apply` in the project folder |
-| Apply to some agents this time only | `agent-setup apply --only claude,codex` |
-| Skip some agents this time only | `agent-setup apply --skip zed` |
-| Also clean up what was written for agents you left out | `agent-setup apply --only claude --prune` |
+| Get changes from another machine and apply | `agent-layers sync` |
+| Also update project settings | `agent-layers project apply` in the project folder |
+| Apply to some agents this time only | `agent-layers apply --only claude,codex` |
+| Skip some agents this time only | `agent-layers apply --skip zed` |
+| Also clean up what was written for agents you left out | `agent-layers apply --only claude --prune` |
 
 Three ways to fix the target agents permanently:
 
 | Scope | Where | Example |
 | --- | --- | --- |
-| Every machine | `targets` in the setup repository's `agent-setup.jsonc` | `"auto"` (agents found on each machine), `"all"`, or `["claude", "codex"]` |
+| Every machine | `targets` in the setup repository's `agent-layers.jsonc` | `"auto"` (agents found on each machine), `"all"`, or `["claude", "codex"]` |
 | One project | `targets` in `projects/<name>/project.jsonc` | `["claude"]` |
-| This machine only | `targets` in `~/.agent-setup/config.jsonc` | `{ "include": ["cursor"], "exclude": ["zed"] }` |
+| This machine only | `targets` in `~/.agent-layers/config.jsonc` | `{ "include": ["cursor"], "exclude": ["zed"] }` |
 
 - With `targets` set to `"auto"`, a newly installed agent is included from the next apply. With an explicit list, add its name.
-- Values that differ per machine (a screenshots folder, ...) go under `vars` in `~/.agent-setup/config.jsonc`. That file is not part of the setup repository.
-- Some apps rewrite their own config files, the Codex desktop app for example. Run `agent-setup status` now and then and apply again if something changed.
+- Values that differ per machine (a screenshots folder, ...) go under `vars` in `~/.agent-layers/config.jsonc`. That file is not part of the setup repository.
+- Some apps rewrite their own config files, the Codex desktop app for example. Run `agent-layers status` now and then and apply again if something changed.
 
 ---
 ---
@@ -443,13 +441,13 @@ All of these commands are read-only and safe to run at any time. When something 
 
 | Command | Checks | When |
 | --- | --- | --- |
-| `agent-setup doctor` | Installed agents, plain-text passwords in config files, settings in the wrong place, rules file sizes | After installing, or when something behaves oddly |
-| `agent-setup status` | Files agent-setup manages and files changed outside it since the last apply | When you suspect a config file was edited by hand |
-| `agent-setup show` | Instructions, skills, MCP servers, setting keys and files in each layer, the agents that receive them, and the project list. `show <name>` details one layer | When you want to see what your setup repository holds at a glance |
-| `agent-setup plan --diff` | What an apply would change, line by line | Every time before applying |
-| `agent-setup validate` | Format errors, plain-text secrets and invalid skill names in the setup repository | Before committing |
-| `agent-setup secrets check` | Secrets the setup repository refers to that this machine lacks | After bringing your setup to a new machine |
-| `agent-setup agents` | Each supported agent's config locations and when they were checked | When you want to know where files go |
+| `agent-layers doctor` | Installed agents, plain-text passwords in config files, settings in the wrong place, rules file sizes | After installing, or when something behaves oddly |
+| `agent-layers status` | Files agent-layers manages and files changed outside it since the last apply | When you suspect a config file was edited by hand |
+| `agent-layers show` | Instructions, skills, MCP servers, setting keys and files in each layer, the agents that receive them, and the project list. `show <name>` details one layer | When you want to see what your setup repository holds at a glance |
+| `agent-layers plan --diff` | What an apply would change, line by line | Every time before applying |
+| `agent-layers validate` | Format errors, plain-text secrets and invalid skill names in the setup repository | Before committing |
+| `agent-layers secrets check` | Secrets the setup repository refers to that this machine lacks | After bringing your setup to a new machine |
+| `agent-layers agents` | Each supported agent's config locations and when they were checked | When you want to know where files go |
 
 How to read `plan` output:
 
@@ -458,8 +456,8 @@ How to read `plan` output:
 | `create` | Will be created | Written |
 | `update` | Will be changed, including an added managed block or merged keys | Written |
 | `unchanged` | Already the same | Nothing happens |
-| `conflict` | Overlaps existing content that agent-setup does not manage | Skipped unless you pass `--force` |
-| `drift` | Changed outside agent-setup after it was written | Skipped unless you pass `--force` |
+| `conflict` | Overlaps existing content that agent-layers does not manage | Skipped unless you pass `--force` |
+| `drift` | Changed outside agent-layers after it was written | Skipped unless you pass `--force` |
 | `remove` | Removed from the source and will be cleaned up | Deleted |
 
 - `--force` backs up the original file before overwriting it.
@@ -470,7 +468,7 @@ How to read `plan` output:
 
 **Does `init` put this machine's settings into the setup repository?**
 
-No. `init` only decides which repository is your source. Without `--from` it creates a template with examples; with `--from` it clones an existing repository. The command that brings this machine's existing settings into the repository is `agent-setup import`.
+No. `init` only decides which repository is your source. Without `--from` it creates a template with examples; with `--from` it clones an existing repository. The command that brings this machine's existing settings into the repository is `agent-layers import`.
 
 - `import` lists the files it would bring in and writes them to the base layer of the setup repository after you confirm.
 - Home paths become variables such as `{{home}}`, and plain-text secrets become `${secret:...}` references.
@@ -487,11 +485,11 @@ No. Only servers that need a password or token in their configuration need a one
 
 **What happens if I edit an agent's config file directly?**
 
-If you edited a part agent-setup wrote, the next apply reports it as `drift` and skips it. To keep the change, move it into the setup repository; to discard it, overwrite with `apply --force`. Parts agent-setup did not write are yours to edit freely.
+If you edited a part agent-layers wrote, the next apply reports it as `drift` and skips it. To keep the change, move it into the setup repository; to discard it, overwrite with `apply --force`. Parts agent-layers did not write are yours to edit freely.
 
 **Will my existing rules files or settings be deleted?**
 
-No. Rules files get a managed block marked "Managed by agent-setup", and settings files get only the keys in your repository merged in. JSON settings files that contain comments are not rewritten without `--force`.
+No. Rules files get a managed block marked "Managed by agent-layers", and settings files get only the keys in your repository merged in. JSON settings files that contain comments are not rewritten without `--force`.
 
 **Are both a project's `AGENTS.md` and my base rules applied?**
 
@@ -499,14 +497,14 @@ Both are read. In case they disagree, state the priority in your base rules, for
 
 **Can I keep the setup repository in a synced folder such as Google Drive instead of GitHub?**
 
-It works: register the folder with `agent-setup init <folder>`, and `sync` then skips the pull and only applies. However, conflict copies created by the sync client may be read as rules, and there is no change history, so a private git repository is recommended.
+It works: register the folder with `agent-layers init <folder>`, and `sync` then skips the pull and only applies. However, conflict copies created by the sync client may be read as rules, and there is no change history, so a private git repository is recommended.
 
 **How do I update the engine?**
 
-Run the install command again. It moves to the latest commit on GitHub.
+Run the install command again. It moves to the latest version on npm.
 
 ```text
-npm install --global github:dongple-ex/agent-setup
+npm install --global agent-layers
 ```
 
 ## Undo and cautions
@@ -515,12 +513,12 @@ Overwritten files are always backed up, so most changes can be undone. The excep
 
 | Task | How |
 | --- | --- |
-| Restore a file to its state before apply | Copy the original from `~/.agent-setup/backups/<date-time>/` |
+| Restore a file to its state before apply | Copy the original from `~/.agent-layers/backups/<date-time>/` |
 | Remove one rule or skill | Delete it from the setup repository and `apply`. Items removed from the source are cleaned up in agent config too |
 | Remove everything from one agent | Take it out of `targets` and run `apply --prune` |
-| Remove everything agent-setup wrote | `agent-setup uninstall`. Other content stays |
-| Remove the engine too | `agent-setup uninstall`, then `npm uninstall --global agent-setup` |
-| Delete a secret | `agent-setup secrets delete <name>` |
+| Remove everything agent-layers wrote | `agent-layers uninstall`. Other content stays |
+| Remove the engine too | `agent-layers uninstall`, then `npm uninstall --global agent-layers` |
+| Delete a secret | `agent-layers secrets delete <name>` |
 
 Cautions:
 
@@ -537,29 +535,29 @@ Commands marked "yes" in the read-only column write nothing and can be run at an
 
 | Group | Command | What it does | Read-only |
 | --- | --- | --- | --- |
-| Install | `npm install --global github:dongple-ex/agent-setup` | Installs or updates the engine | no |
-| Install | `agent-setup init` | Creates a new setup repository from the template and registers it | no |
-| Install | `agent-setup init --from <URL>` | Clones an existing setup repository and registers it | no |
-| Install | `agent-setup import --from claude,codex` | Brings this machine's existing settings into the setup repository | no |
-| base | `agent-setup plan --diff` | Shows what an apply would change | yes |
-| base | `agent-setup apply` | Applies the base layer | no |
-| base | `agent-setup sync` | Pulls the setup repository, then applies | no |
-| base | `agent-setup status` | Shows managed files and files changed outside agent-setup | yes |
-| base | `agent-setup show [name]` | Shows what each layer holds and which agents receive it | yes |
-| base | `agent-setup uninstall` | Removes everything agent-setup wrote | no |
-| project | `agent-setup project init <name> --mode private --remote <URL>` | Creates a project layer | no |
-| project | `agent-setup project list` | Lists project layers | yes |
-| project | `agent-setup project detect` | Shows which project the current folder belongs to | yes |
-| project | `agent-setup project plan --diff` | Previews a project layer | yes |
-| project | `agent-setup project apply` | Applies a project layer | no |
-| project | `agent-setup project purge <name>` | Removes a project layer and its agent records | no |
-| Secrets | `agent-setup secrets set <name>` | Stores a secret in the keychain | no |
-| Secrets | `agent-setup secrets check` | Shows secrets missing on this machine | yes |
-| Secrets | `agent-setup secrets list` | Lists stored secret names | yes |
-| Secrets | `agent-setup secrets delete <name>` | Deletes a secret | no |
-| Checks | `agent-setup doctor` | Checks agents and risky settings | yes |
-| Checks | `agent-setup validate` | Checks the setup repository | yes |
-| Checks | `agent-setup agents` | Shows supported agents and their config locations | yes |
+| Install | `npm install --global agent-layers` | Installs or updates the engine | no |
+| Install | `agent-layers init` | Creates a new setup repository from the template and registers it | no |
+| Install | `agent-layers init --from <URL>` | Clones an existing setup repository and registers it | no |
+| Install | `agent-layers import --from claude,codex` | Brings this machine's existing settings into the setup repository | no |
+| base | `agent-layers plan --diff` | Shows what an apply would change | yes |
+| base | `agent-layers apply` | Applies the base layer | no |
+| base | `agent-layers sync` | Pulls the setup repository, then applies | no |
+| base | `agent-layers status` | Shows managed files and files changed outside agent-layers | yes |
+| base | `agent-layers show [name]` | Shows what each layer holds and which agents receive it | yes |
+| base | `agent-layers uninstall` | Removes everything agent-layers wrote | no |
+| project | `agent-layers project init <name> --mode private --remote <URL>` | Creates a project layer | no |
+| project | `agent-layers project list` | Lists project layers | yes |
+| project | `agent-layers project detect` | Shows which project the current folder belongs to | yes |
+| project | `agent-layers project plan --diff` | Previews a project layer | yes |
+| project | `agent-layers project apply` | Applies a project layer | no |
+| project | `agent-layers project purge <name>` | Removes a project layer and its agent records | no |
+| Secrets | `agent-layers secrets set <name>` | Stores a secret in the keychain | no |
+| Secrets | `agent-layers secrets check` | Shows secrets missing on this machine | yes |
+| Secrets | `agent-layers secrets list` | Lists stored secret names | yes |
+| Secrets | `agent-layers secrets delete <name>` | Deletes a secret | no |
+| Checks | `agent-layers doctor` | Checks agents and risky settings | yes |
+| Checks | `agent-layers validate` | Checks the setup repository | yes |
+| Checks | `agent-layers agents` | Shows supported agents and their config locations | yes |
 
 Options shared by many commands:
 
@@ -567,7 +565,7 @@ Options shared by many commands:
 | --- | --- |
 | `--only a,b` / `--skip a,b` | Apply only to some agents, or leave some out |
 | `--yes` | Proceed without confirmation prompts |
-| `--force` | Back up and overwrite files in conflict or changed outside agent-setup |
+| `--force` | Back up and overwrite files in conflict or changed outside agent-layers |
 | `--source <folder>` | Use another setup repository instead of the registered one |
 | `--home <folder>` | Use another home folder for a trial run without touching your real configuration |
 | `--json` / `--quiet` | Machine-readable output / less output |

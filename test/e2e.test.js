@@ -8,11 +8,11 @@ import { fileURLToPath } from 'node:url';
 import { parseTomlValue } from '../src/formats/toml.js';
 import { parseJsonc } from '../src/formats/jsonc.js';
 
-const BIN = fileURLToPath(new URL('../bin/agent-setup.js', import.meta.url));
+const BIN = fileURLToPath(new URL('../bin/agent-layers.js', import.meta.url));
 const HAS_GIT = spawnSync('git', ['--version']).status === 0;
 
 function sandbox() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-setup-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-layers-test-'));
   const home = path.join(root, 'home');
   const source = path.join(root, 'source');
   fs.mkdirSync(home, { recursive: true });
@@ -38,7 +38,7 @@ function read(file) {
 }
 
 function baseRepo(sb, targets) {
-  write(path.join(sb.source, 'agent-setup.jsonc'), JSON.stringify({ version: 1, targets, options: { secrets: { backend: 'file', mode: 'auto' }, claude: { mcp: 'json' } } }));
+  write(path.join(sb.source, 'agent-layers.jsonc'), JSON.stringify({ version: 1, targets, options: { secrets: { backend: 'file', mode: 'auto' }, claude: { mcp: 'json' } } }));
   write(path.join(sb.source, 'base', 'instructions', '00-core.md'), '# Core\n\n- Be precise.\n');
   write(path.join(sb.source, 'base', 'skills', 'demo-skill', 'SKILL.md'), '---\nname: demo-skill\ndescription: Demo skill for tests.\n---\n# Demo\n');
 }
@@ -48,21 +48,21 @@ test('user scope: apply is idempotent, drift is detected, removed sources are cl
   baseRepo(sb, ['claude', 'codex', 'gemini']);
   let r = cli(sb, ['apply', '--yes']);
   assert.equal(r.code, 0, r.out);
-  assert.match(read(path.join(sb.home, '.claude', 'rules', 'agent-setup', '00-core.md')), /Be precise/);
-  assert.match(read(path.join(sb.home, '.codex', 'AGENTS.md')), /agent-setup:begin base/);
+  assert.match(read(path.join(sb.home, '.claude', 'rules', 'agent-layers', '00-core.md')), /Be precise/);
+  assert.match(read(path.join(sb.home, '.codex', 'AGENTS.md')), /agent-layers:begin base/);
   assert.ok(fs.existsSync(path.join(sb.home, '.agents', 'skills', 'demo-skill', 'SKILL.md')));
   r = cli(sb, ['plan']);
   assert.match(r.out, /unchanged/);
   assert.doesNotMatch(r.out, /\b(create|update)\b\s+claude/);
 
-  write(path.join(sb.home, '.claude', 'rules', 'agent-setup', '00-core.md'), 'edited by hand\n');
+  write(path.join(sb.home, '.claude', 'rules', 'agent-layers', '00-core.md'), 'edited by hand\n');
   r = cli(sb, ['plan']);
   assert.match(r.out, /drift/);
   r = cli(sb, ['apply', '--yes']);
-  assert.equal(read(path.join(sb.home, '.claude', 'rules', 'agent-setup', '00-core.md')), 'edited by hand\n');
+  assert.equal(read(path.join(sb.home, '.claude', 'rules', 'agent-layers', '00-core.md')), 'edited by hand\n');
   r = cli(sb, ['apply', '--yes', '--force']);
-  assert.match(read(path.join(sb.home, '.claude', 'rules', 'agent-setup', '00-core.md')), /Be precise/);
-  assert.ok(fs.readdirSync(path.join(sb.home, '.agent-setup', 'backups')).length >= 1);
+  assert.match(read(path.join(sb.home, '.claude', 'rules', 'agent-layers', '00-core.md')), /Be precise/);
+  assert.ok(fs.readdirSync(path.join(sb.home, '.agent-layers', 'backups')).length >= 1);
 
   fs.rmSync(path.join(sb.source, 'base', 'skills', 'demo-skill'), { recursive: true });
   r = cli(sb, ['apply', '--yes']);
@@ -85,7 +85,7 @@ test('user scope: --only keeps outputs of other agents unless --prune is given',
   r = cli(sb, ['apply', '--yes', '--only', 'claude', '--prune']);
   assert.equal(r.code, 0, r.out);
   assert.ok(!fs.existsSync(path.join(sb.home, '.codex', 'AGENTS.md')));
-  assert.ok(fs.existsSync(path.join(sb.home, '.claude', 'rules', 'agent-setup', '00-core.md')));
+  assert.ok(fs.existsSync(path.join(sb.home, '.claude', 'rules', 'agent-layers', '00-core.md')));
 });
 
 test('user scope: existing files and foreign content are preserved', () => {
@@ -170,7 +170,7 @@ test('plan lists executable content without secret values', () => {
   write(path.join(sb.source, 'base', 'mcp', 'svc.jsonc'), JSON.stringify({ command: 'uvx', args: ['svc-mcp', '--token', '${secret:svc/token}'] }));
   write(path.join(sb.source, 'base', 'skills', 'demo-skill', 'scripts', 'run.sh'), 'echo hi\n');
   write(path.join(sb.source, 'base', 'settings', 'claude.json'), JSON.stringify({ statusLine: { type: 'command', command: '~/.claude/statusline.sh' } }));
-  const r = cli(sb, ['plan'], { env: { AGENT_SETUP_SECRET_SVC_TOKEN: 'super-secret-value' } });
+  const r = cli(sb, ['plan'], { env: { AGENT_LAYERS_SECRET_SVC_TOKEN: 'super-secret-value' } });
   assert.match(r.out, /Executable content/);
   assert.match(r.out, /MCP server "svc" \(claude\): uvx svc-mcp --token \$\{secret:svc\/token\}/);
   assert.match(r.out, /skill "demo-skill": scripts\/run\.sh/);
@@ -196,7 +196,7 @@ test('secrets: file backend, exec wrapper injects values, check reports missing 
   assert.equal(r.code, 1);
   r = cli(sb, ['exec', '--', process.execPath, '-e', 'process.stdout.write(process.env.ENV_SECRET_PROBE || "")'], { env: { ENV_SECRET_PROBE: 'ok' } });
   assert.equal(r.out, 'ok');
-  r = cli(sb, ['exec', '--env', 'Y=@@secret:from/env@@', '--', process.execPath, '-e', 'process.stdout.write(process.env.Y)'], { env: { AGENT_SETUP_SECRET_FROM_ENV: 'env-value' } });
+  r = cli(sb, ['exec', '--env', 'Y=@@secret:from/env@@', '--', process.execPath, '-e', 'process.stdout.write(process.env.Y)'], { env: { AGENT_LAYERS_SECRET_FROM_ENV: 'env-value' } });
   assert.equal(r.out, 'env-value');
 });
 
@@ -220,19 +220,19 @@ test('project (private mode): only untracked files, git exclude, memory folder, 
   r = cli(sb, ['project', 'apply', '--yes'], { cwd: repo });
   assert.equal(r.code, 0, r.out);
   assert.equal(read(path.join(repo, 'AGENTS.md')), '# Team rules\n', 'tracked AGENTS.md must not change');
-  assert.match(read(path.join(repo, '.claude', 'rules', 'agent-setup', 'project-acme.md')), /Never write to production/);
+  assert.match(read(path.join(repo, '.claude', 'rules', 'agent-layers', 'project-acme.md')), /Never write to production/);
   assert.ok(!fs.existsSync(path.join(repo, 'CLAUDE.local.md')), 'CLAUDE.local.md would stop Claude Code from reading AGENTS.md');
-  assert.match(read(path.join(repo, '.claude', 'rules', 'agent-setup', '10-ui.md')), /src\/ui/);
-  assert.match(read(path.join(repo, '.github', 'instructions', 'agent-setup-acme.instructions.md')), /applyTo: "\*\*"/);
-  assert.match(read(path.join(repo, '.cursor', 'rules', 'agent-setup-acme.mdc')), /alwaysApply: true/);
-  assert.match(read(path.join(repo, '.agents', 'rules', 'agent-setup-acme.md')), /trigger: always_on/);
+  assert.match(read(path.join(repo, '.claude', 'rules', 'agent-layers', '10-ui.md')), /src\/ui/);
+  assert.match(read(path.join(repo, '.github', 'instructions', 'agent-layers-acme.instructions.md')), /applyTo: "\*\*"/);
+  assert.match(read(path.join(repo, '.cursor', 'rules', 'agent-layers-acme.mdc')), /alwaysApply: true/);
+  assert.match(read(path.join(repo, '.agents', 'rules', 'agent-layers-acme.md')), /trigger: always_on/);
   assert.match(read(path.join(repo, '.codex', 'config.toml')), /developer_instructions/);
   const local = JSON.parse(read(path.join(repo, '.claude', 'settings.local.json')));
-  assert.ok(local.autoMemoryDirectory.endsWith(path.join('.agent-setup', 'memory', 'claude')));
+  assert.ok(local.autoMemoryDirectory.endsWith(path.join('.agent-layers', 'memory', 'claude')));
   const exclude = read(path.join(repo, '.git', 'info', 'exclude'));
-  assert.match(exclude, /# agent-setup:begin project\.acme/);
-  assert.match(exclude, /\/\.claude\/rules\/agent-setup\/project-acme\.md/);
-  assert.match(exclude, /\/\.agent-setup\//);
+  assert.match(exclude, /# agent-layers:begin project\.acme/);
+  assert.match(exclude, /\/\.claude\/rules\/agent-layers\/project-acme\.md/);
+  assert.match(exclude, /\/\.agent-layers\//);
   const status = spawnSync('git', ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8' }).stdout;
   assert.equal(status.trim(), '', `git status must stay clean, got:\n${status}`);
   r = cli(sb, ['project', 'plan'], { cwd: repo });
@@ -242,10 +242,10 @@ test('project (private mode): only untracked files, git exclude, memory folder, 
   write(path.join(sb.home, '.claude', 'projects', repo.replace(/[^A-Za-z0-9]/g, '-'), 'memory', 'MEMORY.md'), 'client facts\n');
   r = cli(sb, ['project', 'purge', 'acme', '--yes'], { cwd: repo });
   assert.equal(r.code, 0, r.out);
-  assert.ok(!fs.existsSync(path.join(repo, '.claude', 'rules', 'agent-setup', 'project-acme.md')));
-  assert.ok(!fs.existsSync(path.join(repo, '.agents', 'rules', 'agent-setup-acme.md')));
+  assert.ok(!fs.existsSync(path.join(repo, '.claude', 'rules', 'agent-layers', 'project-acme.md')));
+  assert.ok(!fs.existsSync(path.join(repo, '.agents', 'rules', 'agent-layers-acme.md')));
   assert.ok(!fs.existsSync(path.join(sb.home, '.claude', 'projects', repo.replace(/[^A-Za-z0-9]/g, '-'))));
-  assert.doesNotMatch(read(path.join(repo, '.git', 'info', 'exclude')), /agent-setup:begin/);
+  assert.doesNotMatch(read(path.join(repo, '.git', 'info', 'exclude')), /agent-layers:begin/);
   assert.equal(read(path.join(repo, 'AGENTS.md')), '# Team rules\n');
 });
 
@@ -286,7 +286,7 @@ test('import captures existing configs, templatizes home paths and replaces plai
   assert.ok(fs.existsSync(path.join(sb.source, 'base', 'files', 'claude', 'output-styles', 'terse.md')));
   const db = parseJsonc(read(path.join(sb.source, 'base', 'mcp', 'db.jsonc')));
   assert.equal(db.env.DB_PASSWORD, '${secret:db/db-password}');
-  assert.match(r.out, /agent-setup secrets set db\/db-password/);
+  assert.match(r.out, /agent-layers secrets set db\/db-password/);
   const v = cli(sb, ['validate']);
   assert.doesNotMatch(v.out, /hunter2/);
 });
@@ -332,7 +332,7 @@ test('uninstall removes managed outputs and keeps foreign content', () => {
   r = cli(sb, ['uninstall', '--yes']);
   assert.equal(r.code, 0, r.out);
   assert.equal(read(path.join(sb.home, '.codex', 'AGENTS.md')).trim(), '# Keep');
-  assert.ok(!fs.existsSync(path.join(sb.home, '.claude', 'rules', 'agent-setup', '00-core.md')));
+  assert.ok(!fs.existsSync(path.join(sb.home, '.claude', 'rules', 'agent-layers', '00-core.md')));
 });
 
 test('show lists layers, targets, setting keys and secret names without values', () => {
@@ -340,7 +340,7 @@ test('show lists layers, targets, setting keys and secret names without values',
   baseRepo(sb, ['claude', 'codex']);
   write(path.join(sb.source, 'base', 'settings', 'codex.toml'), 'model = "secret-model-value"\n');
   write(path.join(sb.source, 'base', 'skills', 'claude-only', 'SKILL.md'), '---\nname: claude-only\ndescription: Only for Claude.\n---\n# C\n');
-  write(path.join(sb.source, 'base', 'skills', 'claude-only', 'agent-setup.jsonc'), '{"targets":["claude"]}');
+  write(path.join(sb.source, 'base', 'skills', 'claude-only', 'agent-layers.jsonc'), '{"targets":["claude"]}');
   write(path.join(sb.source, 'projects', 'acme', 'project.jsonc'), JSON.stringify({ name: 'acme', mode: 'private', match: { dirName: ['acme'] }, targets: ['claude'] }));
   write(path.join(sb.source, 'projects', 'acme', 'mcp', 'tool.jsonc'), JSON.stringify({ command: 'tool', args: [], env: { TOKEN: '${secret:acme/token}' } }));
   let r = cli(sb, ['show']);

@@ -163,7 +163,7 @@ export function planImport(ctx, { from = ['claude', 'codex', 'gemini', 'copilot'
       add('instructions/50-imported-claude.md', `${stripManaged(md.text)}\n`, '~/.claude/CLAUDE.md');
     }
     for (const f of listFiles(path.join(p.claudeHome, 'rules'))) {
-      if (f.rel.startsWith('agent-setup/') || !f.rel.endsWith('.md')) {
+      if (f.rel.startsWith('agent-layers/') || !f.rel.endsWith('.md')) {
         continue;
       }
       add(`instructions/60-claude-${f.rel.replace(/\//g, '-')}`, readText(f.abs).text, `~/.claude/rules/${f.rel}`);

@@ -2,11 +2,11 @@ import path from 'node:path';
 import { parseJsonc } from './formats/jsonc.js';
 import { readText, isDir, listDirs, isFile } from './util/fsx.js';
 
-export const MANIFEST_NAMES = ['agent-setup.jsonc', 'agent-setup.json'];
+export const MANIFEST_NAMES = ['agent-layers.jsonc', 'agent-layers.json'];
 export const PROJECT_MANIFEST_NAMES = ['project.jsonc', 'project.json'];
 
 export const DEFAULT_OPTIONS = {
-  secrets: { backend: 'auto', mode: 'auto', service: 'agent-setup' },
+  secrets: { backend: 'auto', mode: 'auto', service: 'agent-layers' },
   skills: { universal: true },
   instructions: { header: true },
   gemini: { readAgentsMd: true },
@@ -43,7 +43,7 @@ function deepDefaults(defaults, value) {
 export function loadManifest(sourceDir) {
   const file = findManifestFile(sourceDir);
   if (!file) {
-    throw new Error(`no agent-setup.jsonc found in ${sourceDir}. Run "agent-setup init" first or pass --source.`);
+    throw new Error(`no agent-layers.jsonc found in ${sourceDir}. Run "agent-layers init" first or pass --source.`);
   }
   const raw = readJsoncFile(file) || {};
   if (raw.version !== undefined && raw.version !== 1) {

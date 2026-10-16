@@ -1,6 +1,6 @@
 {
-  // Neutral MCP server definition. agent-setup converts it into each agent's own format.
-  // Secrets: "${secret:NAME}" (store with "agent-setup secrets set NAME"). Environment variables: "${env:NAME}".
+  // Neutral MCP server definition. agent-layers converts it into each agent's own format.
+  // Secrets: "${secret:NAME}" (store with "agent-layers secrets set NAME"). Environment variables: "${env:NAME}".
   // Remove "enabled": false to activate this example.
   "enabled": false,
   "transport": "http",

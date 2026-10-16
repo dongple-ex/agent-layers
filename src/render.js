@@ -90,7 +90,7 @@ export function buildVars(ctx, manifest, project = null, root = null) {
     sep: path.sep,
     source: ctx.sourceDir,
     node: ctx.nodePath,
-    agentSetup: ctx.cliPath,
+    agentLayers: ctx.cliPath,
     appData: ctx.paths.appData,
     localAppData: ctx.paths.localAppData,
     xdgConfig: ctx.paths.xdgConfig,
@@ -123,7 +123,7 @@ function header(layers, opts) {
   if (!opts.instructions?.header) {
     return '';
   }
-  return `<!-- Managed by agent-setup (layers: ${layers.join(', ')}). Edit the source repository, then run "agent-setup apply". -->`;
+  return `<!-- Managed by agent-layers (layers: ${layers.join(', ')}). Edit the source repository, then run "agent-layers apply". -->`;
 }
 
 function blockContent(rules, vars, layers, opts) {
@@ -299,7 +299,7 @@ export function convertMcpServer(name, rawDef, { format, env: envSyntax, policy,
     const sub = (v) => (typeof v === 'string' ? v.replace(SECRET_INLINE, (_, n) => {
       const val = resolveSecret ? resolveSecret(n) : null;
       if (val === null || val === undefined) {
-        notes.push({ level: 'error', msg: `${name}: secret "${n}" is not available; run "agent-setup secrets set ${n}"` });
+        notes.push({ level: 'error', msg: `${name}: secret "${n}" is not available; run "agent-layers secrets set ${n}"` });
         return '';
       }
       return val;
@@ -560,7 +560,7 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
         if (s.targets && !s.targets.includes(a.id)) {
           continue;
         }
-        const files = s.files.filter((f) => f.rel !== 'agent-setup.jsonc');
+        const files = s.files.filter((f) => f.rel !== 'agent-layers.jsonc');
         files.filter((f) => EXEC_EXT.test(f.rel)).forEach((f) => executables.add(`skill "${s.name}": ${f.rel}`));
         out.add({ type: 'dir', path: path.join(dir, s.name), files, adapter: a.id, scope, exclude: privateMode, skipIfTracked: privateMode });
       }
@@ -612,7 +612,7 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
         if (conv) {
           converted[s.name] = conv;
           const wrapped = conv.command === ctx.nodePath && Array.isArray(conv.args) && conv.args[1] === 'exec';
-          executables.add(`MCP server "${s.name}" (${a.id}): ${describeExec(def)}${wrapped ? ' (secrets injected by agent-setup exec)' : ''}`);
+          executables.add(`MCP server "${s.name}" (${a.id}): ${describeExec(def)}${wrapped ? ' (secrets injected by agent-layers exec)' : ''}`);
         }
       }
       if (Object.keys(converted).length) {
@@ -633,7 +633,7 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
           }
           out.add({ type: 'toml', path: file, values: {}, tables, adapter: a.id, scope, exclude: privateMode, skipIfTracked: privateMode, shared });
         } else if (mcpSpec.kind === 'claude-cli') {
-          const viaJson = (opts.claude?.mcp || 'cli') === 'json' || (ctx.sandbox && !ctx.env.AGENT_SETUP_SANDBOX_CLAUDE_CLI);
+          const viaJson = (opts.claude?.mcp || 'cli') === 'json' || (ctx.sandbox && !ctx.env.AGENT_LAYERS_SANDBOX_CLAUDE_CLI);
           if (viaJson) {
             const file = p.claudeJson;
             const fragment = mcpSpec.scope === 'user' ? { mcpServers: converted } : { projects: { [root.replace(/\\/g, '/')]: { mcpServers: converted } } };
@@ -725,11 +725,11 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
   }
 
   if (scope === 'project' && project.memory?.claude && adapterIds.includes('claude')) {
-    const memDir = project.memory.claude === 'project' ? path.join(root, '.agent-setup', 'memory', 'claude') : path.resolve(root, String(project.memory.claude));
+    const memDir = project.memory.claude === 'project' ? path.join(root, '.agent-layers', 'memory', 'claude') : path.resolve(root, String(project.memory.claude));
     out.add({ type: 'json', path: path.join(root, '.claude', 'settings.local.json'), fragment: { autoMemoryDirectory: memDir }, atomic: [], adapter: 'claude', scope, exclude: true, skipIfTracked: true });
     if (memDir.startsWith(root)) {
       const rel = path.relative(root, memDir).replace(/\\/g, '/').split('/')[0];
-      out.add({ type: 'file', path: path.join(memDir, 'README.md'), content: `# Claude auto memory for ${project.name}\n\nThis folder is local to this machine and is removed by "agent-setup project purge ${project.name}".\n`, adapter: 'claude', scope, exclude: true, excludePath: `/${rel}/`, skipIfTracked: true });
+      out.add({ type: 'file', path: path.join(memDir, 'README.md'), content: `# Claude auto memory for ${project.name}\n\nThis folder is local to this machine and is removed by "agent-layers project purge ${project.name}".\n`, adapter: 'claude', scope, exclude: true, excludePath: `/${rel}/`, skipIfTracked: true });
     }
   }
 

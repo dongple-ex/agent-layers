@@ -1,17 +1,17 @@
 {
-  // agent-setup source repository.
+  // agent-layers source repository.
   // Layout: base/ follows you to every machine, projects/<name>/ is applied per project and can be purged.
   "version": 1,
-  "name": "my-agent-setup",
+  "name": "my-agent-layers",
 
   // Agents to configure: "auto" (agents found on each machine), "all", or a list such as
   // ["claude", "codex", "gemini", "antigravity", "copilot", "cursor", "opencode", "zed", "junie", "kiro",
-  //  "amp", "factory", "devin", "qwen", "cline", "goose"]. Run "agent-setup agents" for the full table.
+  //  "amp", "factory", "devin", "qwen", "cline", "goose"]. Run "agent-layers agents" for the full table.
   "targets": "auto",
 
   // Shared layers applied before base, lowest priority first (for example a team repository checkout).
-  // "extends": [{ "name": "team", "path": "../team-agent-setup/base", "git": "https://github.com/acme/team-agent-setup.git", "optional": true }],
-  // Add "projects": "../team-agent-setup/projects" to also use that repository's project layers ("path" can then be left out).
+  // "extends": [{ "name": "team", "path": "../team-agent-layers/base", "git": "https://github.com/acme/team-agent-layers.git", "optional": true }],
+  // Add "projects": "../team-agent-layers/projects" to also use that repository's project layers ("path" can then be left out).
   "extends": [],
 
   "base": "base",
@@ -19,14 +19,14 @@
 
   // Variables for *.tmpl files, settings fragments and MCP definitions: {{vars.name}}.
   // Built-ins: {{home}}, {{homeSlash}}, {{os}}, {{hostname}}, {{user}}, {{source}}, {{node}}, {{claudeHome}}, ...
-  // Put machine-specific values in ~/.agent-setup/config.jsonc under "vars" instead of here.
+  // Put machine-specific values in ~/.agent-layers/config.jsonc under "vars" instead of here.
   "vars": {
     "screenshots_dir": "{{homeSlash}}/Pictures/Screenshots"
   },
 
   "options": {
     // secrets.mode:
-    //   "auto"        stdio MCP servers receive secrets through "agent-setup exec"; HTTP servers use env references
+    //   "auto"        stdio MCP servers receive secrets through "agent-layers exec"; HTTP servers use env references
     //                 (skipped, with a warning, for agents whose config cannot reference environment variables)
     //   "reference"   only write ${VAR}-style references; you provide the environment variables
     //   "materialize" write secret values into machine-local files (never into shared project files)

@@ -15,7 +15,7 @@ export function validateName(name) {
 }
 
 function service(ctx) {
-  return ctx.manifestOptions?.secrets?.service || ctx.config.secrets?.service || 'agent-setup';
+  return ctx.manifestOptions?.secrets?.service || ctx.config.secrets?.service || 'agent-layers';
 }
 
 function target(ctx, name) {
@@ -182,11 +182,11 @@ export function backendFor(ctx) {
   if (keychain.available()) {
     return keychain;
   }
-  throw new Error('no OS keychain is available (on Linux install libsecret "secret-tool"). To store secrets in a plain-text file instead, set "secrets": { "backend": "file" } in ~/.agent-setup/config.jsonc');
+  throw new Error('no OS keychain is available (on Linux install libsecret "secret-tool"). To store secrets in a plain-text file instead, set "secrets": { "backend": "file" } in ~/.agent-layers/config.jsonc');
 }
 
 function envOverride(ctx, name) {
-  const key = `AGENT_SETUP_SECRET_${secretEnvName(name)}`;
+  const key = `AGENT_LAYERS_SECRET_${secretEnvName(name)}`;
   return ctx.env[key] !== undefined ? ctx.env[key] : null;
 }
 

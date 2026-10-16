@@ -11,7 +11,7 @@ jobs:
         with:
           node-version: 22
       - name: Lint the setup repository
-        run: npx --yes agent-setup validate --source . --strict
+        run: npx --yes agent-layers validate --source . --strict
       - name: Scan for committed secrets
         uses: gitleaks/gitleaks-action@v2
         env:
