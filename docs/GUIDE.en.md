@@ -378,8 +378,9 @@ Settings in `project.jsonc` you will change most often:
 
 | Setting | Meaning |
 | --- | --- |
+| `"name": "acme"` | The project name. The folder name is used when it is left out. It starts with a letter or digit and uses only letters, digits, `.`, `_` and `-`; any other name is an error |
 | `"targets": "inherit"` | Use all targets of the setup repository. Write `["claude"]` to apply only to that agent |
-| `"memory": { "claude": "project" }` | Keep Claude's auto memory inside the project folder (git-excluded) so it is removed with the folder |
+| `"memory": { "claude": "project" }` | Keep Claude's auto memory inside the project folder (git-excluded) so it is removed with the folder. A relative path inside the project folder also works in place of `"project"`; a path outside the project folder is not applied and is reported as an error |
 | `"purge": { "agentData": true }` | `purge` also removes this project's agent conversation records |
 
 ⚠️ `project purge` is not an undo command. With `agentData` set to `true`, it also removes the project's Claude transcripts and memory, Gemini history and Codex sessions. Add `--keep-agent-data` to keep them.
@@ -462,6 +463,9 @@ How to read `plan` output:
 
 - `--force` backs up the original file before overwriting it.
 - "Executable content" at the end of `plan` lists commands that will run with your user rights (MCP servers, skill scripts, the status line, ...). Make sure you recognize them.
+- Files copied as they are into your home or project folder (`files/home/`, `files/project/`) are listed there too, as `home file:` and `project file:`, because startup items and shell profiles can run whatever their extension.
+- Links (symlinks, junctions) inside the setup repository are copied only when they point to a file inside the same layer folder. Links that point outside the layer or to a folder are not copied, and a warning is shown.
+- Control characters in the output are shown as visible text such as `\x1b`.
 - Password and token values are shown as `***` in `--diff` output.
 
 ## FAQ

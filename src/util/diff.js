@@ -1,4 +1,4 @@
-import { c } from './log.js';
+import { c, printable } from './log.js';
 
 export function lineDiff(a, b, { context = 3, maxCells = 4000000 } = {}) {
   const A = (a || '').split('\n');
@@ -93,11 +93,11 @@ export function formatDiff(a, b, { header = '', context = 3 } = {}) {
     lines.push(c.cyan('@@'));
     for (const [t, l] of h) {
       if (t === '+') {
-        lines.push(c.green(`+${l}`));
+        lines.push(c.green(`+${printable(l)}`));
       } else if (t === '-') {
-        lines.push(c.red(`-${l}`));
+        lines.push(c.red(`-${printable(l)}`));
       } else {
-        lines.push(c.gray(` ${l}`));
+        lines.push(c.gray(` ${printable(l)}`));
       }
     }
   }

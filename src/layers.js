@@ -3,7 +3,7 @@ import path from 'node:path';
 import { splitFrontmatter } from './formats/frontmatter.js';
 import { parseJsonc } from './formats/jsonc.js';
 import { parseTomlValue } from './formats/toml.js';
-import { readText, listFiles, listDirs, isDir, isProbablyText, normalizeEol, fileMode } from './util/fsx.js';
+import { readText, listFiles, listDirs, isDir, isFile, isProbablyText, normalizeEol, fileMode } from './util/fsx.js';
 
 const OS_TAGS = ['windows', 'macos', 'linux'];
 
@@ -25,6 +25,30 @@ function baseId(fileName) {
   return stripOsTag(fileName).replace(/\.tmpl$/, '').replace(/\.(md|mdc|txt)$/, '');
 }
 
+function realpathOrNull(p) {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return null;
+  }
+}
+
+function layerFileLister(layerDir, skipped) {
+  const rootReal = realpathOrNull(layerDir);
+  return (dir, opts) => listFiles(dir, opts).filter((f) => {
+    if (!f.link) {
+      return true;
+    }
+    const real = realpathOrNull(f.abs);
+    const rel = real && rootReal ? path.relative(rootReal, real) : null;
+    const inside = Boolean(rel) && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel) && isFile(real);
+    if (!inside) {
+      skipped.push(f.abs);
+    }
+    return inside;
+  });
+}
+
 function readFileContent(abs) {
   const buf = fs.readFileSync(abs);
   if (isProbablyText(buf)) {
@@ -33,9 +57,9 @@ function readFileContent(abs) {
   return buf;
 }
 
-function loadInstructions(dir, os) {
+function loadInstructions(dir, os, files) {
   const out = [];
-  for (const f of listFiles(dir, { recursive: false })) {
+  for (const f of files(dir, { recursive: false })) {
     const name = path.basename(f.abs);
     if (!/\.md(\.tmpl)?$/.test(stripOsTag(name)) || !matchesOs(name, os)) {
       continue;
@@ -57,18 +81,23 @@ function loadInstructions(dir, os) {
   return out.sort((a, b) => a.id.localeCompare(b.id));
 }
 
-function loadSkills(dir) {
+function loadSkills(dir, lister) {
   const out = [];
   for (const name of listDirs(dir)) {
     const skillDir = path.join(dir, name);
     const skillFile = path.join(skillDir, 'SKILL.md');
+    const listed = lister(skillDir);
+    const has = (n) => listed.some((f) => f.rel.toLowerCase() === n.toLowerCase());
+    if (!has('SKILL.md')) {
+      continue;
+    }
     const r = readText(skillFile);
     if (!r) {
       continue;
     }
     const { data } = splitFrontmatter(r.text);
-    const files = listFiles(skillDir).map((f) => ({ rel: f.rel, content: readFileContent(f.abs), mode: fileMode(f.abs) }));
-    const sidecarText = readText(path.join(skillDir, 'agent-layers.jsonc'));
+    const files = listed.map((f) => ({ rel: f.rel, content: readFileContent(f.abs), mode: fileMode(f.abs) }));
+    const sidecarText = has('agent-layers.jsonc') ? readText(path.join(skillDir, 'agent-layers.jsonc')) : null;
     const sidecar = sidecarText ? parseJsonc(sidecarText.text, path.join(skillDir, 'agent-layers.jsonc')) : {};
     const targets = sidecar.targets || data['agent-layers-targets'];
     out.push({
@@ -83,9 +112,9 @@ function loadSkills(dir) {
   return out;
 }
 
-function loadMarkdownItems(dir, os) {
+function loadMarkdownItems(dir, os, files) {
   const out = [];
-  for (const f of listFiles(dir, { recursive: false })) {
+  for (const f of files(dir, { recursive: false })) {
     const name = path.basename(f.abs);
     if (!/\.md$/.test(stripOsTag(name)) || !matchesOs(name, os)) {
       continue;
@@ -105,9 +134,9 @@ function loadMarkdownItems(dir, os) {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function loadMcp(dir, os) {
+function loadMcp(dir, os, files) {
   const out = [];
-  for (const f of listFiles(dir, { recursive: false })) {
+  for (const f of files(dir, { recursive: false })) {
     const name = path.basename(f.abs);
     if (!/\.jsonc?$/.test(stripOsTag(name)) || !matchesOs(name, os)) {
       continue;
@@ -117,14 +146,17 @@ function loadMcp(dir, os) {
     if (def.enabled === false) {
       continue;
     }
+    if (typeof serverName !== 'string' || serverName.startsWith('-') || /[\u0000-\u001f\u007f-\u009f]/.test(serverName)) {
+      throw new Error(`${f.abs}: MCP server name ${JSON.stringify(serverName)} must not start with "-" or contain control characters`);
+    }
     out.push({ name: serverName, file: f.abs, def });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function loadSettings(dir, os) {
+function loadSettings(dir, os, files) {
   const out = {};
-  for (const f of listFiles(dir, { recursive: false })) {
+  for (const f of files(dir, { recursive: false })) {
     const name = path.basename(f.abs);
     if (!matchesOs(name, os)) {
       continue;
@@ -144,11 +176,11 @@ function loadSettings(dir, os) {
   return out;
 }
 
-function loadFiles(dir, os) {
+function loadFiles(dir, os, files) {
   const out = {};
   for (const adapterId of listDirs(dir)) {
     const root = path.join(dir, adapterId);
-    for (const f of listFiles(root)) {
+    for (const f of files(root)) {
       const parts = f.rel.split('/');
       const last = parts[parts.length - 1];
       if (!matchesOs(last, os)) {
@@ -163,24 +195,27 @@ function loadFiles(dir, os) {
 
 export function loadLayer(dir, name, os) {
   if (!isDir(dir)) {
-    return { name, dir, missing: true, instructions: [], skills: [], commands: [], agents: [], mcp: [], settings: {}, files: {} };
+    return { name, dir, missing: true, instructions: [], skills: [], commands: [], agents: [], mcp: [], settings: {}, files: {}, skipped: [] };
   }
+  const skipped = [];
+  const files = layerFileLister(dir, skipped);
   return {
     name,
     dir,
     missing: false,
-    instructions: loadInstructions(path.join(dir, 'instructions'), os),
-    skills: loadSkills(path.join(dir, 'skills')),
-    commands: loadMarkdownItems(path.join(dir, 'commands'), os),
-    agents: loadMarkdownItems(path.join(dir, 'agents'), os),
-    mcp: loadMcp(path.join(dir, 'mcp'), os),
-    settings: loadSettings(path.join(dir, 'settings'), os),
-    files: loadFiles(path.join(dir, 'files'), os),
+    instructions: loadInstructions(path.join(dir, 'instructions'), os, files),
+    skills: loadSkills(path.join(dir, 'skills'), files),
+    commands: loadMarkdownItems(path.join(dir, 'commands'), os, files),
+    agents: loadMarkdownItems(path.join(dir, 'agents'), os, files),
+    mcp: loadMcp(path.join(dir, 'mcp'), os, files),
+    settings: loadSettings(path.join(dir, 'settings'), os, files),
+    files: loadFiles(path.join(dir, 'files'), os, files),
+    skipped,
   };
 }
 
 export function mergeLayers(layers) {
-  const merged = { layers: layers.map((l) => l.name), instructions: [], skills: [], commands: [], agents: [], mcp: [], settings: {}, files: {}, shadowed: [] };
+  const merged = { layers: layers.map((l) => l.name), instructions: [], skills: [], commands: [], agents: [], mcp: [], settings: {}, files: {}, shadowed: [], skipped: layers.flatMap((l) => l.skipped || []) };
   const byName = (key, item, layer) => {
     const list = merged[key];
     const idx = list.findIndex((x) => x.name === item.name);

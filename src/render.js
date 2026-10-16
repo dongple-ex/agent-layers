@@ -220,6 +220,21 @@ export function normalizeKey(p) {
   return process.platform === 'win32' ? r.toLowerCase() : r;
 }
 
+export function isWithinPath(child, parent) {
+  const c = normalizeKey(child);
+  const p = normalizeKey(parent);
+  return c === p || c.startsWith(p.endsWith(path.sep) ? p : p + path.sep);
+}
+
+export function assertOutputsWithin(outputs, roots, files = []) {
+  const allowed = new Set(files.map(normalizeKey));
+  for (const o of outputs) {
+    if (!allowed.has(normalizeKey(o.path)) && !roots.some((r) => isWithinPath(o.path, r))) {
+      throw new Error(`refusing to write ${o.path}: project outputs must stay inside ${roots[0]}`);
+    }
+  }
+}
+
 function convertCommand(cmd, format) {
   if (format === 'claude') {
     return { ext: '.md', content: cmd.raw.endsWith('\n') ? cmd.raw : `${cmd.raw}\n` };
@@ -712,6 +727,7 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
 
   const homeFiles = scope === 'user' ? merged.files.home || [] : merged.files.project || [];
   for (const f of homeFiles) {
+    executables.add(`${scope === 'user' ? 'home' : 'project'} file: ${f.rel}`);
     const buf = fs.readFileSync(f.abs);
     const content = f.template ? renderString(buf.toString('utf8').replace(/^﻿/, ''), vars, { source: f.abs }) : buf;
     const base = scope === 'user' ? p.home : root;
@@ -726,8 +742,10 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
 
   if (scope === 'project' && project.memory?.claude && adapterIds.includes('claude')) {
     const memDir = project.memory.claude === 'project' ? path.join(root, '.agent-layers', 'memory', 'claude') : path.resolve(root, String(project.memory.claude));
-    out.add({ type: 'json', path: path.join(root, '.claude', 'settings.local.json'), fragment: { autoMemoryDirectory: memDir }, atomic: [], adapter: 'claude', scope, exclude: true, skipIfTracked: true });
-    if (memDir.startsWith(root)) {
+    if (!isWithinPath(memDir, root) || normalizeKey(memDir) === normalizeKey(root)) {
+      notes.push({ level: 'error', msg: `memory.claude must be a folder inside ${root}; ${memDir} was not used` });
+    } else {
+      out.add({ type: 'json', path: path.join(root, '.claude', 'settings.local.json'), fragment: { autoMemoryDirectory: memDir }, atomic: [], adapter: 'claude', scope, exclude: true, skipIfTracked: true });
       const rel = path.relative(root, memDir).replace(/\\/g, '/').split('/')[0];
       out.add({ type: 'file', path: path.join(memDir, 'README.md'), content: `# Claude auto memory for ${project.name}\n\nThis folder is local to this machine and is removed by "agent-layers project purge ${project.name}".\n`, adapter: 'claude', scope, exclude: true, excludePath: `/${rel}/`, skipIfTracked: true });
     }
@@ -766,6 +784,7 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
     } else if (!gd && excl.length) {
       notes.push({ level: 'warn', msg: `${root} is not a git repository; generated private files cannot be excluded from version control` });
     }
+    assertOutputsWithin(outputs, [root, gd].filter(Boolean), [p.claudeJson]);
   }
 
   return { outputs, notes, requiredEnv: [...requiredEnv].sort(), executables: [...executables].sort(), vars };

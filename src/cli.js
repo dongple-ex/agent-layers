@@ -3,7 +3,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { createContext, hasSource } from './context.js';
-import { loadManifest, listProjects, getProject, projectSources } from './manifest.js';
+import { loadManifest, listProjects, getProject, projectSources, PROJECT_NAME_RE } from './manifest.js';
 import { loadLayer, mergeLayers } from './layers.js';
 import { ADAPTERS, getAdapter } from './adapters/registry.js';
 import { renderScope, resolveTargets, detectAdapters, gitDir, normalizeKey, trackedFiles } from './render.js';
@@ -20,7 +20,7 @@ import { readText, writeTextAtomic, exists, isDir, listFiles, sha256, hashFiles,
 import { parseJsonc, stringifyJson } from './formats/jsonc.js';
 import { getBlockContent, upsertBlock } from './formats/mdblock.js';
 import { run, runInherit, which } from './util/proc.js';
-import { info, warn, error, table, c, mask, setQuiet } from './util/log.js';
+import { info, warn, error, table, c, mask, setQuiet, printable } from './util/log.js';
 import { maskSecretFields } from './util/redact.js';
 
 const PKG = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
@@ -208,15 +208,16 @@ function printPlan(ctx, plan, rendered, flags, title) {
     info(JSON.stringify({ title, summary: summarize(plan), items, notes: rendered.notes, requiredEnv: rendered.requiredEnv }, null, 2));
     return;
   }
-  info(c.bold(title));
+  info(c.bold(printable(title)));
   const colorFor = { create: c.green, update: c.cyan, remove: c.magenta, conflict: c.yellow, drift: c.yellow, error: c.red, noop: c.gray, forget: c.gray };
   const visible = plan.items.filter((it) => flags.all || it.action !== 'noop');
   for (const it of visible) {
     const col = colorFor[it.action] || ((s) => s);
-    const label = itemLabel(ctx, it);
+    const label = printable(itemLabel(ctx, it));
     const who = it.adapters.length > 2 ? `${it.adapters.slice(0, 2).join(',')}+${it.adapters.length - 2}` : it.adapters.join(',');
     info(`  ${col(it.action.padEnd(8))} ${who.padEnd(20)} ${it.type.padEnd(10)} ${label}`);
-    for (const l of describeItem(it, { diff: flags.diff, redact })) {
+    const shown = { ...it, reason: it.reason && printable(it.reason), details: (it.details || []).map(printable) };
+    for (const l of describeItem(shown, { diff: flags.diff, redact })) {
       info(l);
     }
   }
@@ -226,7 +227,7 @@ function printPlan(ctx, plan, rendered, flags, title) {
   if (notes.length) {
     info(c.bold('\nNotes'));
     for (const n of notes) {
-      info(`  ${n.level === 'error' ? c.red(n.level) : n.level === 'warn' ? c.yellow(n.level) : c.gray(n.level)} ${n.msg}`);
+      info(`  ${n.level === 'error' ? c.red(n.level) : n.level === 'warn' ? c.yellow(n.level) : c.gray(n.level)} ${printable(n.msg)}`);
     }
     const hidden = rendered.notes.length - notes.length;
     if (hidden > 0) {
@@ -237,13 +238,13 @@ function printPlan(ctx, plan, rendered, flags, title) {
   if ((rendered.executables || []).length && (changing || flags.all)) {
     info(c.bold('\nExecutable content (runs with your user rights; review before applying)'));
     for (const e of rendered.executables) {
-      info(`  ${e}`);
+      info(`  ${printable(e)}`);
     }
   }
   if (rendered.requiredEnv.length) {
     info(c.bold('\nEnvironment variables the rendered configs expect'));
     for (const e of rendered.requiredEnv) {
-      info(`  ${e}`);
+      info(`  ${printable(e)}`);
     }
   }
   if (counts.conflict || counts.drift) {
@@ -254,7 +255,7 @@ function printPlan(ctx, plan, rendered, flags, title) {
 function printResults(ctx, results, plan) {
   for (const r of results) {
     const mark = r.status === 'done' ? c.green('done') : r.status === 'failed' ? c.red('failed') : c.yellow('skipped');
-    info(`  ${mark.padEnd(8)} ${r.it.action.padEnd(8)} ${r.it.type.padEnd(10)} ${itemLabel(ctx, r.it)}${r.error ? `  ${c.red(r.error)}` : ''}`);
+    info(`  ${mark.padEnd(8)} ${r.it.action.padEnd(8)} ${r.it.type.padEnd(10)} ${printable(itemLabel(ctx, r.it))}${r.error ? `  ${c.red(printable(r.error))}` : ''}`);
   }
   if (plan.backups.length) {
     info(c.gray(`\nBackups: ${short(ctx, path.join(ctx.paths.stateDir, 'backups', plan.stamp))}`));
@@ -269,6 +270,7 @@ function userRender(ctx, manifest, flags) {
   for (const s of merged.shadowed) {
     rendered.notes.push({ level: 'info', msg: `${s.kind} "${s.name}" from layer ${s.by} overrides layer ${s.over}` });
   }
+  pushSkippedLinks(rendered, merged);
   return { rendered, adapters, layers };
 }
 
@@ -284,7 +286,14 @@ function projectRender(ctx, manifest, flags, nameArg) {
   const merged = mergeLayers([layer]);
   const adapters = resolveTargets(ctx, manifest, { project, only: list(flags.only), skip: list(flags.skip) });
   const rendered = renderScope(ctx, { scope: 'project', manifest, merged, adapters, project, root, resolveSecret: secretResolver(ctx) });
+  pushSkippedLinks(rendered, merged);
   return { rendered, adapters, project, root, how };
+}
+
+function pushSkippedLinks(rendered, merged) {
+  for (const f of merged.skipped) {
+    rendered.notes.push({ level: 'warn', msg: `${f}: a link to a folder or to a file outside its layer folder; not copied` });
+  }
 }
 
 async function cmdPlanApply(ctx, flags, positional, apply) {
@@ -606,7 +615,7 @@ async function cmdProject(ctx, flags, positional) {
   }
   if (sub === 'init') {
     const name = positional[1];
-    if (!name || !/^[a-z0-9][a-z0-9._-]*$/i.test(name)) {
+    if (!name || !PROJECT_NAME_RE.test(name)) {
       throw new Error('usage: agent-layers project init <name> [--mode private|shared] [--remote <glob>] [--dir-name <glob>]');
     }
     const dir = path.join(manifest.projectsDir, name);

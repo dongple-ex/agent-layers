@@ -4,6 +4,7 @@ import { readText, isDir, listDirs, isFile } from './util/fsx.js';
 
 export const MANIFEST_NAMES = ['agent-layers.jsonc', 'agent-layers.json'];
 export const PROJECT_MANIFEST_NAMES = ['project.jsonc', 'project.json'];
+export const PROJECT_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/i;
 
 export const DEFAULT_OPTIONS = {
   secrets: { backend: 'auto', mode: 'auto', service: 'agent-layers' },
@@ -110,8 +111,12 @@ export function loadProjectManifest(dir, file, folderName) {
   if (!['private', 'shared'].includes(mode)) {
     throw new Error(`${file}: mode must be "private" or "shared"`);
   }
+  const name = raw.name || folderName;
+  if (typeof name !== 'string' || !PROJECT_NAME_RE.test(name)) {
+    throw new Error(`${file}: project name ${JSON.stringify(name)} must start with a letter or digit and use only letters, digits, ".", "_" and "-"`);
+  }
   return {
-    name: raw.name || folderName,
+    name,
     dir,
     file,
     description: raw.description || '',

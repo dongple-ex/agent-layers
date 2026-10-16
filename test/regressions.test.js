@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseTomlValue } from '../src/formats/toml.js';
 import { run } from '../src/util/proc.js';
+import { assertOutputsWithin } from '../src/render.js';
 
 const BIN = fileURLToPath(new URL('../bin/agent-layers.js', import.meta.url));
 const HAS_GIT = spawnSync('git', ['--version']).status === 0;
@@ -589,4 +590,95 @@ test('#19 extends projects: a missing folder is reported unless optional, and sy
   assert.match(r.out, /git pull --ff-only \(.*team-clone\)/);
   r = cli(sb, ['project', 'list']);
   assert.match(r.out, /a6a\s+extends:team/);
+});
+
+test('#20 project names from project.jsonc must be plain names, and project outputs never leave the project folder', { skip: !HAS_GIT }, () => {
+  const sb = sandbox();
+  manifest(sb, ['claude']);
+  const repo = path.join(sb.home, 'work', 'proj');
+  gitFolder(repo);
+  write(path.join(sb.source, 'projects', 'p', 'project.jsonc'), JSON.stringify({ name: 'x/../../../../../../.claude/rules/escape', mode: 'private', match: { dirName: ['proj'] } }));
+  write(path.join(sb.source, 'projects', 'p', 'instructions', '00.md'), '# escape\n');
+  const r = cli(sb, ['project', 'apply', '--yes'], { cwd: repo });
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /project\.jsonc: project name ".*" must start with a letter or digit/);
+  assert.ok(!fs.existsSync(path.join(sb.home, '.claude', 'rules', 'escape.md')));
+  const claudeJson = path.join(sb.home, '.claude.json');
+  assert.throws(() => assertOutputsWithin([{ path: path.join(sb.home, '.claude', 'rules', 'x.md') }], [repo], [claudeJson]), /refusing to write/);
+  assert.throws(() => assertOutputsWithin([{ path: `${repo}-evil` }], [repo], [claudeJson]), /refusing to write/);
+  assert.doesNotThrow(() => assertOutputsWithin([{ path: path.join(repo, '.claude', 'rules', 'x.md') }, { path: claudeJson }], [repo], [claudeJson]));
+});
+
+test('#21 links in a layer are copied only when they point to a file inside that layer', () => {
+  const sb = sandbox();
+  manifest(sb, ['claude']);
+  const skill = path.join(sb.source, 'base', 'skills', 'demo');
+  write(path.join(skill, 'SKILL.md'), '---\nname: demo\ndescription: d\n---\n# Demo\n');
+  write(path.join(sb.root, 'outside', 'secret.txt'), 'outside secret\n');
+  write(path.join(sb.source, 'base', 'shared', 'inside.txt'), 'inside text\n');
+  let fileLinks = true;
+  try {
+    fs.symlinkSync(path.join(sb.root, 'outside', 'secret.txt'), path.join(skill, 'leak.txt'), 'file');
+    fs.symlinkSync(path.join(sb.source, 'base', 'shared', 'inside.txt'), path.join(skill, 'ok.txt'), 'file');
+  } catch {
+    fileLinks = false;
+    try {
+      fs.symlinkSync(path.join(sb.root, 'outside'), path.join(skill, 'leakdir'), 'junction');
+    } catch {
+      return;
+    }
+  }
+  const r = cli(sb, ['apply', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /a link to a folder or to a file outside its layer folder; not copied/);
+  const out = path.join(sb.home, '.claude', 'skills', 'demo');
+  assert.ok(fs.existsSync(path.join(out, 'SKILL.md')));
+  assert.ok(!fs.existsSync(path.join(out, 'leak.txt')));
+  assert.ok(!fs.existsSync(path.join(out, 'leakdir')));
+  if (fileLinks) {
+    assert.equal(read(path.join(out, 'ok.txt')), 'inside text\n');
+  }
+});
+
+test('#22 files copied straight into the home folder are listed as executable content', () => {
+  const sb = sandbox();
+  manifest(sb, ['claude']);
+  write(path.join(sb.source, 'base', 'files', 'home', '.bashrc'), 'echo hi\n');
+  write(path.join(sb.source, 'base', 'files', 'home', 'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'poc.cmd'), '@echo poc\r\n');
+  const r = cli(sb, ['plan']);
+  assert.equal(r.code, 0, r.out);
+  const section = r.out.split('Executable content')[1] || '';
+  assert.match(section, /home file: \.bashrc/);
+  assert.match(section, /home file: AppData\/Roaming\/Microsoft\/Windows\/Start Menu\/Programs\/Startup\/poc\.cmd/);
+});
+
+test('#23 control characters from layers are shown as text, and MCP names cannot look like options', () => {
+  const sb = sandbox();
+  manifest(sb, ['claude']);
+  write(path.join(sb.source, 'base', 'mcp', 'esc.jsonc'), JSON.stringify({ command: 'node', args: ['-e', '1', '\u001b[1A\u001b[2Khidden'] }));
+  write(path.join(sb.source, 'base', 'instructions', '10-esc.md'), '# Esc\n\n- line \u001b[2K erased\n');
+  let r = cli(sb, ['plan', '--diff']);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(!r.out.includes('\u001b'), 'raw escape bytes must not reach the terminal');
+  assert.match(r.out, /\\x1b\[1A\\x1b\[2Khidden/);
+  assert.match(r.out, /line \\x1b\[2K erased/);
+  write(path.join(sb.source, 'base', 'mcp', 'esc.jsonc'), JSON.stringify({ name: '--scope', command: 'node' }));
+  r = cli(sb, ['plan']);
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /MCP server name "--scope" must not start with "-"/);
+});
+
+test('#24 the Claude memory folder must stay inside the project folder', { skip: !HAS_GIT }, () => {
+  const sb = sandbox();
+  manifest(sb, ['claude']);
+  const repo = path.join(sb.root, 'proj');
+  gitFolder(repo);
+  write(path.join(sb.source, 'projects', 'p', 'project.jsonc'), JSON.stringify({ name: 'p', mode: 'private', match: { dirName: ['proj'] }, memory: { claude: '../proj-evil/mem' } }));
+  write(path.join(sb.source, 'projects', 'p', 'instructions', '00.md'), '# p\n');
+  const r = cli(sb, ['project', 'apply', '--yes'], { cwd: repo });
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /memory\.claude must be a folder inside/);
+  assert.ok(!fs.existsSync(path.join(sb.root, 'proj-evil')));
+  const local = path.join(repo, '.claude', 'settings.local.json');
+  assert.ok(!fs.existsSync(local) || !read(local).includes('proj-evil'));
 });

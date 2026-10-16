@@ -180,7 +180,7 @@ export function listFiles(dir, { recursive = true } = {}) {
           walk(childAbs, childRel);
         }
       } else if (e.isFile() || e.isSymbolicLink()) {
-        out.push({ abs: childAbs, rel: childRel });
+        out.push({ abs: childAbs, rel: childRel, link: e.isSymbolicLink() });
       }
     }
   };

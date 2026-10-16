@@ -14,6 +14,10 @@ export const c = {
   gray: wrap('90'),
 };
 
+export function printable(s) {
+  return String(s).replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, (ch) => `\\x${ch.charCodeAt(0).toString(16).padStart(2, '0')}`);
+}
+
 let quiet = false;
 
 export function setQuiet(v) {
