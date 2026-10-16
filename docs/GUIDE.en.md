@@ -9,7 +9,7 @@ This guide walks a first-time user through agent-layers, from installation to ev
 | Item | Details |
 | --- | --- |
 | Audience | People who use two or more AI coding agents (Claude Code, Codex, Gemini CLI, ...) or want the same setup on several machines |
-| Version | agent-layers 0.1.0 (prototype) |
+| Version | agent-layers 0.1.1 (prototype) |
 | Engine repository | [github.com/dongple-ex/agent-layers](https://github.com/dongple-ex/agent-layers) |
 | Tested on | Windows 11. macOS and Linux specific features (keychain storage, file mode preservation) have not been run yet |
 
