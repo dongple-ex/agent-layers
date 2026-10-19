@@ -22,11 +22,13 @@ import { getBlockContent, upsertBlock } from './formats/mdblock.js';
 import { run, runInherit, which } from './util/proc.js';
 import { info, warn, error, table, c, mask, setQuiet, printable } from './util/log.js';
 import { maskSecretFields } from './util/redact.js';
+import { loadReviewRules, planRuleChange, saveRuleChange, resolveReviewRules } from './review-rules.js';
+import { reviewSource, compareReviews, validateReviewDecisions, redactReview } from './review.js';
 
 const PKG = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const TEMPLATE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'init');
 
-const BOOLEAN_FLAGS = new Set(['yes', 'y', 'force', 'diff', 'json', 'quiet', 'q', 'help', 'h', 'show', 'overwrite', 'keep-agent-data', 'remove-source', 'all', 'fast', 'no-removals', 'version', 'v', 'project-only', 'user-only', 'prune']);
+const BOOLEAN_FLAGS = new Set(['yes', 'y', 'force', 'diff', 'json', 'quiet', 'q', 'help', 'h', 'show', 'overwrite', 'keep-agent-data', 'remove-source', 'all', 'fast', 'no-removals', 'version', 'v', 'project-only', 'user-only', 'prune', 'write', 'packet', 'strict']);
 
 export function parseArgs(argv) {
   const positional = [];
@@ -906,6 +908,98 @@ function cmdValidate(ctx, flags) {
   return issues.some((i) => i.level === 'error' || (flags.strict && i.level === 'warn')) ? 1 : 0;
 }
 
+async function cmdReview(ctx, flags, positional) {
+  const [sub, action = 'list', id] = positional;
+  const fileFlag = (name) => {
+    if (flags[name] === undefined) {
+      return null;
+    }
+    if (typeof flags[name] !== 'string' || !flags[name].trim()) {
+      throw new Error(`--${name} requires a file path`);
+    }
+    return path.resolve(flags[name]);
+  };
+  const rulesFile = fileFlag('rules');
+  const readInput = () => {
+    const file = fileFlag('input');
+    if (!file) {
+      throw new Error('--input <file.json> is required');
+    }
+    return parseJsonc(fs.readFileSync(file, 'utf8'), file);
+  };
+  const emit = (value) => info(JSON.stringify(redactReview(value), null, 2));
+  if (sub === 'rules') {
+    const loaded = loadReviewRules(ctx.sourceDir, rulesFile);
+    if (['list', 'validate'].includes(action)) {
+      if (flags.write) {
+        throw new Error('--write is only allowed for rules add/update/enable/disable');
+      }
+      emit(action === 'list' ? { file: loaded.file, rules: loaded.rules } : { valid: true, file: loaded.file, rules: loaded.rules.length });
+      return 0;
+    }
+    if (!['add', 'update', 'enable', 'disable'].includes(action) || !id || positional.length !== 3) {
+      throw new Error('usage: review rules add|update|enable|disable <id> [--input <rule.json>] [--write]');
+    }
+    if (rulesFile) {
+      throw new Error('룰 변경은 --source 아래 review-rules.jsonc에만 저장합니다. --rules는 조회·비교에 사용하십시오.');
+    }
+    prepare(ctx);
+    const change = planRuleChange(loaded, action, id, ['add', 'update'].includes(action) ? readInput() : null);
+    const before = reviewSource(ctx.sourceDir, { loadedRules: loaded });
+    const after = reviewSource(ctx.sourceDir, { loadedRules: { ...loaded, config: change.config, rules: resolveReviewRules(change.config, loaded.file) } });
+    const preview = { readOnly: !flags.write, action, file: change.file, before: change.before, after: change.after, impact: compareReviews(before, after), notice: '저장 시 JSONC 주석은 제거되며 원본은 .bak 파일로 보존됩니다. MD 파일은 수정하지 않습니다.' };
+    if (!flags.write) {
+      emit(preview);
+      return 0;
+    }
+    if (!flags.json) {
+      emit(preview);
+    }
+    if (!(await confirm('검증 룰 변경을 저장하시겠습니까?', flags))) {
+      return 1;
+    }
+    const saved = saveRuleChange(change);
+    emit({ ...preview, saved });
+    return 0;
+  }
+  if (flags.write) {
+    throw new Error('MD 검토는 읽기 전용입니다. --write는 룰 변경 명령에만 사용할 수 있습니다.');
+  }
+  if (sub && sub !== 'check') {
+    throw new Error('usage: review [--packet] [--compare <rules.jsonc>] | review check --input <result.json> | review rules ...');
+  }
+  const report = reviewSource(ctx.sourceDir, { rulesFile, packet: Boolean(flags.packet) });
+  if (sub === 'check') {
+    const checked = validateReviewDecisions(report, readInput());
+    emit(checked);
+    return checked.schemaValid && checked.coverageComplete ? 0 : 1;
+  }
+  const compare = fileFlag('compare');
+  if (compare) {
+    report.comparison = compareReviews(report, reviewSource(ctx.sourceDir, { rulesFile: compare }));
+  }
+  if (flags.json || flags.packet || compare) {
+    emit(report);
+  } else {
+    info('MD 검토 (읽기 전용) — AI 의미 검토는 실행하지 않았습니다.');
+    for (const f of report.findings) {
+      info(`  ${f.status} [${f.ruleId}] ${f.file}:${f.line} ${f.reason}`);
+    }
+    for (const e of report.exceptions) {
+      info(`  예외 [${e.ruleId}] ${e.file}: ${e.exceptions.map((v) => v.reason).join('; ')}`);
+    }
+    for (const item of report.skipped) {
+      info(`  검사 제외 ${item.path}: ${item.reason}`);
+    }
+    for (const item of report.ruleNotices) {
+      info(`  룰 재검토 [${item.ruleId}]: ${item.reason}`);
+    }
+    info(`\n문서 ${report.summary.documents}, 정적 발견 ${report.summary.staticFindings}, AI 검토 대기 ${report.summary.pending}, 예외 ${report.summary.exceptions}, 검사 제외 ${report.summary.skipped}, 미확인 링크 ${report.summary.uncheckedLinks}`);
+    info('AI 검토 자료: review --packet --json. 결과 형식 검사: review check --input <result.json>.');
+  }
+  return flags.strict && (report.findings.length || report.skipped.length || report.uncheckedLinks.length || report.ruleNotices.length || !report.documents.length) ? 1 : 0;
+}
+
 async function cmdUninstall(ctx, flags) {
   const state = loadState(ctx);
   const scopes = [...new Set(Object.values(state.outputs).map((r) => r.scopeKey))];
@@ -941,6 +1035,12 @@ Setup
   agents                              list supported agents and where they read config
   show [layer] [--json]               list what each layer holds and which agents receive it
   validate [--strict]                 lint the setup repository (skills, MCP, secrets)
+  review [--packet] [--json] [--strict]  read-only MD checks and pending AI review tasks
+  review --compare <rules.jsonc>       preview changed review results without writing
+  review check --input <result.json>   validate AI result shape, coverage and source hash
+  review rules list|validate [--rules <file>]
+  review rules add|update <id> --input <rule.json> [--write] [--yes]
+  review rules enable|disable <id> [--write] [--yes]
   import [--from claude,codex,...]    capture existing user-level config into the base layer
 
 Base layer (home directory)
@@ -1010,6 +1110,8 @@ export async function main(argv) {
       return cmdImport(ctx, flags);
     case 'validate':
       return cmdValidate(ctx, flags);
+    case 'review':
+      return cmdReview(ctx, flags, positional);
     case 'uninstall':
       return cmdUninstall(ctx, flags);
     default:

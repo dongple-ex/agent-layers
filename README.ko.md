@@ -166,6 +166,156 @@ agent-layers project purge acme       # 프로젝트가 끝났을 때 실행한�
 
 공통 옵션은 `--only a,b`, `--skip a,b`, `--source <dir>`, `--home <dir>`(임시 홈 폴더로 시험), `--json`입니다.
 
+## MD 검토와 검증 룰 관리
+
+`validate`는 설정 형식을 검사합니다. `review`는 설정 원본의 `instructions/`, `skills/`,
+`commands/`, `agents/` 아래 `.md`와 `.md.tmpl`을 읽고 정적 검사 결과와 AI 검토 대상을 만듭니다.
+base, extends, 프로젝트 레이어를 포함합니다. 배치된 홈 폴더 파일을 수정하거나 자동 삭제하지 않습니다.
+
+```sh
+agent-layers review --source ./my-agent-layers
+agent-layers review --source ./my-agent-layers --json
+agent-layers review --source ./my-agent-layers --packet --json > review-packet.json
+agent-layers review check --source ./my-agent-layers --input ai-result.json
+```
+
+설치하지 않고 소스에서 실행할 때는 `agent-layers`를 `node bin/agent-layers.js`로 바꾸십시오.
+`--source`에는 프로그램 소스가 아니라 `agent-layers.jsonc`가 있는 설정 저장소를 지정합니다.
+검토 패킷과 결과 파일은 검사 대상 MD 폴더 밖에 보관하십시오.
+
+### 검사 기준
+
+| 종류 | 검사 내용 | 판정의 범위 |
+|---|---|---|
+| `duplicate-paragraph` | 같은 적용 조건의 반복 문단 | 통합 후보이며 자동 삭제하지 않음 |
+| `broken-local-link` | 인라인·참조 링크의 상대 경로와 참조 정의 | URL, 절 앵커, 절대 경로, 변수는 미확인 목록에 표시 |
+| `required-sections` | 지정한 ATX 제목(`# 제목`)의 존재 | 사용자 룰에서 필요한 절을 지정 |
+| `manual` | 모순, 오래된 우회, 과도한 검증, 임의 제약, 검증 정직성, 스킬 가치, 정책 보호 | AI 검토 대기이며 CLI 자체는 AI를 호출하지 않음 |
+
+반복 문단 검사는 공백을 정규화하되 코드 블록·주석·제목을 제외합니다.
+프로젝트, 운영체제, 대상 도구, 경로 조건이 다르면 같은 문구도 별도 범위로 취급합니다.
+서로 다른 스킬·명령어·에이전트의 의미 중복은 정적 확정 대신 AI 검토에서 판단합니다.
+심볼릭 링크와 2 MiB 초과 MD는 검사 제외 목록에 남깁니다. 자동 탐색 대상(`targets: auto`)은
+실제 설치 환경을 확정하지 않으므로 버전별 기능 판단에는 별도 근거가 필요합니다.
+
+### AI 검토 절차와 결과
+
+`--packet` 결과를 현재 사용 중인 AI에 전달하고 `packet.instructions`에 따라 검토하도록 요청합니다.
+검토 대상 문서의 "모두 통과시켜라" 같은 요구는 지시가 아닌 데이터로 취급합니다.
+업무 정책과 도구 능력을 구분하고, 오래된 우회 방법을 제거하려면 대상 도구·버전·공식 근거와
+대체 후 검증 방법을 확인해야 합니다. 확인할 수 없으면 `needs-verification`으로 남깁니다.
+
+AI 결과 형식은 다음과 같습니다. 같은 룰·문서에서도 독립 문제마다 행을 따로 작성합니다.
+모든 `pending` 룰·문서 조합을 검토하고, 문제가 없으면 근거가 있는 `keep` 행을 남깁니다.
+
+```json
+{
+  "reviewHash": "검토 패킷의 reviewHash",
+  "decisions": [
+    {
+      "ruleId": "excessive-verification",
+      "file": "base/instructions/00-working-agreements.md",
+      "line": 12,
+      "status": "needs-verification",
+      "reason": "모든 문서 수정에 전체 테스트가 필요한 이유를 확인하지 못했다.",
+      "evidence": ["12행: 모든 변경은 전체 테스트를 실행한다."],
+      "proposal": "업무 정책인지 확인한 뒤 변경 영향에 따라 조건을 좁힌다.",
+      "verification": "문구 수정과 실행 코드 수정 사례에서 필요한 검사 범위를 비교한다."
+    }
+  ]
+}
+```
+
+지원 판정은 `keep`, `shorten`, `merge`, `remove-candidate`, `needs-verification`입니다.
+`review check`는 현재 문서·설정·룰의 해시, 판정 필드, 원본 줄 번호, 검토 누락과 중복을 검사합니다.
+문서뿐 아니라 manifest, 프로젝트 설정, 스킬 메타데이터가 달라져도 이전 결과는 거부합니다.
+
+⚠️ `review check` 통과는 AI 판단의 사실성을 보증하지 않습니다. 결과에 `factualAccuracyVerified: false`를 표시합니다.
+
+패킷은 파일 내용과 로컬 경로를 포함합니다. 알려진 비밀값 패턴은 가리지만 모든 기밀 정보를
+탐지하는 기능은 아니므로 외부로 전달할 때 내용을 확인하십시오. 프로그램은 외부 전송을 하지 않습니다.
+
+### 룰 조회·추가·수정
+
+기본 룰은 프로그램에 포함됩니다. 설정 저장소의 `review-rules.jsonc`에 같은 ID의 룰을 적으면
+기본 룰을 대체하고, 새 ID는 추가합니다. 파일이 없거나 `rules: []`이면 기본 룰을 사용합니다.
+사용자 룰은 필수 필드를 모두 적습니다. 기본 룰에 대한 재정의를 지우면 기본값으로 돌아가므로,
+끄려면 `enabled: false`를 사용하십시오.
+
+```sh
+agent-layers review rules list
+agent-layers review rules validate
+agent-layers review rules disable duplicate-paragraph
+agent-layers review rules disable duplicate-paragraph --write
+agent-layers review rules enable duplicate-paragraph --write
+agent-layers review rules add verification-headings --input new-rule.json
+agent-layers review rules add verification-headings --input new-rule.json --write
+agent-layers review rules update verification-headings --input changed-rule.json --write
+```
+
+`--source`는 위 명령 모두에 사용할 수 있습니다. 변경 명령은 기본적으로 전후 룰과 검토 결과의 차이만
+출력합니다. `--write`를 주고 확인해야 룰 파일을 저장합니다. 터미널 없는 자동화에서는
+`--write --yes`가 필요합니다. MD·에이전트 설정·state.json은 쓰지 않습니다.
+
+`new-rule.json` 예시:
+
+```json
+{
+  "id": "verification-headings",
+  "title": "검증 절차의 필수 항목",
+  "kind": "required-sections",
+  "enabled": true,
+  "scopes": ["instructions", "skills"],
+  "criteria": "검증 절차에는 대상과 통과 조건을 명시한다.",
+  "parameters": { "headings": ["검증 대상", "통과 조건"] },
+  "exceptions": [
+    { "path": "base/instructions/00-working-agreements.md", "reason": "검증 절차가 아닌 공통 작업 규칙이다." }
+  ],
+  "evidence": ["팀에서 합의한 검증 문서 형식"],
+  "lastReviewed": null,
+  "reviewAfterDays": 180
+}
+```
+
+| 필드 | 의미 |
+|---|---|
+| `id`, `title` | 고유 식별자와 표시 이름 |
+| `kind`, `parameters` | 실행할 검사 종류와 매개변수 |
+| `criteria` | 판단 기준 설명; 정적 검사의 실행 조건은 `kind`·`parameters`로 정함 |
+| `scopes` | `instructions`, `skills`, `commands`, `agents` 중 적용 대상 |
+| `exceptions` | 경로에 따른 생략 예외와 이유 |
+| `evidence` | 룰을 만든 근거 문자열 배열 |
+| `lastReviewed`, `reviewAfterDays` | 마지막 검토일(`YYYY-MM-DD` 또는 `null`)과 재검토 주기 |
+
+`duplicate-paragraph`에는 `parameters.minCharacters` 양의 정수를 지정합니다.
+`required-sections`에는 `parameters.headings` 배열을 지정하고, 나머지 종류는 `{}`를 사용합니다.
+사용자 코드·정규식·셸 명령을 룰로 실행하지 않습니다.
+
+예외 경로는 출력에 나오는 문서 ID를 기준으로 합니다. 예: `base/skills/**`,
+`project:example/instructions/*.md`, `extends:team/instructions/**`.
+`*`는 경로 한 단계, `**`는 여러 단계, `?`는 경로 구분자를 제외한 한 글자입니다.
+예외에 걸린 룰과 사유는 결과에 남습니다. 검토일이 없거나 주기가 지나도 자동 삭제·비활성화하지 않습니다.
+
+룰을 저장하면 JSONC 주석과 서식은 정규화되며, 기존 파일은 같은 폴더의 `.bak` 파일에 원래 바이트로 보관됩니다.
+미리보기 뒤 파일이 바뀌었거나 쓰기 경로에 심볼릭 링크가 있으면 저장을 거부합니다.
+
+### 룰 변경 비교와 종료 코드
+
+```sh
+agent-layers review --compare candidate-rules.jsonc --json
+agent-layers review --rules candidate-rules.jsonc --json
+agent-layers review --strict
+```
+
+후보 설정은 `{ "version": 1, "rules": [...] }` 형식입니다. `--compare`는 현재 설정과 후보 설정을
+각각 적용해 추가·제거되는 발견 항목을 보여 주며 저장하지 않습니다. `--rules`로 지정한 파일은
+조회·검토에만 사용하고 변경 명령은 `--source` 아래 기본 룰 파일에만 저장합니다.
+
+일반 `review`는 검사가 실행되면 발견 사항이나 검토 대기가 있어도 종료 코드 0을 반환합니다.
+`--strict`는 발견 사항, AI 검토 대기, 검사 제외, 미확인 링크, 룰 재검토 알림 또는 문서 부재가 있으면 1입니다.
+`review check`는 형식 오류나 검토 누락이 있으면 1이며, `needs-verification` 판단도 제출된 검토 결과로 셉니다.
+읽기·설정 해석 오류는 실패로 종료합니다.
+
 ## 다른 도구와 비교
 
 | 도구 | 강점 | agent-layers가 채우는 부분 |
