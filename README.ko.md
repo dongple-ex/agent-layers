@@ -339,4 +339,4 @@ npm test        # node --test, 의존성 없음
 
 ## 상태
 
-일반 릴리스 0.2.0입니다. npm 패키지 이름은 `agent-layers`입니다. 설치하지 않고 `npx agent-layers`로 실행하거나, 저장소를 내려받아 `node bin/agent-layers.js`로 실행할 수 있습니다.
+일반 릴리스 0.1.2입니다. npm 패키지 이름은 `agent-layers`입니다. 설치하지 않고 `npx agent-layers`로 실행하거나, 저장소를 내려받아 `node bin/agent-layers.js`로 실행할 수 있습니다.
