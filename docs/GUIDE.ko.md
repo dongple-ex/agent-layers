@@ -9,9 +9,9 @@
 | 항목 | 내용 |
 | --- | --- |
 | 대상 | Claude Code, Codex, Gemini CLI 같은 AI 코딩 에이전트를 두 개 이상 쓰거나, 여러 PC에서 같은 설정을 쓰고 싶은 사람 |
-| 기준 버전 | agent-layers 0.1.1 (프로토타입) |
+| 기준 버전 | agent-layers 0.2.0 |
 | 엔진 저장소 | [github.com/dongple-ex/agent-layers](https://github.com/dongple-ex/agent-layers) |
-| 검증한 환경 | Windows 11. macOS·Linux 전용 기능(키체인 저장, 파일 권한 보존)은 아직 실행해 보지 않았습니다 |
+| 이번 버전의 검증 환경 | Linux ARM64 자동 테스트. Windows·macOS·iOS 실기기와 OS 키체인 연동은 이번 버전에서 검증하지 않았습니다 |
 
 | PART | 다루는 내용 | 먼저 읽을 사람 |
 | --- | --- | --- |
