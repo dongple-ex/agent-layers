@@ -10,7 +10,7 @@ machine with one command:
 
 agent-layers renders one source into the native files of Claude Code, OpenAI Codex, Gemini CLI,
 Google Antigravity, GitHub Copilot, Cursor, OpenCode, Zed, Junie, Kiro, Amp, Factory Droid,
-Devin, Qwen Code, Cline and Goose. It merges only the keys and blocks it owns, so files that the
+Devin, Qwen Code, Cline, Goose, Kimi Code and Grok Build. It merges only the keys and blocks it owns, so files that the
 agents rewrite themselves (`~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.claude.json`)
 keep their own content.
 

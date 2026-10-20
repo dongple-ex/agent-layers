@@ -6,7 +6,7 @@
 - **project 레이어**: 프로젝트 폴더 하나에만 적용하고, 프로젝트가 끝나면 폐기하는 설정입니다.
 - **PC 전용 값**: 경로와 비밀값처럼 PC마다 다른 값입니다. 저장소에는 들어가지 않습니다.
 
-원본 하나를 Claude Code, OpenAI Codex, Gemini CLI, Google Antigravity, GitHub Copilot, Cursor, OpenCode, Zed, Junie, Kiro, Amp, Factory Droid, Devin, Qwen Code, Cline, Goose가 각자 읽는 파일 형식으로 변환합니다. 에이전트가 스스로 다시 쓰는 파일(`~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.claude.json`)은 통째로 덮어쓰지 않고, agent-layers가 관리하는 키와 블록만 병합합니다.
+원본 하나를 Claude Code, OpenAI Codex, Gemini CLI, Google Antigravity, GitHub Copilot, Cursor, OpenCode, Zed, Junie, Kiro, Amp, Factory Droid, Devin, Qwen Code, Cline, Goose, Kimi Code, Grok Build가 각자 읽는 파일 형식으로 변환합니다. 에이전트가 스스로 다시 쓰는 파일(`~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.claude.json`)은 통째로 덮어쓰지 않고, agent-layers가 관리하는 키와 블록만 병합합니다.
 
 외부 의존성은 없고 Node.js 18.17 이상에서 동작합니다. Windows, macOS, Linux, WSL을 지원합니다.
 
