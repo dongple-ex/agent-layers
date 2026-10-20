@@ -135,6 +135,8 @@ Neutral MCP definition:
 | `opencode` OpenCode | 2 | `~/.config/opencode/AGENTS.md` | `~/.agents/skills` | `opencode.json` `mcp` | `AGENTS.md` |
 | `junie` Junie | 2 | `~/.junie/AGENTS.md` | `~/.agents/skills` | `~/.junie/mcp/mcp.json` | `AGENTS.md`, `.junie/rules` |
 | `kiro` Kiro | 2 | `~/.kiro/steering/*.md` | `~/.kiro/skills` | `~/.kiro/settings/mcp.json` | `.kiro/steering`, `.kiro/skills` |
+| `kimi` Kimi Code CLI | 2 | `~/.kimi-code/AGENTS.md` (block) | `~/.agents/skills` | `~/.kimi-code/mcp.json` | `AGENTS.md`, `.agents/skills`, `.kimi-code/mcp.json` |
+| `grok` Grok Build | 2 | `~/.grok/AGENTS.md` (block; file name unverified) | `~/.agents/skills` | `~/.grok/config.toml` | `AGENTS.md`, `.grok/rules`, `.grok/skills`, `.grok/config.toml` |
 | `amp`, `factory`, `devin`, `qwen`, `cline`, `goose` | 2 | their global `AGENTS.md`-style files | `~/.agents/skills` or their own folder | some | `AGENTS.md` or their rule folders |
 
 Tier 1 agents are the core targets. Tier 2 agents are best effort: their paths and formats may lag

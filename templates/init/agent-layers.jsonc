@@ -6,7 +6,7 @@
 
   // Agents to configure: "auto" (agents found on each machine), "all", or a list such as
   // ["claude", "codex", "gemini", "antigravity", "copilot", "cursor", "opencode", "zed", "junie", "kiro",
-  //  "amp", "factory", "devin", "qwen", "cline", "goose"]. Run "agent-layers agents" for the full table.
+  //  "amp", "factory", "devin", "qwen", "cline", "goose", "kimi", "grok"]. Run "agent-layers agents" for the full table.
   "targets": "auto",
 
   // Shared layers applied before base, lowest priority first (for example a team repository checkout).
@@ -31,7 +31,7 @@
     //   "reference"   only write ${VAR}-style references; you provide the environment variables
     //   "materialize" write secret values into machine-local files (never into shared project files)
     "secrets": { "backend": "auto", "mode": "auto" },
-    // Install skills into ~/.agents/skills, the shared folder read by Codex, Copilot, Cursor, Gemini CLI, Zed, Junie, OpenCode, Amp, Factory, Goose and Devin.
+    // Install skills into ~/.agents/skills, the shared folder read by Codex, Copilot, Cursor, Gemini CLI, Zed, Junie, OpenCode, Amp, Factory, Goose, Devin, Kimi Code and Grok Build.
     "skills": { "universal": true },
     "instructions": { "header": true },
     // Add AGENTS.md to Gemini CLI's context.fileName so it reads project AGENTS.md files.

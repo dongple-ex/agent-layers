@@ -385,6 +385,10 @@ export function convertMcpServer(name, rawDef, { format, env: envSyntax, policy,
     case 'cursor':
     case 'generic':
       return stdio ? { command, args, ...(hasEnv ? { env } : {}) } : { url, ...(hasHeaders ? { headers } : {}) };
+    case 'kimi':
+      return stdio ? { command, args, ...(hasEnv ? { env } : {}), ...(def.cwd ? { cwd: def.cwd } : {}) } : { ...(transport === 'sse' ? { transport: 'sse' } : {}), url, ...(hasHeaders ? { headers } : {}) };
+    case 'grok':
+      return stdio ? { command, args, ...(hasEnv ? { env } : {}), ...(def.cwd ? { cwd: def.cwd } : {}) } : { url, ...(hasHeaders ? { headers } : {}) };
     case 'opencode':
       return stdio ? { type: 'local', command: [command, ...args], ...(hasEnv ? { environment: env } : {}), enabled: true } : { type: 'remote', url, ...(hasHeaders ? { headers } : {}), enabled: true };
     case 'codex': {

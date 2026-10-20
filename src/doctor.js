@@ -14,7 +14,7 @@ import { backendFor } from './secrets/index.js';
 import { findRepoRoot } from './project.js';
 import { SECRET_KEY, REFERENCE } from './util/redact.js';
 
-const PROJECT_CONFIGS = ['.mcp.json', '.cursor/mcp.json', '.vscode/mcp.json', '.gemini/settings.json', '.codex/config.toml'];
+const PROJECT_CONFIGS = ['.mcp.json', '.cursor/mcp.json', '.vscode/mcp.json', '.gemini/settings.json', '.codex/config.toml', '.kimi-code/mcp.json', '.grok/config.toml'];
 const PKG = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
 

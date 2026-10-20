@@ -309,6 +309,47 @@ export const ADAPTERS = [
       skills: (r) => [j(r, '.agents', 'skills')],
     },
   },
+  {
+    id: 'kimi',
+    tier: 2,
+    name: 'Kimi Code CLI',
+    checked: '2026-10-20',
+    confidence: 'documented',
+    detect: { commands: ['kimi'], dirs: (p) => [p.kimiHome] },
+    user: {
+      instructions: { always: { kind: 'block', file: (p) => j(p.kimiHome, 'AGENTS.md') } },
+      skills: (p) => [j(p.agentsHome, 'skills')],
+      mcp: { kind: 'json', file: (p) => j(p.kimiHome, 'mcp.json'), key: ['mcpServers'], format: 'kimi', env: null },
+      settings: { kind: 'toml', file: (p) => j(p.kimiHome, 'config.toml') },
+      files: (p) => p.kimiHome,
+    },
+    project: {
+      always: { shared: { kind: 'agents-md' }, private: { kind: 'block-if-untracked', file: (r) => j(r, 'AGENTS.md') } },
+      skills: (r) => [j(r, '.agents', 'skills')],
+      mcp: { shared: { kind: 'json', file: (r) => j(r, '.kimi-code', 'mcp.json'), key: ['mcpServers'], format: 'kimi', env: null }, private: { kind: 'json', file: (r) => j(r, '.kimi-code', 'mcp.json'), key: ['mcpServers'], format: 'kimi', env: null } },
+    },
+  },
+  {
+    id: 'grok',
+    tier: 2,
+    name: 'xAI Grok Build',
+    checked: '2026-10-20',
+    confidence: 'rules-file-unverified',
+    detect: { commands: ['grok'], dirs: (p) => [p.grokHome] },
+    notes: ['Grok Build documents global rules in ~/.grok/ without a file name; agent-layers writes ~/.grok/AGENTS.md.', 'Grok Build also reads CLAUDE.md, .claude/rules and Claude skills; with claude as a target the same instructions may load twice.', 'Grok Build skips rule files ignored by git; whether .git/info/exclude counts is unverified, so private-mode rules in .grok/rules may not load.'],
+    user: {
+      instructions: { always: { kind: 'block', file: (p) => j(p.grokHome, 'AGENTS.md') } },
+      skills: (p) => [j(p.agentsHome, 'skills')],
+      mcp: { kind: 'toml', file: (p) => j(p.grokHome, 'config.toml'), table: ['mcp_servers'], format: 'grok', env: '${VAR}' },
+      settings: { kind: 'toml', file: (p) => j(p.grokHome, 'config.toml') },
+      files: (p) => p.grokHome,
+    },
+    project: {
+      always: { shared: { kind: 'agents-md' }, private: { kind: 'file', dir: (r) => j(r, '.grok', 'rules'), dialect: 'plain', prefix: 'agent-layers-' } },
+      skills: (r) => [j(r, '.grok', 'skills')],
+      mcp: { shared: { kind: 'toml', file: (r) => j(r, '.grok', 'config.toml'), table: ['mcp_servers'], format: 'grok', env: '${VAR}' }, private: { kind: 'toml', file: (r) => j(r, '.grok', 'config.toml'), table: ['mcp_servers'], format: 'grok', env: '${VAR}' } },
+    },
+  },
 ];
 
 export const ADAPTER_IDS = ADAPTERS.map((a) => a.id);

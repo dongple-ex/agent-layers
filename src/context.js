@@ -30,6 +30,8 @@ export function resolvePaths({ home, env = process.env, sandbox = false } = {}) 
     codexHome: pick('CODEX_HOME', path.join(h, '.codex')),
     geminiHome: pick('GEMINI_CLI_HOME', path.join(h, '.gemini')),
     copilotHome: pick('COPILOT_HOME', path.join(h, '.copilot')),
+    kimiHome: pick('KIMI_CODE_HOME', path.join(h, '.kimi-code')),
+    grokHome: pick('GROK_HOME', path.join(h, '.grok')),
     stateDir: pick('AGENT_LAYERS_HOME', path.join(h, '.agent-layers')),
   };
 }

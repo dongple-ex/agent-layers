@@ -756,7 +756,7 @@ test('registry splits agents into tier 1 core targets and tier 2 extended target
   const { ADAPTERS } = await import('../src/adapters/registry.js');
   assert.ok(ADAPTERS.every((a) => a.tier === 1 || a.tier === 2));
   assert.deepEqual(ADAPTERS.filter((a) => a.tier === 1).map((a) => a.id).sort(), ['antigravity', 'claude', 'codex', 'copilot', 'cursor', 'gemini', 'zed']);
-  assert.deepEqual(ADAPTERS.filter((a) => a.tier === 2).map((a) => a.id).sort(), ['amp', 'cline', 'devin', 'factory', 'goose', 'junie', 'kiro', 'opencode', 'qwen']);
+  assert.deepEqual(ADAPTERS.filter((a) => a.tier === 2).map((a) => a.id).sort(), ['amp', 'cline', 'devin', 'factory', 'goose', 'grok', 'junie', 'kimi', 'kiro', 'opencode', 'qwen']);
 });
 
 test('agents lists tier 1 and tier 2 targets in separate tables and reports the tier in JSON', () => {
@@ -832,4 +832,66 @@ test('purge lists Antigravity conversation artifacts that link to the project fo
   const brainItems = found.filter((d) => d.path.startsWith(brain));
   assert.deepEqual(brainItems.map((d) => [d.agent, path.basename(d.path), d.remove]), [['antigravity', 'a', null]]);
   assert.ok(!found.some((d) => /config\.json$|installation_id$/.test(d.path)));
+});
+
+test('kimi and grok receive user instructions and MCP servers with secrets handled per format', () => {
+  const sb = sandbox();
+  manifest(sb, ['kimi', 'grok']);
+  write(path.join(sb.source, 'base', 'mcp', 'db.jsonc'), JSON.stringify({ command: 'db-mcp', args: ['--stdio'], env: { DB_PASSWORD: '${secret:db/password}' } }));
+  write(path.join(sb.source, 'base', 'mcp', 'gh.jsonc'), JSON.stringify({ transport: 'http', url: 'https://api.example.com/mcp/', headers: { Authorization: 'Bearer ${secret:github/token}' } }));
+  write(path.join(sb.source, 'base', 'mcp', 'events.jsonc'), JSON.stringify({ transport: 'sse', url: 'https://mcp.example.com/sse' }));
+  const r = cli(sb, ['apply', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(read(path.join(sb.home, '.kimi-code', 'AGENTS.md')), /Be precise\./);
+  assert.match(read(path.join(sb.home, '.grok', 'AGENTS.md')), /Be precise\./);
+  assert.match(r.out, /gh: the kimi config cannot reference environment variables/);
+
+  const kimi = JSON.parse(read(path.join(sb.home, '.kimi-code', 'mcp.json'))).mcpServers;
+  assert.deepEqual(Object.keys(kimi).sort(), ['db', 'events']);
+  assert.equal(kimi.db.command, process.execPath);
+  assert.equal(kimi.db.args[1], 'exec');
+  assert.deepEqual(kimi.events, { transport: 'sse', url: 'https://mcp.example.com/sse' });
+
+  const grok = parseTomlValue(read(path.join(sb.home, '.grok', 'config.toml'))).mcp_servers;
+  assert.equal(grok.db.command, process.execPath);
+  assert.equal(grok.db.args[1], 'exec');
+  assert.equal(grok.gh.url, 'https://api.example.com/mcp/');
+  assert.match(grok.gh.headers.Authorization, /^Bearer \$\{[A-Z0-9_]+\}$/);
+  assert.deepEqual(grok.events, { url: 'https://mcp.example.com/sse' });
+});
+
+test('grok settings fragments merge into config.toml and keep the comments and keys of the user', () => {
+  const sb = sandbox();
+  manifest(sb, ['grok']);
+  const config = path.join(sb.home, '.grok', 'config.toml');
+  write(config, '# my grok notes\n[models]\ndefault = "model-a"\n');
+  write(path.join(sb.source, 'base', 'settings', 'grok.toml'), '[models]\nweb_search = "model-b"\n');
+  const r = cli(sb, ['apply', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  const text = read(config);
+  assert.match(text, /# my grok notes/);
+  assert.deepEqual(parseTomlValue(text).models, { default: 'model-a', web_search: 'model-b' });
+});
+
+test('shared projects get kimi and grok MCP files with references only', { skip: !HAS_GIT }, () => {
+  const sb = sandbox();
+  manifest(sb, ['kimi', 'grok']);
+  const repo = path.join(sb.root, 'team');
+  write(path.join(repo, 'README.md'), '# team\n');
+  spawnSync('git', ['init', '-q', repo]);
+  write(path.join(sb.source, 'projects', 't', 'project.jsonc'), JSON.stringify({ name: 't', mode: 'shared', match: { dirName: ['team'] } }));
+  write(path.join(sb.source, 'projects', 't', 'instructions', '00.md'), '# Team rules\n');
+  write(path.join(sb.source, 'projects', 't', 'mcp', 'local.jsonc'), JSON.stringify({ command: 'local-mcp', args: [], env: { MODE: 'dev' } }));
+  write(path.join(sb.source, 'projects', 't', 'mcp', 'gh.jsonc'), JSON.stringify({ transport: 'http', url: 'https://api.example.com/mcp/', headers: { Authorization: 'Bearer ${secret:github/token}' } }));
+  const r = cli(sb, ['project', 'apply', '--yes'], { cwd: repo });
+  assert.equal(r.code, 0, r.out);
+  const kimi = JSON.parse(read(path.join(repo, '.kimi-code', 'mcp.json'))).mcpServers;
+  assert.deepEqual(kimi, { local: { command: 'local-mcp', args: [], env: { MODE: 'dev' } } });
+  assert.match(r.out, /gh: the kimi config format cannot reference environment variables/);
+  const grokText = read(path.join(repo, '.grok', 'config.toml'));
+  const grok = parseTomlValue(grokText).mcp_servers;
+  assert.deepEqual(grok.local, { command: 'local-mcp', args: [], env: { MODE: 'dev' } });
+  assert.match(grok.gh.headers.Authorization, /^Bearer \$\{[A-Z0-9_]+\}$/);
+  assert.doesNotMatch(grokText, /secret:/);
+  assert.match(read(path.join(repo, 'AGENTS.md')), /# Team rules/);
 });
