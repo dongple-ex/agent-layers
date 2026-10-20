@@ -70,6 +70,8 @@ agent-layers secrets check   # 이 PC에 아직 없는 비밀값 확인
 agent-layers apply
 ```
 
+`init`은 기본 규칙 템플릿을 영어로 복사하고, 개인 설정 파일 `base/instructions/05-persona.md`는 이 PC에 있는 기존 에이전트 지시문의 언어(한국어 또는 영어)로 만듭니다. 언어를 직접 정하려면 `--lang ko` 또는 `--lang en`을 붙입니다.
+
 git과 Node.js 설치까지 하는 부트스트랩 스크립트는 `install/install.ps1`(winget 사용)과 `install/install.sh`(Homebrew 또는 기존 Node.js 사용)입니다. 실행하기 전에 내려받아 내용을 확인하십시오.
 
 이 PC에 이미 있는 설정을 base 레이어로 가져올 수도 있습니다.

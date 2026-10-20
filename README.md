@@ -81,6 +81,10 @@ agent-layers secrets check   # which secrets this machine still needs
 agent-layers apply
 ```
 
+`init` copies the base rule templates in English and writes the personal settings file
+`base/instructions/05-persona.md` in the language of the agent instructions already on this
+machine (Korean or English). Add `--lang ko` or `--lang en` to choose the language yourself.
+
 Bootstrap scripts that also install git and Node.js: `install/install.ps1` (winget) and
 `install/install.sh` (Homebrew or an existing Node.js). Download and read them before running.
 
