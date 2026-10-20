@@ -151,7 +151,7 @@ agent-layers project purge acme       # 프로젝트가 끝났을 때 실행한�
 | 명령 | 용도 |
 |---|---|
 | `init [dir] [--from url]` | 설정 저장소를 만들거나 복제하고, 이 PC에 등록한다 |
-| `doctor` | 환경, 설치된 에이전트, 평문 비밀값, Codex 설정의 잘못된 키 위치, Zed와 Copilot 파일 우선순위를 점검한다 |
+| `doctor` | 환경, 설치된 에이전트, 평문 비밀값, Codex 설정의 잘못된 키 위치, Zed와 Copilot 파일 우선순위를 점검하고, npm에 agent-layers 새 버전이 있는지 확인한다 |
 | `agents` | 지원 에이전트와 이 PC 기준 경로를 보여 준다 |
 | `plan [--diff] [--all]` / `apply [--yes] [--force] [--prune]` | base 레이어를 미리 보거나 적용한다. `--prune`을 주면 더 이상 선택하지 않은 에이전트의 산출물도 지운다 |
 | `sync` | 설정 저장소(와 team 레이어)를 `git pull --ff-only`한 뒤 적용한다 |

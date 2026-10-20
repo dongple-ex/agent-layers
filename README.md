@@ -186,7 +186,7 @@ agent-layers project purge acme       # at the end of the engagement
 | Command | Purpose |
 |---|---|
 | `init [dir] [--from url]` | create or clone a setup repository and register it |
-| `doctor` | environment, installed agents, plaintext secrets, misplaced Codex keys, Zed/Copilot ordering |
+| `doctor` | environment, installed agents, plaintext secrets, misplaced Codex keys, Zed/Copilot ordering, newer agent-layers version on npm |
 | `agents` | supported agents and their resolved paths |
 | `plan [--diff] [--all]` / `apply [--yes] [--force] [--prune]` | dry run / write the base layer; `--prune` also removes outputs of agents that are no longer selected |
 | `sync` | `git pull --ff-only` the setup repository (and team layers), then apply |

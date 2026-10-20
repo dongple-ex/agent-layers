@@ -15,6 +15,8 @@ import { findRepoRoot } from './project.js';
 import { SECRET_KEY, REFERENCE } from './util/redact.js';
 
 const PROJECT_CONFIGS = ['.mcp.json', '.cursor/mcp.json', '.vscode/mcp.json', '.gemini/settings.json', '.codex/config.toml'];
+const PKG = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
 
 function version(cmd) {
   const r = run(cmd, ['--version'], { timeout: 15000 });
@@ -108,11 +110,67 @@ export function projectSecretChecks(root) {
   return checks;
 }
 
+export function compareVersions(a, b) {
+  const x = SEMVER.exec(a);
+  const y = SEMVER.exec(b);
+  for (let i = 1; i <= 3; i += 1) {
+    if (Number(x[i]) !== Number(y[i])) {
+      return Number(x[i]) < Number(y[i]) ? -1 : 1;
+    }
+  }
+  if (x[4] === y[4]) {
+    return 0;
+  }
+  if (!x[4] || !y[4]) {
+    return x[4] ? -1 : 1;
+  }
+  return x[4] < y[4] ? -1 : 1;
+}
+
+export function updateCommand(cliPath, latest) {
+  const bin = path.resolve(cliPath);
+  const parts = bin.split(path.sep);
+  if (parts.includes('_npx')) {
+    return `npx ${PKG.name}@latest`;
+  }
+  if (parts.includes('node_modules')) {
+    return `npm install --global ${PKG.name}@${latest}`;
+  }
+  return `git -C "${path.dirname(path.dirname(bin))}" pull`;
+}
+
+function checkUpdate(ctx) {
+  const update = { installed: PKG.version, latest: null, status: 'skipped', command: null };
+  if (ctx.flags.fast) {
+    return update;
+  }
+  const r = run('npm', ['view', PKG.name, 'version', '--prefer-online', '--fetch-retries=0', '--fetch-timeout=10000'], { timeout: 15000 });
+  const latest = r.code === 0 ? firstLine(r.stdout).trim() : '';
+  if (!SEMVER.test(latest) || !SEMVER.test(PKG.version)) {
+    update.status = 'unknown';
+    return update;
+  }
+  const order = compareVersions(PKG.version, latest);
+  update.latest = latest;
+  update.status = order < 0 ? 'outdated' : order > 0 ? 'newer' : 'latest';
+  if (order < 0) {
+    update.command = updateCommand(ctx.cliPath, latest);
+  }
+  return update;
+}
+
 export function runDoctor(ctx) {
   const report = { env: [], agents: [], checks: [] };
   const add = (level, msg) => report.checks.push({ level, msg });
   report.env.push(['OS', `${ctx.os} (${process.platform} ${process.arch})`]);
   report.env.push(['Node.js', process.version]);
+  const update = checkUpdate(ctx);
+  report.update = update;
+  const label = { outdated: `latest ${update.latest}`, latest: 'latest', newer: `newer than npm ${update.latest}`, unknown: 'latest version unknown: npm view failed', skipped: 'update check skipped: --fast' }[update.status];
+  report.env.push(['agent-layers', `${update.installed} (${label})`]);
+  if (update.command) {
+    add('warn', `agent-layers ${update.latest} is available (installed ${update.installed}). Update: ${update.command}`);
+  }
   report.env.push(['Home', ctx.paths.home + (ctx.sandbox ? ' (sandbox)' : '')]);
   report.env.push(['State dir', ctx.paths.stateDir]);
   report.env.push(['Source repo', `${ctx.sourceDir}${hasSource(ctx) ? '' : ' (missing: run "agent-layers init")'}`]);

@@ -511,6 +511,8 @@ agent-layers가 쓴 부분을 고쳤다면 다음 적용 때 `drift`로 보고 �
 npm install --global agent-layers
 ```
 
+새 버전이 나왔는지는 `agent-layers doctor`로 확인합니다. Environment 표의 `agent-layers` 행에 설치된 버전과 npm 최신 버전이 표시되고, 새 버전이 있으면 Checks에 업데이트할 명령이 표시됩니다. 이 명령은 설치한 방식(npm, npx, 저장소 내려받기)에 맞춰 달라집니다. 최신 버전은 `npm view`로 조회하며, `--fast`를 붙이면 조회를 건너뜁니다.
+
 ## 되돌리기와 주의 사항
 
 덮어쓴 파일은 항상 백업되므로, 적용한 내용은 대부분 되돌릴 수 있습니다. 예외는 `project purge`로 지운 에이전트 대화 기록입니다.

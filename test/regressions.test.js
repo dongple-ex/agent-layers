@@ -36,7 +36,7 @@ function cli(sb, args, { env = {}, cwd } = {}) {
     cwd: cwd || sb.root,
     env: { ...process.env, NO_COLOR: '1', ...env },
   });
-  return { code: r.status, out: `${r.stdout}${r.stderr}` };
+  return { code: r.status, out: `${r.stdout}${r.stderr}`, stdout: r.stdout };
 }
 
 function manifest(sb, targets, options = {}) {
@@ -415,6 +415,75 @@ test('doctor finds plaintext secrets in project .codex/config.toml and inside JS
   assert.match(checks[0].msg, /mcp_servers\.svc\.env\.SVC_PASSWORD/);
   assert.match(checks[0].msg, /mcp_servers\.svc\.env\.INSTANCE_CONFIG\.prod\.password/);
   assert.doesNotMatch(checks[0].msg, /SVC_MODE|plain-secret-123|nested-secret-789/);
+});
+
+const FAKE_NPM = `
+import fs from 'node:fs';
+fs.appendFileSync(process.env.FAKE_NPM_LOG, JSON.stringify(process.argv.slice(2)) + '\\n');
+process.stdout.write(process.env.FAKE_NPM_OUT || '');
+process.exit(Number(process.env.FAKE_NPM_CODE || 0));
+`;
+
+function fakeNpm(sb) {
+  const bin = path.join(sb.root, 'fakebin');
+  fakeCommand(bin, 'npm', FAKE_NPM);
+  const log = path.join(sb.root, 'npm.log');
+  fs.writeFileSync(log, '');
+  return { log, env: (out, code = 0) => ({ PATH: bin, FAKE_NPM_LOG: log, FAKE_NPM_OUT: out, FAKE_NPM_CODE: String(code) }) };
+}
+
+test('doctor compares the installed version with npm and recommends an update command', () => {
+  const installed = JSON.parse(read(new URL('../package.json', import.meta.url))).version;
+  const repo = path.dirname(path.dirname(BIN));
+  const sb = sandbox();
+  const npm = fakeNpm(sb);
+  const unknown = `${installed} (latest version unknown: npm view failed)`;
+  const cases = [
+    { out: '99.0.0\n', status: 'outdated', latest: '99.0.0', row: `${installed} (latest 99.0.0)`, command: `git -C "${repo}" pull` },
+    { out: `${installed}\n`, status: 'latest', latest: installed, row: `${installed} (latest)` },
+    { out: '0.0.1\n', status: 'newer', latest: '0.0.1', row: `${installed} (newer than npm 0.0.1)` },
+    { out: '99.0.0\n', code: 1, status: 'unknown', row: unknown },
+    { out: '99.0.0\u001b[31m\n', status: 'unknown', row: unknown },
+  ];
+  for (const c of cases) {
+    const r = cli(sb, ['doctor', '--json'], { env: npm.env(c.out, c.code) });
+    assert.equal(r.code, 0, r.out);
+    const report = JSON.parse(r.stdout);
+    assert.deepEqual(report.update, { installed, latest: c.latest || null, status: c.status, command: c.command || null });
+    assert.equal(report.env.find(([k]) => k === 'agent-layers')[1], c.row);
+    assert.equal(report.checks.some((x) => /is available/.test(x.msg)), c.status === 'outdated');
+  }
+  const calls = read(npm.log).trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(calls.length, cases.length);
+  assert.deepEqual(calls[0], ['view', 'agent-layers', 'version', '--prefer-online', '--fetch-retries=0', '--fetch-timeout=10000']);
+
+  const r = cli(sb, ['doctor'], { env: npm.env('99.0.0\n') });
+  assert.equal(r.code, 0, r.out);
+  assert.ok(r.out.includes(`warn agent-layers 99.0.0 is available (installed ${installed}). Update: git -C "${repo}" pull`), r.out);
+});
+
+test('doctor --fast skips the npm version lookup', () => {
+  const sb = sandbox();
+  const npm = fakeNpm(sb);
+  const r = cli(sb, ['doctor', '--fast', '--json'], { env: npm.env('99.0.0\n') });
+  assert.equal(r.code, 0, r.out);
+  const report = JSON.parse(r.stdout);
+  assert.equal(report.update.status, 'skipped');
+  assert.equal(report.update.command, null);
+  assert.equal(read(npm.log), '');
+});
+
+test('update command follows the install location, and versions compare numerically', async () => {
+  const { updateCommand, compareVersions } = await import('../src/doctor.js');
+  const root = path.join(os.tmpdir(), 'agent-layers-paths');
+  assert.equal(updateCommand(path.join(root, 'npm-cache', '_npx', 'a1b2', 'node_modules', 'agent-layers', 'bin', 'agent-layers.js'), '0.2.0'), 'npx agent-layers@latest');
+  assert.equal(updateCommand(path.join(root, 'npm', 'node_modules', 'agent-layers', 'bin', 'agent-layers.js'), '0.2.0'), 'npm install --global agent-layers@0.2.0');
+  assert.equal(updateCommand(path.join(root, 'clone', 'bin', 'agent-layers.js'), '0.2.0'), `git -C "${path.join(root, 'clone')}" pull`);
+  assert.equal(compareVersions('0.1.10', '0.1.9'), 1);
+  assert.equal(compareVersions('0.9.9', '1.0.0'), -1);
+  assert.equal(compareVersions('0.2.0', '0.2.0'), 0);
+  assert.equal(compareVersions('0.2.0-beta.1', '0.2.0'), -1);
+  assert.equal(compareVersions('0.2.0', '0.2.0-beta.1'), 1);
 });
 
 test('remote URLs with ports and trailing .git/ normalize to host/org/repo', async () => {

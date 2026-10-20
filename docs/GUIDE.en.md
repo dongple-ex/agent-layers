@@ -511,6 +511,8 @@ Run the install command again. It moves to the latest version on npm.
 npm install --global agent-layers
 ```
 
+To see whether a new version is out, run `agent-layers doctor`. The `agent-layers` row in the Environment table shows the installed version and the latest version on npm, and when a newer version exists, Checks shows the update command. The command matches how you installed it (npm, npx or a clone). The latest version is looked up with `npm view`; `--fast` skips the lookup.
+
 ## Undo and cautions
 
 Overwritten files are always backed up, so most changes can be undone. The exception is agent conversation records removed by `project purge`.
