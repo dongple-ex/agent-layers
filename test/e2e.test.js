@@ -291,6 +291,39 @@ test('import captures existing configs, templatizes home paths and replaces plai
   assert.doesNotMatch(v.out, /hunter2/);
 });
 
+test('init writes persona rules in Korean when existing agent instructions are Korean', () => {
+  const sb = sandbox();
+  write(path.join(sb.home, '.claude', 'CLAUDE.md'), '# 작업 규칙\n\n- 답변은 한국어로 하고, 파일을 고치기 전에 대상 파일을 알려 준다.\n');
+  write(path.join(sb.home, '.claude', 'rules', 'review.md'), '- `npm test`를 실행하고 결과를 보고한다.\n');
+  const r = cli(sb, ['init']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(read(path.join(sb.source, 'base', 'instructions', '05-persona.md')), /^# 페르소나 규칙/);
+  assert.match(r.out, /persona rules in Korean/);
+  assert.equal(cli(sb, ['validate']).code, 0);
+});
+
+test('init writes persona rules in English by default and ignores managed blocks and code', () => {
+  const sb = sandbox();
+  write(path.join(sb.home, '.codex', 'AGENTS.md'), '# My rules\n\n- Keep diffs small.\n\n```text\n한국어 예시 문장입니다\n```\n\n<!-- agent-layers:begin base -->\n관리되는 한국어 블록입니다. 사용자가 직접 쓴 내용이 아닙니다.\n<!-- agent-layers:end base -->\n');
+  const r = cli(sb, ['init']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(read(path.join(sb.source, 'base', 'instructions', '05-persona.md')), /^# Persona/);
+  assert.doesNotMatch(read(path.join(sb.source, 'base', 'instructions', '00-working-agreements.md')), /Reply in the language/);
+});
+
+test('init --lang overrides detection and rejects unsupported languages', () => {
+  const sb = sandbox();
+  write(path.join(sb.home, '.claude', 'CLAUDE.md'), '# 작업 규칙\n\n- 답변은 한국어로 한다.\n');
+  const bad = cli(sb, ['init', '--lang', 'fr']);
+  assert.notEqual(bad.code, 0);
+  assert.match(bad.out, /--lang must be one of: en, ko/);
+  assert.equal(fs.existsSync(path.join(sb.source, 'agent-layers.jsonc')), false);
+  const r = cli(sb, ['init', '--lang', 'en']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(read(path.join(sb.source, 'base', 'instructions', '05-persona.md')), /^# Persona/);
+  assert.match(r.out, /set by --lang/);
+});
+
 test('purge only targets agent data of the exact project folder', async () => {
   const { findAgentData } = await import('../src/project.js');
   const { createContext } = await import('../src/context.js');

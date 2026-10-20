@@ -134,6 +134,8 @@ Follow these steps if you do not have a setup repository yet. You create one fro
    agent-layers init
    ```
 
+   The base rule templates are copied in English. The personal settings file `base/instructions/05-persona.md` (form of address, reply language, tone, report format) is written in the language of the agent instructions already on this machine: Korean when they are mostly Korean, English when they are mostly English or when there are none. To choose the language yourself, add `--lang ko` or `--lang en`, for example `agent-layers init --lang ko`.
+
 3. Check the agents found on this machine and any risky settings. Nothing is written.
 
    ```text
@@ -141,7 +143,7 @@ Follow these steps if you do not have a setup repository yet. You create one fro
    ```
 
 4. Replace the template examples with your own content. PART 3 shows what goes where.
-   - Rewrite the three example rules in `base/instructions/`.
+   - Rewrite the three example rules and the persona file (`05-persona.md`) in `base/instructions/`.
    - Delete examples you do not need (`projects/example/`, `base/skills/commit-message/`, ...).
    - `base/mcp/github.jsonc` has `"enabled": false`, so it is not applied unless you change that.
    - To bring in settings you already use, run `agent-layers import` (see the FAQ in PART 4).
@@ -542,7 +544,7 @@ Commands marked "yes" in the read-only column write nothing and can be run at an
 | Group | Command | What it does | Read-only |
 | --- | --- | --- | --- |
 | Install | `npm install --global agent-layers` | Installs or updates the engine | no |
-| Install | `agent-layers init` | Creates a new setup repository from the template and registers it | no |
+| Install | `agent-layers init` | Creates a new setup repository from the template and registers it. `--lang ko` or `--lang en` sets the persona file language | no |
 | Install | `agent-layers init --from <URL>` | Clones an existing setup repository and registers it | no |
 | Install | `agent-layers import --from claude,codex` | Brings this machine's existing settings into the setup repository | no |
 | base | `agent-layers plan --diff` | Shows what an apply would change | yes |

@@ -9,6 +9,11 @@ import { TOKEN_PATTERNS, SECRET_FIELD, SECRET_TOML_FIELD } from './validate.js';
 
 const SECRET_KEY = /(pass(word|wd)?|pwd|secret|token|api[_-]?key|credential|private[_-]?key)(?!.*helper$)/i;
 const SECRET_FLAG = /^--?(?:[a-z0-9-]*-)?(password|passwd|pwd|secret|token|api-?key|key|auth|bearer|credential)s?$/i;
+const HANGUL = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/g;
+const LATIN = /[A-Za-z]/g;
+const KOREAN_RATIO = 0.2;
+
+export const PERSONA_LANGUAGES = { en: 'English', ko: 'Korean' };
 
 function looksLikeToken(v) {
   return typeof v === 'string' && TOKEN_PATTERNS.some(([re]) => re.test(v));
@@ -28,6 +33,20 @@ function stripManaged(text) {
     t = removeBlock(t, id);
   }
   return t.trim();
+}
+
+export function detectLanguage(ctx) {
+  const p = ctx.paths;
+  const files = [path.join(p.claudeHome, 'CLAUDE.md'), path.join(p.codexHome, 'AGENTS.md'), path.join(p.geminiHome, 'GEMINI.md'), path.join(p.copilotHome, 'copilot-instructions.md')];
+  for (const f of listFiles(path.join(p.claudeHome, 'rules'))) {
+    if (!f.rel.startsWith('agent-layers/') && f.rel.endsWith('.md')) {
+      files.push(f.abs);
+    }
+  }
+  const prose = files.map((f) => stripManaged(readText(f)?.text || '').replace(/```[\s\S]*?```/g, '').replace(/`[^`\n]*`/g, '')).join('\n');
+  const hangul = (prose.match(HANGUL) || []).length;
+  const latin = (prose.match(LATIN) || []).length;
+  return hangul > 0 && hangul / (hangul + latin) >= KOREAN_RATIO ? 'ko' : 'en';
 }
 
 function homeTemplating(ctx, value) {

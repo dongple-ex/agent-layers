@@ -4,7 +4,6 @@
 
 - Keep changes limited to what was asked. Mention unrelated problems instead of fixing them.
 - Never print, commit or log secrets, tokens or passwords. Reference them through environment variables or the OS keychain.
-- Reply in the language the user writes in.
 
 ## Verification
 

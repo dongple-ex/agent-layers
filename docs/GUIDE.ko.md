@@ -134,6 +134,8 @@ flowchart LR
    agent-layers init
    ```
 
+   기본 규칙 템플릿은 영어로 복사됩니다. 개인 설정 파일인 `base/instructions/05-persona.md`(호칭, 응답 언어, 말투, 보고 형식)는 이 PC에 있는 기존 에이전트 지시문의 언어로 만들어집니다. 기존 지시문이 한국어 위주면 한국어로, 영어 위주이거나 지시문이 없으면 영어로 만들어집니다. 언어를 직접 정하려면 `agent-layers init --lang ko`처럼 `--lang ko` 또는 `--lang en`을 붙입니다.
+
 3. 이 PC에서 찾은 에이전트와 위험한 설정을 점검합니다. 아무것도 쓰지 않습니다.
 
    ```text
@@ -141,7 +143,7 @@ flowchart LR
    ```
 
 4. 템플릿의 예시를 내 내용으로 바꿉니다. 무엇을 어디에 넣는지는 PART 3의 표를 봅니다.
-   - `base/instructions/`의 예시 규칙 3개를 내 규칙으로 고칩니다.
+   - `base/instructions/`의 예시 규칙 3개와 페르소나 파일(`05-persona.md`)을 내 규칙으로 고칩니다.
    - 필요 없는 예시(`projects/example/`, `base/skills/commit-message/` 등)는 지웁니다.
    - `base/mcp/github.jsonc`는 `"enabled": false`라서 그대로 두면 적용되지 않습니다.
    - 이미 쓰던 설정을 가져오려면 `agent-layers import`를 씁니다(PART 4 자주 묻는 질문 참고).
@@ -542,7 +544,7 @@ npm install --global agent-layers
 | 분류 | 명령 | 하는 일 | 읽기 전용 |
 | --- | --- | --- | --- |
 | 설치 | `npm install --global agent-layers` | 엔진을 설치하거나 최신으로 바꿉니다 | 아니오 |
-| 설치 | `agent-layers init` | 템플릿으로 새 설정 저장소를 만들고 등록합니다 | 아니오 |
+| 설치 | `agent-layers init` | 템플릿으로 새 설정 저장소를 만들고 등록합니다. `--lang ko` 또는 `--lang en`으로 페르소나 파일의 언어를 정합니다 | 아니오 |
 | 설치 | `agent-layers init --from <주소>` | 기존 설정 저장소를 복제하고 등록합니다 | 아니오 |
 | 설치 | `agent-layers import --from claude,codex` | 이 PC의 기존 설정을 설정 저장소로 가져옵니다 | 아니오 |
 | base | `agent-layers plan --diff` | 적용하면 바뀔 내용을 보여 줍니다 | 예 |

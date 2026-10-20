@@ -11,7 +11,7 @@ import { buildPlan, applyPlan, summarize, pending, describeItem } from './engine
 import { loadState, saveState, scopeKeyOf, recordsForScope } from './state.js';
 import { resolveProject, findAgentData, purgeAgentData, assertSafeRoot, projectMatches } from './project.js';
 import { runDoctor } from './doctor.js';
-import { planImport, applyImport } from './importer.js';
+import { planImport, applyImport, detectLanguage, PERSONA_LANGUAGES } from './importer.js';
 import { validateSource } from './validate.js';
 import { getSecret, getSecrets, setSecret, deleteSecret, listSecrets, backendFor } from './secrets/index.js';
 import { findSecretRefs } from './template.js';
@@ -27,6 +27,7 @@ import { reviewSource, compareReviews, validateReviewDecisions, redactReview } f
 
 const PKG = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const TEMPLATE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'init');
+const PERSONA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'persona');
 
 const BOOLEAN_FLAGS = new Set(['yes', 'y', 'force', 'diff', 'json', 'quiet', 'q', 'help', 'h', 'show', 'overwrite', 'keep-agent-data', 'remove-source', 'all', 'fast', 'no-removals', 'version', 'v', 'project-only', 'user-only', 'prune', 'write', 'packet', 'strict']);
 
@@ -570,8 +571,23 @@ function saveConfig(ctx, patch) {
   ctx.config = cfg;
 }
 
+function writePersona(ctx, flags, dir) {
+  const target = path.join(dir, 'base', 'instructions', '05-persona.md');
+  if (exists(target)) {
+    return;
+  }
+  const lang = flags.lang || detectLanguage(ctx);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.copyFileSync(path.join(PERSONA_DIR, `${lang}.md`), target);
+  info(`Wrote persona rules in ${PERSONA_LANGUAGES[lang]} to ${short(ctx, target)} (${flags.lang ? 'set by --lang' : 'detected from your existing agent instructions'}). Edit them to set your own persona.`);
+}
+
 async function cmdInit(ctx, flags, positional) {
   const dir = path.resolve(positional[0] || flags.source || ctx.sourceDir);
+  if (flags.lang !== undefined && !Object.hasOwn(PERSONA_LANGUAGES, flags.lang)) {
+    throw new Error(`--lang must be one of: ${Object.keys(PERSONA_LANGUAGES).join(', ')}`);
+  }
+  let created = false;
   if (flags.from) {
     if (exists(dir) && fs.readdirSync(dir).length) {
       throw new Error(`${dir} is not empty; choose another folder`);
@@ -591,8 +607,13 @@ async function cmdInit(ctx, flags, positional) {
   } else if (!exists(path.join(dir, 'agent-layers.jsonc'))) {
     copyTemplate(TEMPLATE_DIR, dir);
     info(`Created a new setup repository in ${dir}`);
+    writePersona(ctx, flags, dir);
+    created = true;
   } else {
     info(`Using the existing setup repository in ${dir}`);
+  }
+  if (flags.lang && !created) {
+    warn('--lang only applies when a new setup repository is created from the template; existing files keep their language.');
   }
   saveConfig(ctx, { source: dir });
   info(`Registered ${dir} as the source in ${short(ctx, ctx.configFile)}`);
@@ -1034,7 +1055,7 @@ layers you can drop when a project ends.
 Usage: agent-layers <command> [options]
 
 Setup
-  init [dir] [--from <git-url|dir>]   create or clone a setup repository and register it
+  init [dir] [--from <git-url|dir>] [--lang en|ko]  create or clone a setup repository and register it; --lang sets the persona file language
   doctor [--strict]                   check this machine, found agents and risky configs; --strict also fails on warnings
   agents                              list supported agents by tier and where they read config
   show [layer] [--json]               list what each layer holds and which agents receive it
