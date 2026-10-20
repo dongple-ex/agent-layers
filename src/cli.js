@@ -515,27 +515,31 @@ function cmdAgents(ctx, flags) {
     const where = ins ? (ins.kind === 'block' ? ins.file(ctx.paths, ctx.os) : ins.dir(ctx.paths, ctx.os)) : '(app settings UI)';
     const skills = u.skills ? u.skills(ctx.paths, ctx.os).map((d) => short(ctx, d)).join(', ') : '-';
     const mcp = u.mcp ? (u.mcp.kind === 'claude-cli' ? 'claude mcp (user scope)' : short(ctx, u.mcp.file(ctx.paths, ctx.os))) : '-';
-    return [detected.has(a.id) ? c.green('yes') : c.gray('no'), a.id, short(ctx, where), skills, mcp, `${a.checked || '-'} ${a.confidence === 'documented' ? '' : c.yellow(a.confidence || '')}`.trim()];
+    return [detected.has(a.id) ? c.green('yes') : c.gray('no'), a.id, short(ctx, where), skills, mcp, `${a.checked || '-'} ${a.confidence === 'documented' ? '' : c.yellow(a.confidence || '')}`.trim(), a.tier];
   });
   if (flags.json) {
     info(JSON.stringify(rows.map((r) => r.map((x) => String(x).replace(/\u001b\[[0-9;]*m/g, ''))), null, 2));
     return 0;
   }
-  table(rows, ['found', 'agent', 'user instructions', 'user skills', 'user MCP config', 'checked']);
+  for (const [tier, title] of [[1, 'Tier 1: core agents'], [2, '\nTier 2: extended agents (best effort)']]) {
+    info(c.bold(title));
+    table(rows.filter((r) => r[6] === tier).map((r) => r.slice(0, 6)), ['found', 'agent', 'user instructions', 'user skills', 'user MCP config', 'checked']);
+  }
   return 0;
 }
 
 function cmdDoctor(ctx, flags) {
   const report = runDoctor(ctx);
+  const failed = report.checks.some((x) => x.level === 'error' || (flags.strict && x.level === 'warn'));
   if (flags.json) {
     info(JSON.stringify(report, null, 2));
-    return 0;
+    return flags.strict && failed ? 1 : 0;
   }
   info(c.bold('Environment'));
   table(report.env.map(([k, v]) => [`  ${k}`, v]));
   info(c.bold('\nAgents found on this machine'));
   if (report.agents.length) {
-    table(report.agents.map((r) => r.map((x, i) => (i === 4 ? short(ctx, String(x)) : x))), ['id', 'name', 'command', 'version', 'user instructions', 'agent-layers']);
+    table(report.agents.map((r) => r.map((x, i) => (i === 4 ? short(ctx, String(x)) : x))), ['id', 'name', 'command', 'version', 'user instructions', 'agent-layers', 'tier']);
   } else {
     info('  none');
   }
@@ -546,7 +550,7 @@ function cmdDoctor(ctx, flags) {
   for (const ch of report.checks) {
     info(`  ${ch.level === 'error' ? c.red(ch.level) : ch.level === 'warn' ? c.yellow(ch.level) : c.gray(ch.level)} ${ch.msg}`);
   }
-  return report.checks.some((x) => x.level === 'error') ? 1 : 0;
+  return failed ? 1 : 0;
 }
 
 function copyTemplate(src, dest) {
@@ -1031,8 +1035,8 @@ Usage: agent-layers <command> [options]
 
 Setup
   init [dir] [--from <git-url|dir>]   create or clone a setup repository and register it
-  doctor                              check this machine, found agents and risky configs
-  agents                              list supported agents and where they read config
+  doctor [--strict]                   check this machine, found agents and risky configs; --strict also fails on warnings
+  agents                              list supported agents by tier and where they read config
   show [layer] [--json]               list what each layer holds and which agents receive it
   validate [--strict]                 lint the setup repository (skills, MCP, secrets)
   review [--packet] [--json] [--strict]  read-only MD checks and pending AI review tasks

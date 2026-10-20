@@ -6,6 +6,7 @@ const winOr = (os, win, other) => (os === 'windows' ? win : other);
 export const ADAPTERS = [
   {
     id: 'claude',
+    tier: 1,
     name: 'Claude Code',
     checked: '2026-10-04',
     confidence: 'documented',
@@ -32,6 +33,7 @@ export const ADAPTERS = [
   },
   {
     id: 'codex',
+    tier: 1,
     name: 'OpenAI Codex (CLI, ChatGPT desktop app, IDE)',
     checked: '2026-10-04',
     confidence: 'documented',
@@ -53,6 +55,7 @@ export const ADAPTERS = [
   },
   {
     id: 'gemini',
+    tier: 1,
     name: 'Gemini CLI',
     checked: '2026-10-04',
     confidence: 'documented',
@@ -77,6 +80,7 @@ export const ADAPTERS = [
   },
   {
     id: 'antigravity',
+    tier: 1,
     name: 'Google Antigravity (2.0 app, IDE, agy CLI)',
     checked: '2026-10-04',
     confidence: 'documented',
@@ -97,6 +101,7 @@ export const ADAPTERS = [
   },
   {
     id: 'copilot',
+    tier: 1,
     name: 'GitHub Copilot (CLI and VS Code agent host)',
     checked: '2026-10-04',
     confidence: 'documented',
@@ -117,6 +122,7 @@ export const ADAPTERS = [
   },
   {
     id: 'cursor',
+    tier: 1,
     name: 'Cursor (IDE and CLI)',
     checked: '2026-10-04',
     confidence: 'windows-paths-unverified',
@@ -135,6 +141,7 @@ export const ADAPTERS = [
   },
   {
     id: 'opencode',
+    tier: 2,
     name: 'OpenCode',
     checked: '2026-10-04',
     confidence: 'windows-paths-unverified',
@@ -152,6 +159,7 @@ export const ADAPTERS = [
   },
   {
     id: 'zed',
+    tier: 1,
     name: 'Zed',
     checked: '2026-10-04',
     confidence: 'documented',
@@ -168,6 +176,7 @@ export const ADAPTERS = [
   },
   {
     id: 'junie',
+    tier: 2,
     name: 'JetBrains Junie',
     checked: '2026-10-04',
     confidence: 'documented',
@@ -184,6 +193,7 @@ export const ADAPTERS = [
   },
   {
     id: 'kiro',
+    tier: 2,
     name: 'Kiro',
     checked: '2026-10-04',
     confidence: 'windows-paths-unverified',
@@ -201,6 +211,7 @@ export const ADAPTERS = [
   },
   {
     id: 'amp',
+    tier: 2,
     name: 'Amp',
     checked: '2026-10-04',
     confidence: 'windows-paths-unverified',
@@ -216,6 +227,7 @@ export const ADAPTERS = [
   },
   {
     id: 'factory',
+    tier: 2,
     name: 'Factory Droid',
     checked: '2026-10-04',
     confidence: 'windows-paths-unverified',
@@ -232,6 +244,7 @@ export const ADAPTERS = [
   },
   {
     id: 'devin',
+    tier: 2,
     name: 'Devin Desktop / Devin CLI (formerly Windsurf)',
     checked: '2026-10-04',
     confidence: 'documented',
@@ -248,6 +261,7 @@ export const ADAPTERS = [
   },
   {
     id: 'qwen',
+    tier: 2,
     name: 'Qwen Code',
     checked: '2026-10-04',
     confidence: 'windows-paths-unverified',
@@ -264,6 +278,7 @@ export const ADAPTERS = [
   },
   {
     id: 'cline',
+    tier: 2,
     name: 'Cline',
     checked: '2026-10-04',
     confidence: 'documented',
@@ -280,6 +295,7 @@ export const ADAPTERS = [
   },
   {
     id: 'goose',
+    tier: 2,
     name: 'Goose',
     checked: '2026-10-04',
     confidence: 'windows-paths-unverified',

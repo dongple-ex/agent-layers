@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { readText, exists, isDir, listFiles, listDirs } from './util/fsx.js';
 import { listProjects, getProject } from './manifest.js';
 import { gitDir, normalizeKey } from './render.js';
@@ -317,6 +318,25 @@ export function findAgentData(ctx, root, { otherRoots = [] } = {}) {
       items.push({ agent: 'antigravity', kind: 'project settings', path: f.abs, bytes: fs.statSync(f.abs).size, remove: 'file' });
     } else if (mentions(t.text)) {
       items.push({ agent: 'antigravity', kind: 'project settings that mention this folder; check manually', path: f.abs, remove: null });
+    }
+  }
+
+  const brain = path.join(p.geminiHome, 'antigravity', 'brain');
+  for (const id of listDirs(brain)) {
+    const d = path.join(brain, id);
+    const linked = [];
+    for (const f of listFiles(d, { recursive: false })) {
+      const t = f.rel.endsWith('.md') ? readText(f.abs) : null;
+      for (const m of t ? t.text.matchAll(/file:\/\/[^\s)"'<>\]]+/gi) : []) {
+        try {
+          linked.push(fileURLToPath(m[0]));
+        } catch {
+          continue;
+        }
+      }
+    }
+    if (linked.some((x) => belongs(x))) {
+      items.push({ agent: 'antigravity', kind: 'conversation artifacts (task, plan, walkthrough) that link to this folder; check manually', path: d, remove: null });
     }
   }
 

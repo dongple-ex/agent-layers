@@ -123,19 +123,23 @@ Neutral MCP definition:
 
 ## Supported agents
 
-| Agent | User instructions | User skills | User MCP | Project files |
-|---|---|---|---|---|
-| `claude` Claude Code | `~/.claude/rules/agent-layers/*.md` | `~/.claude/skills` | `claude mcp add-json -s user` | `AGENTS.md`, `.claude/rules`, `.mcp.json` |
-| `codex` Codex | `~/.codex/AGENTS.md` (block) | `~/.agents/skills` | `~/.codex/config.toml` | `AGENTS.md`, `.codex/config.toml` (`developer_instructions`) |
-| `gemini` Gemini CLI | `~/.gemini/GEMINI.md` (block) | `~/.agents/skills` | `~/.gemini/settings.json` | `AGENTS.md`, `.gemini/settings.json` |
-| `antigravity` Antigravity | `~/.gemini/GEMINI.md`, `~/.gemini/config/rules` | `~/.gemini/config/skills`, `~/.gemini/antigravity-cli/skills` | `~/.gemini/config/mcp_config.json` | `.agents/rules`, `.agents/skills`, `.agents/mcp_config.json` |
-| `copilot` Copilot CLI / VS Code | `~/.copilot/copilot-instructions.md`, `~/.copilot/instructions` | `~/.agents/skills` | `~/.copilot/mcp-config.json` | `AGENTS.md`, `.github/instructions`, `.mcp.json` |
-| `cursor` Cursor | account UI only | `~/.agents/skills` | `~/.cursor/mcp.json` | `.cursor/rules/*.mdc`, `.cursor/mcp.json` |
-| `opencode` OpenCode | `~/.config/opencode/AGENTS.md` | `~/.agents/skills` | `opencode.json` `mcp` | `AGENTS.md` |
-| `zed` Zed | `%APPDATA%\Zed\AGENTS.md`, `~/.config/zed/AGENTS.md` | `~/.agents/skills` | - | `AGENTS.md` |
-| `junie` Junie | `~/.junie/AGENTS.md` | `~/.agents/skills` | `~/.junie/mcp/mcp.json` | `AGENTS.md`, `.junie/rules` |
-| `kiro` Kiro | `~/.kiro/steering/*.md` | `~/.kiro/skills` | `~/.kiro/settings/mcp.json` | `.kiro/steering`, `.kiro/skills` |
-| `amp`, `factory`, `devin`, `qwen`, `cline`, `goose` | their global `AGENTS.md`-style files | `~/.agents/skills` or their own folder | some | `AGENTS.md` or their rule folders |
+| Agent | Tier | User instructions | User skills | User MCP | Project files |
+|---|---|---|---|---|---|
+| `claude` Claude Code | 1 | `~/.claude/rules/agent-layers/*.md` | `~/.claude/skills` | `claude mcp add-json -s user` | `AGENTS.md`, `.claude/rules`, `.mcp.json` |
+| `codex` Codex | 1 | `~/.codex/AGENTS.md` (block) | `~/.agents/skills` | `~/.codex/config.toml` | `AGENTS.md`, `.codex/config.toml` (`developer_instructions`) |
+| `gemini` Gemini CLI | 1 | `~/.gemini/GEMINI.md` (block) | `~/.agents/skills` | `~/.gemini/settings.json` | `AGENTS.md`, `.gemini/settings.json` |
+| `antigravity` Antigravity | 1 | `~/.gemini/GEMINI.md`, `~/.gemini/config/rules` | `~/.gemini/config/skills`, `~/.gemini/antigravity-cli/skills` | `~/.gemini/config/mcp_config.json` | `.agents/rules`, `.agents/skills`, `.agents/mcp_config.json` |
+| `copilot` Copilot CLI / VS Code | 1 | `~/.copilot/copilot-instructions.md`, `~/.copilot/instructions` | `~/.agents/skills` | `~/.copilot/mcp-config.json` | `AGENTS.md`, `.github/instructions`, `.mcp.json` |
+| `cursor` Cursor | 1 | account UI only | `~/.agents/skills` | `~/.cursor/mcp.json` | `.cursor/rules/*.mdc`, `.cursor/mcp.json` |
+| `zed` Zed | 1 | `%APPDATA%\Zed\AGENTS.md`, `~/.config/zed/AGENTS.md` | `~/.agents/skills` | - | `AGENTS.md` |
+| `opencode` OpenCode | 2 | `~/.config/opencode/AGENTS.md` | `~/.agents/skills` | `opencode.json` `mcp` | `AGENTS.md` |
+| `junie` Junie | 2 | `~/.junie/AGENTS.md` | `~/.agents/skills` | `~/.junie/mcp/mcp.json` | `AGENTS.md`, `.junie/rules` |
+| `kiro` Kiro | 2 | `~/.kiro/steering/*.md` | `~/.kiro/skills` | `~/.kiro/settings/mcp.json` | `.kiro/steering`, `.kiro/skills` |
+| `amp`, `factory`, `devin`, `qwen`, `cline`, `goose` | 2 | their global `AGENTS.md`-style files | `~/.agents/skills` or their own folder | some | `AGENTS.md` or their rule folders |
+
+Tier 1 agents are the core targets. Tier 2 agents are best effort: their paths and formats may lag
+behind vendor changes. `agent-layers agents` lists the two tiers in separate tables. `doctor`
+warnings of either tier make the command fail only with `--strict`.
 
 Run `agent-layers agents` to see the resolved paths on your machine. Paths for some agents on
 Windows are documented only for macOS/Linux by their vendors; treat those as best effort.
@@ -186,8 +190,8 @@ agent-layers project purge acme       # at the end of the engagement
 | Command | Purpose |
 |---|---|
 | `init [dir] [--from url]` | create or clone a setup repository and register it |
-| `doctor` | environment, installed agents, plaintext secrets, misplaced Codex keys, Zed/Copilot ordering, newer agent-layers version on npm |
-| `agents` | supported agents and their resolved paths |
+| `doctor [--strict]` | environment, installed agents, plaintext secrets, misplaced Codex keys, Zed/Copilot ordering, newer agent-layers version on npm; `--strict` also fails on warnings |
+| `agents` | supported agents by tier and their resolved paths |
 | `plan [--diff] [--all]` / `apply [--yes] [--force] [--prune]` | dry run / write the base layer; `--prune` also removes outputs of agents that are no longer selected |
 | `sync` | `git pull --ff-only` the setup repository (and team layers), then apply |
 | `status` | managed outputs and drift |

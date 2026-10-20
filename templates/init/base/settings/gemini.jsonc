@@ -1,0 +1,18 @@
+{
+  // Merged key by key into ~/.gemini/settings.json (Gemini CLI). Every key below is an example and
+  // stays inactive until you uncomment it. Key reference:
+  // https://github.com/google-gemini/gemini-cli/blob/main/docs/reference/configuration.md
+  // Gemini CLI has no settings key for context caching.
+
+  // "model": {
+  //   // Default model. Use an ID that your account or API key can call, for example "gemini-4-argon".
+  //   "name": "gemini-4-argon",
+  //   // Share of the context window that triggers chat compression (default 0.5).
+  //   "compressionThreshold": 0.5
+  // },
+
+  // "general": {
+  //   // Plan Mode switches between Pro and Flash models (default true).
+  //   "plan": { "modelRouting": true }
+  // }
+}

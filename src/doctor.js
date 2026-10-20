@@ -215,9 +215,9 @@ export function runDoctor(ctx) {
       managed = isDir(insFile) ? 'managed rules present' : 'not applied yet';
     }
     const where = !insFile ? '(app settings UI)' : always.kind === 'block' ? `${insFile} (${sizeOf(insFile)} B)` : `${insFile}${path.sep}`;
-    report.agents.push([a.id, a.name, cmd || '(app folder only)', ver || '-', where, managed]);
+    report.agents.push([a.id, a.name, cmd || '(app folder only)', ver || '-', where, managed, a.tier]);
     for (const n of a.notes || []) {
-      add('info', `${a.id}: ${n}`);
+      add('info', `${a.id}${a.tier === 2 ? ' (tier 2, best effort)' : ''}: ${n}`);
     }
   }
 

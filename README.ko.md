@@ -102,15 +102,18 @@ projects/<name>/
 
 ## 지원 에이전트
 
-| 에이전트 | 사용자 지시문 | 사용자 스킬 | 사용자 MCP | 프로젝트 파일 |
-|---|---|---|---|---|
-| `claude` Claude Code | `~/.claude/rules/agent-layers/*.md` | `~/.claude/skills` | `claude mcp add-json -s user` | `AGENTS.md`, `.claude/rules`, `.mcp.json` |
-| `codex` Codex | `~/.codex/AGENTS.md` (블록) | `~/.agents/skills` | `~/.codex/config.toml` | `AGENTS.md`, `.codex/config.toml` (`developer_instructions`) |
-| `gemini` Gemini CLI | `~/.gemini/GEMINI.md` (블록) | `~/.agents/skills` | `~/.gemini/settings.json` | `AGENTS.md`, `.gemini/settings.json` |
-| `antigravity` Antigravity | `~/.gemini/GEMINI.md`, `~/.gemini/config/rules` | `~/.gemini/config/skills`, `~/.gemini/antigravity-cli/skills` | `~/.gemini/config/mcp_config.json` | `.agents/rules`, `.agents/skills`, `.agents/mcp_config.json` |
-| `copilot` Copilot CLI·VS Code | `~/.copilot/copilot-instructions.md`, `~/.copilot/instructions` | `~/.agents/skills` | `~/.copilot/mcp-config.json` | `AGENTS.md`, `.github/instructions`, `.mcp.json` |
-| `cursor` Cursor | 계정 설정 화면에서만 가능 | `~/.agents/skills` | `~/.cursor/mcp.json` | `.cursor/rules/*.mdc`, `.cursor/mcp.json` |
-| `opencode`, `zed`, `junie`, `kiro`, `amp`, `factory`, `devin`, `qwen`, `cline`, `goose` | 각 도구의 전역 지시문 파일 | `~/.agents/skills` 또는 도구별 폴더 | 일부 지원 | `AGENTS.md` 또는 도구별 규칙 폴더 |
+| 에이전트 | Tier | 사용자 지시문 | 사용자 스킬 | 사용자 MCP | 프로젝트 파일 |
+|---|---|---|---|---|---|
+| `claude` Claude Code | 1 | `~/.claude/rules/agent-layers/*.md` | `~/.claude/skills` | `claude mcp add-json -s user` | `AGENTS.md`, `.claude/rules`, `.mcp.json` |
+| `codex` Codex | 1 | `~/.codex/AGENTS.md` (블록) | `~/.agents/skills` | `~/.codex/config.toml` | `AGENTS.md`, `.codex/config.toml` (`developer_instructions`) |
+| `gemini` Gemini CLI | 1 | `~/.gemini/GEMINI.md` (블록) | `~/.agents/skills` | `~/.gemini/settings.json` | `AGENTS.md`, `.gemini/settings.json` |
+| `antigravity` Antigravity | 1 | `~/.gemini/GEMINI.md`, `~/.gemini/config/rules` | `~/.gemini/config/skills`, `~/.gemini/antigravity-cli/skills` | `~/.gemini/config/mcp_config.json` | `.agents/rules`, `.agents/skills`, `.agents/mcp_config.json` |
+| `copilot` Copilot CLI·VS Code | 1 | `~/.copilot/copilot-instructions.md`, `~/.copilot/instructions` | `~/.agents/skills` | `~/.copilot/mcp-config.json` | `AGENTS.md`, `.github/instructions`, `.mcp.json` |
+| `cursor` Cursor | 1 | 계정 설정 화면에서만 가능 | `~/.agents/skills` | `~/.cursor/mcp.json` | `.cursor/rules/*.mdc`, `.cursor/mcp.json` |
+| `zed` Zed | 1 | `%APPDATA%\Zed\AGENTS.md`, `~/.config/zed/AGENTS.md` | `~/.agents/skills` | - | `AGENTS.md` |
+| `opencode`, `junie`, `kiro`, `amp`, `factory`, `devin`, `qwen`, `cline`, `goose` | 2 | 각 도구의 전역 지시문 파일 | `~/.agents/skills` 또는 도구별 폴더 | 일부 지원 | `AGENTS.md` 또는 도구별 규칙 폴더 |
+
+Tier 1은 핵심 대상입니다. Tier 2는 best effort 대상이라서, 공급사가 경로나 형식을 바꾸면 반영이 늦을 수 있습니다. `agent-layers agents`는 두 Tier를 서로 다른 표로 나눠 보여 줍니다. `doctor`는 Tier와 관계없이 경고만 있으면 성공으로 끝나고, `--strict`를 붙였을 때만 경고도 실패로 처리합니다.
 
 `agent-layers agents`를 실행하면 이 PC 기준으로 계산된 실제 경로를 볼 수 있습니다.
 
@@ -151,8 +154,8 @@ agent-layers project purge acme       # 프로젝트가 끝났을 때 실행한�
 | 명령 | 용도 |
 |---|---|
 | `init [dir] [--from url]` | 설정 저장소를 만들거나 복제하고, 이 PC에 등록한다 |
-| `doctor` | 환경, 설치된 에이전트, 평문 비밀값, Codex 설정의 잘못된 키 위치, Zed와 Copilot 파일 우선순위를 점검하고, npm에 agent-layers 새 버전이 있는지 확인한다 |
-| `agents` | 지원 에이전트와 이 PC 기준 경로를 보여 준다 |
+| `doctor [--strict]` | 환경, 설치된 에이전트, 평문 비밀값, Codex 설정의 잘못된 키 위치, Zed와 Copilot 파일 우선순위를 점검하고, npm에 agent-layers 새 버전이 있는지 확인한다. `--strict`를 붙이면 경고도 실패로 처리한다 |
+| `agents` | 지원 에이전트를 Tier별로 나누고 이 PC 기준 경로와 함께 보여 준다 |
 | `plan [--diff] [--all]` / `apply [--yes] [--force] [--prune]` | base 레이어를 미리 보거나 적용한다. `--prune`을 주면 더 이상 선택하지 않은 에이전트의 산출물도 지운다 |
 | `sync` | 설정 저장소(와 team 레이어)를 `git pull --ff-only`한 뒤 적용한다 |
 | `status` | 관리 중인 파일과 바깥에서 바뀐 항목을 보여 준다 |

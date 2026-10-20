@@ -1,7 +1,9 @@
 ---
-description: Review the uncommitted changes for bugs
+description: Check the uncommitted changes before a commit
 argument-hint: "[focus]"
 ---
-Review the uncommitted changes in this repository. Extra focus: $ARGUMENTS
+Check the uncommitted changes in this repository before they are committed. Extra focus: $ARGUMENTS
 
-List concrete bugs first, then risky patterns. Do not rewrite the code unless asked.
+- Run the project's test and lint commands and include the result.
+- List concrete bugs first, then risky patterns.
+- Do not rewrite the code unless asked.

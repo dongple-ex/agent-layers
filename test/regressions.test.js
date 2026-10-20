@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseTomlValue } from '../src/formats/toml.js';
 import { run } from '../src/util/proc.js';
 import { assertOutputsWithin } from '../src/render.js';
@@ -750,4 +750,86 @@ test('#24 the Claude memory folder must stay inside the project folder', { skip:
   assert.ok(!fs.existsSync(path.join(sb.root, 'proj-evil')));
   const local = path.join(repo, '.claude', 'settings.local.json');
   assert.ok(!fs.existsSync(local) || !read(local).includes('proj-evil'));
+});
+
+test('registry splits agents into tier 1 core targets and tier 2 extended targets', async () => {
+  const { ADAPTERS } = await import('../src/adapters/registry.js');
+  assert.ok(ADAPTERS.every((a) => a.tier === 1 || a.tier === 2));
+  assert.deepEqual(ADAPTERS.filter((a) => a.tier === 1).map((a) => a.id).sort(), ['antigravity', 'claude', 'codex', 'copilot', 'cursor', 'gemini', 'zed']);
+  assert.deepEqual(ADAPTERS.filter((a) => a.tier === 2).map((a) => a.id).sort(), ['amp', 'cline', 'devin', 'factory', 'goose', 'junie', 'kiro', 'opencode', 'qwen']);
+});
+
+test('agents lists tier 1 and tier 2 targets in separate tables and reports the tier in JSON', () => {
+  const sb = sandbox();
+  const r = cli(sb, ['agents']);
+  assert.equal(r.code, 0, r.out);
+  const [core, extended] = r.out.split('Tier 2: extended agents');
+  assert.match(core, /Tier 1: core agents/);
+  assert.match(core, /^(yes|no)\s+zed\s/m);
+  assert.doesNotMatch(core, /^(yes|no)\s+opencode\s/m);
+  assert.match(extended, /^(yes|no)\s+opencode\s/m);
+  assert.doesNotMatch(extended, /^(yes|no)\s+zed\s/m);
+  const rows = JSON.parse(cli(sb, ['agents', '--json']).stdout);
+  assert.equal(rows.find((x) => x[1] === 'zed')[6], '1');
+  assert.equal(rows.find((x) => x[1] === 'opencode')[6], '2');
+});
+
+test('doctor --strict fails on warnings that a plain doctor run only reports', () => {
+  const sb = sandbox();
+  write(path.join(sb.home, '.codex', 'config.toml'), '[features]\nmodel = "gpt-5"\n');
+  const plain = cli(sb, ['doctor', '--fast']);
+  assert.equal(plain.code, 0, plain.out);
+  assert.match(plain.out, /warn codex: \[features\] contains model/);
+  assert.equal(cli(sb, ['doctor', '--fast', '--strict']).code, 1);
+  assert.equal(cli(sb, ['doctor', '--fast', '--json']).code, 0);
+  assert.equal(cli(sb, ['doctor', '--fast', '--json', '--strict']).code, 1);
+  if (HAS_GIT) {
+    const clean = sandbox();
+    const r = cli(clean, ['doctor', '--fast', '--strict']);
+    assert.equal(r.code, 0, r.out);
+  }
+});
+
+test('gemini model settings are managed per key and keep the other model settings of the user', () => {
+  const sb = sandbox();
+  manifest(sb, ['gemini'], { gemini: { readAgentsMd: false } });
+  const settings = path.join(sb.home, '.gemini', 'settings.json');
+  const fragment = path.join(sb.source, 'base', 'settings', 'gemini.jsonc');
+  write(settings, JSON.stringify({ model: { compressionThreshold: 0.7 }, general: { vimMode: true } }, null, 2));
+  write(fragment, '{\n  // default model\n  "model": { "name": "gemini-4-argon" },\n  "general": { "plan": { "modelRouting": false } }\n}\n');
+  let r = cli(sb, ['apply', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(JSON.parse(read(settings)), { model: { compressionThreshold: 0.7, name: 'gemini-4-argon' }, general: { vimMode: true, plan: { modelRouting: false } } });
+  fs.rmSync(fragment);
+  r = cli(sb, ['apply', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(JSON.parse(read(settings)), { model: { compressionThreshold: 0.7 }, general: { vimMode: true } });
+});
+
+test('the init template gemini.jsonc writes nothing until a key is uncommented', () => {
+  const sb = sandbox();
+  manifest(sb, ['gemini'], { gemini: { readAgentsMd: false } });
+  write(path.join(sb.source, 'base', 'settings', 'gemini.jsonc'), read(new URL('../templates/init/base/settings/gemini.jsonc', import.meta.url)));
+  const r = cli(sb, ['apply', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(!fs.existsSync(path.join(sb.home, '.gemini', 'settings.json')));
+});
+
+test('purge lists Antigravity conversation artifacts that link to the project for review and leaves global config alone', async () => {
+  const { findAgentData } = await import('../src/project.js');
+  const { createContext } = await import('../src/context.js');
+  const sb = sandbox();
+  const ctx = createContext({ home: sb.home });
+  const root = path.join(sb.root, 'work');
+  const sibling = path.join(sb.root, 'work2');
+  const brain = path.join(sb.home, '.gemini', 'antigravity', 'brain');
+  write(path.join(brain, 'a', 'task.md'), `- [x] Edit [main.js](${pathToFileURL(path.join(root, 'src', 'main.js')).href}#L10)\n`);
+  write(path.join(brain, 'b', 'walkthrough.md'), `See [notes](${pathToFileURL(path.join(sibling, 'notes.md')).href})\n`);
+  write(path.join(brain, 'c', 'task.md.metadata.json'), JSON.stringify({ summary: pathToFileURL(root).href }));
+  write(path.join(sb.home, '.gemini', 'config', 'config.json'), JSON.stringify({ userSettings: { artifactReviewMode: 'always' }, path: root }));
+  write(path.join(sb.home, '.gemini', 'antigravity', 'installation_id'), 'id\n');
+  const found = findAgentData(ctx, root);
+  const brainItems = found.filter((d) => d.path.startsWith(brain));
+  assert.deepEqual(brainItems.map((d) => [d.agent, path.basename(d.path), d.remove]), [['antigravity', 'a', null]]);
+  assert.ok(!found.some((d) => /config\.json$|installation_id$/.test(d.path)));
 });
