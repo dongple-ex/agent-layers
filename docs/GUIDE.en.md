@@ -409,6 +409,27 @@ To share a single project with someone, keep it in a separate setup repository t
 - A project name that exists in both repositories is an error, because applied records are keyed by project name. Rename one of them.
 - `project purge --remove-source` deletes projects of your own repository only. Delete an imported project in its own repository.
 
+### Downloading selected projects
+
+`agent-layers sync --select` lists projects and external project repositories registered in your current local configuration. Enter comma-separated numbers or names. Empty input, Ctrl+C, or end of input cancels the download.
+
+| Task | Command |
+| --- | --- |
+| Choose multiple entries from a menu | `agent-layers sync --select` |
+| Select downloaded projects by name | `agent-layers sync --projects a6a,yko` |
+| Select an external repository not yet downloaded | `agent-layers sync --projects extends:team` |
+| Inspect downloaded projects | `agent-layers project list` |
+| Preview application | `agent-layers project plan a6a --path ./a6a --diff` |
+| Apply project settings | `agent-layers project apply a6a --path ./a6a` |
+
+- In `extends:team`, `team` is the `name` of an `extends` entry in `agent-layers.jsonc`. Project names inside an undownloaded repository become available after downloading it.
+- Sync clones or pulls whole Git repositories with `pull --ff-only`. Multiple selections in one repository update it only once; other project files in that repository are updated too.
+- Selecting a project in your own setup repository updates that whole repository. Selecting only external repositories leaves your setup repository and other unselected repositories untouched.
+- Selected sync does not apply base or project settings. The existing singular `sync --project <name>` controls application scope; the new plural `--projects` selects downloads.
+- `--select` requires a terminal. Use `--projects` for automation; `--yes` does not make a selection for you.
+- Unknown or ambiguous names, combining `--select` with `--projects`, and combining selection with application options fail before Git changes.
+- A failed Git operation stops remaining updates. Previously updated repositories are not rolled back automatically. Resolve the failure and retry the same selection.
+
 ## Syncing machines and choosing target agents
 
 Push changes from one machine and run `agent-layers sync` on another to reach the same state. `sync` runs `git pull --ff-only` on the setup repository and then applies the base layer.

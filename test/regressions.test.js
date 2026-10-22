@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseTomlValue } from '../src/formats/toml.js';
 import { run } from '../src/util/proc.js';
@@ -659,6 +659,200 @@ test('#19 extends projects: a missing folder is reported unless optional, and sy
   assert.match(r.out, /git pull --ff-only \(.*team-clone\)/);
   r = cli(sb, ['project', 'list']);
   assert.match(r.out, /a6a\s+extends:team/);
+});
+
+function syncGit(args) {
+  const r = spawnSync('git', args, { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  return r.stdout.trim();
+}
+
+function syncCommit(dir) {
+  syncGit(['-C', dir, 'add', '.']);
+  syncGit(['-C', dir, '-c', 'user.email=test@example.invalid', '-c', 'user.name=Test', 'commit', '-qm', 'test update']);
+}
+
+function syncSandbox(t) {
+  const sb = sandbox();
+  t.after(() => fs.rmSync(sb.root, { recursive: true, force: true }));
+  const origins = ['team', 'other'].map((name) => {
+    const origin = path.join(sb.root, name + '-origin');
+    sharedProject(path.join(origin, 'projects'), name + '-project', name + '-work');
+    syncGit(['init', '-q', origin]);
+    syncCommit(origin);
+    return { name, projects: '../' + name + '-clone/projects', git: origin };
+  });
+  extendsManifest(sb, origins);
+  return sb;
+}
+
+test('selected sync clones only the chosen external repository without applying settings', { skip: !HAS_GIT }, (t) => {
+  const sb = syncSandbox(t);
+  const r = cli(sb, ['sync', '--projects', 'extends:team', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(fs.existsSync(path.join(sb.root, 'team-clone', 'projects', 'team-project', 'project.jsonc')));
+  assert.ok(!fs.existsSync(path.join(sb.root, 'other-clone')));
+  assert.ok(!fs.existsSync(path.join(sb.home, '.claude')));
+  assert.ok(!fs.existsSync(path.join(sb.home, '.agent-layers', 'state.json')));
+  assert.doesNotMatch(r.out, /skipped pull/);
+});
+
+test('selected sync pulls a known project once and leaves unselected checkouts unchanged', { skip: !HAS_GIT }, (t) => {
+  const sb = syncSandbox(t);
+  for (const name of ['team', 'other']) {
+    syncGit(['clone', path.join(sb.root, name + '-origin'), path.join(sb.root, name + '-clone')]);
+    write(path.join(sb.root, name + '-origin', 'update.txt'), name);
+    syncCommit(path.join(sb.root, name + '-origin'));
+  }
+  const r = cli(sb, ['sync', '--projects', 'team-project,extends:team,team-project']);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(read(path.join(sb.root, 'team-clone', 'update.txt')), 'team');
+  assert.ok(!fs.existsSync(path.join(sb.root, 'other-clone', 'update.txt')));
+  assert.equal((r.out.match(/git pull --ff-only/g) || []).length, 1);
+  assert.ok(!fs.existsSync(path.join(sb.home, '.agent-layers', 'state.json')));
+});
+
+test('selected sync validates every selection and option before any Git changes', { skip: !HAS_GIT }, (t) => {
+  const sb = syncSandbox(t);
+  for (const [args, message] of [
+    [['--projects', 'extends:team,unknown'], /unknown sync selection/],
+    [['--projects'], /requires.*name/],
+    [['--projects='], /requires.*name/],
+    [['--projects', 'extends:team', '--select'], /cannot combine/],
+    [['--projects', 'extends:team', '--project', 'team-project'], /cannot combine/],
+    [['--projects', 'extends:team', '--all'], /cannot combine/],
+    [['--select', '--yes'], /terminal.*--projects/],
+  ]) {
+    const r = cli(sb, ['sync', ...args]);
+    assert.notEqual(r.code, 0, r.out);
+    assert.match(r.out, message);
+    assert.ok(!fs.existsSync(path.join(sb.root, 'team-clone')));
+    assert.ok(!fs.existsSync(path.join(sb.root, 'other-clone')));
+    assert.ok(!fs.existsSync(path.join(sb.home, '.agent-layers', 'state.json')));
+  }
+});
+
+test('selected sync supports multiple repositories and preserves default sync application', { skip: !HAS_GIT }, (t) => {
+  const sb = syncSandbox(t);
+  let r = cli(sb, ['sync', '--projects', 'extends:team,extends:other']);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(fs.existsSync(path.join(sb.root, 'team-clone')));
+  assert.ok(fs.existsSync(path.join(sb.root, 'other-clone')));
+  assert.ok(!fs.existsSync(path.join(sb.home, '.claude')));
+  r = cli(sb, ['sync', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(read(path.join(sb.home, '.claude', 'rules', 'agent-layers', '00-core.md')), /Be precise/);
+});
+
+test('selected sync updates the source repository only when a source project is chosen', { skip: !HAS_GIT }, (t) => {
+  const sb = syncSandbox(t);
+  sharedProject(path.join(sb.source, 'projects'), 'local-project', 'local-work');
+  syncGit(['init', '-q', sb.source]);
+  syncCommit(sb.source);
+  const origin = path.join(sb.root, 'source-origin');
+  syncGit(['clone', sb.source, origin]);
+  const branch = syncGit(['-C', sb.source, 'branch', '--show-current']);
+  syncGit(['-C', sb.source, 'remote', 'add', 'origin', origin]);
+  syncGit(['-C', sb.source, 'fetch', 'origin']);
+  syncGit(['-C', sb.source, 'branch', '--set-upstream-to=origin/' + branch]);
+  write(path.join(origin, 'source-update.txt'), 'updated');
+  syncCommit(origin);
+  let r = cli(sb, ['sync', '--projects', 'extends:team']);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(!fs.existsSync(path.join(sb.source, 'source-update.txt')));
+  r = cli(sb, ['sync', '--projects', 'local-project']);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(read(path.join(sb.source, 'source-update.txt')), 'updated');
+  assert.ok(!fs.existsSync(path.join(sb.root, 'other-clone')));
+  assert.ok(!fs.existsSync(path.join(sb.home, '.claude')));
+});
+
+test('selected sync reports missing Git configuration before cloning other selections', { skip: !HAS_GIT }, (t) => {
+  const sb = syncSandbox(t);
+  sharedProject(path.join(sb.source, 'projects'), 'local-project', 'local-work');
+  const r = cli(sb, ['sync', '--projects', 'extends:team,local-project']);
+  assert.notEqual(r.code, 0, r.out);
+  assert.match(r.out, /not a git checkout/);
+  assert.ok(!fs.existsSync(path.join(sb.root, 'team-clone')));
+});
+
+test('selected sync menu handles multiple choices, cancellation and invalid input', { skip: !HAS_GIT, timeout: 15000 }, async (t) => {
+  for (const [answer, success, message] of [
+    ['1,2\n', true, /Selected: extends:team, extends:other/],
+    ['extends:team,extends:other\n', true, /Selected: extends:team, extends:other/],
+    ['\n', false, /Cancelled/],
+    ['', false, /Cancelled/],
+    ['99\n', false, /invalid selection number/],
+    ['missing\n', false, /unknown sync selection/],
+  ]) {
+    const sb = syncSandbox(t);
+    const script = `process.stdin.isTTY = true; import(${JSON.stringify(new URL('../src/cli.js', import.meta.url).href)}).then(async ({ main }) => { process.exitCode = await main(process.argv.slice(1)); }).catch((e) => { console.error(e.message); process.exitCode = 1; });`;
+    const child = spawn(process.execPath, ['--input-type=module', '-e', script, '--', '--home', sb.home, '--source', sb.source, 'sync', '--select'], { env: { ...process.env, NO_COLOR: '1' }, cwd: sb.root });
+    t.after(() => child.kill());
+    let out = '';
+    let answered = false;
+    child.stdout.on('data', (data) => {
+      out += data;
+      if (!answered && out.includes('Enter cancels): ')) {
+        answered = true;
+        child.stdin.end(answer);
+      }
+    });
+    child.stderr.on('data', (data) => { out += data; });
+    const code = await new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('close', resolve);
+    });
+    assert.equal(code, success ? 0 : 1, out);
+    assert.match(out, message);
+    assert.equal(fs.existsSync(path.join(sb.root, 'team-clone')), success);
+    assert.equal(fs.existsSync(path.join(sb.root, 'other-clone')), success);
+    assert.ok(!fs.existsSync(path.join(sb.home, '.agent-layers', 'state.json')));
+  }
+});
+
+test('selected sync fails a missing clone source without applying or processing later selections', { skip: !HAS_GIT }, (t) => {
+  const sb = syncSandbox(t);
+  fs.rmSync(path.join(sb.root, 'team-origin'), { recursive: true, force: true });
+  const r = cli(sb, ['sync', '--projects', 'extends:team,extends:other']);
+  assert.notEqual(r.code, 0, r.out);
+  assert.match(r.out, /git clone failed/);
+  assert.ok(!fs.existsSync(path.join(sb.root, 'other-clone')));
+  assert.ok(!fs.existsSync(path.join(sb.home, '.claude')));
+});
+
+test('selected sync supports Git worktrees with a .git file', { skip: !HAS_GIT }, (t) => {
+  const sb = syncSandbox(t);
+  const repository = path.join(sb.root, 'team-repo');
+  const worktree = path.join(sb.root, 'team-clone');
+  const origin = path.join(sb.root, 'team-origin');
+  syncGit(['clone', origin, repository]);
+  syncGit(['-C', repository, 'worktree', 'add', '-b', 'work', worktree]);
+  const branch = syncGit(['-C', origin, 'branch', '--show-current']);
+  syncGit(['-C', worktree, 'branch', '--set-upstream-to=origin/' + branch]);
+  write(path.join(origin, 'update.txt'), 'worktree update');
+  syncCommit(origin);
+  const r = cli(sb, ['sync', '--projects', 'team-project']);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(read(path.join(worktree, 'update.txt')), 'worktree update');
+  assert.ok(!fs.existsSync(path.join(sb.root, 'other-clone')));
+});
+
+test('selected sync stops on a failed pull and preserves local edits', { skip: !HAS_GIT }, (t) => {
+  const sb = syncSandbox(t);
+  const clone = path.join(sb.root, 'team-clone');
+  const origin = path.join(sb.root, 'team-origin');
+  syncGit(['clone', origin, clone]);
+  const rule = path.join('projects', 'team-project', 'instructions', '00.md');
+  write(path.join(clone, rule), 'local work\n');
+  write(path.join(origin, rule), 'upstream change\n');
+  syncCommit(origin);
+  const r = cli(sb, ['sync', '--projects', 'team-project,extends:other']);
+  assert.notEqual(r.code, 0, r.out);
+  assert.match(r.out, /git pull failed/);
+  assert.equal(read(path.join(clone, rule)), 'local work\n');
+  assert.ok(!fs.existsSync(path.join(sb.root, 'other-clone')));
+  assert.ok(!fs.existsSync(path.join(sb.home, '.claude')));
 });
 
 test('#20 project names from project.jsonc must be plain names, and project outputs never leave the project folder', { skip: !HAS_GIT }, () => {

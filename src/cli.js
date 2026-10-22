@@ -29,7 +29,7 @@ const PKG = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.ur
 const TEMPLATE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'init');
 const PERSONA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'persona');
 
-const BOOLEAN_FLAGS = new Set(['yes', 'y', 'force', 'diff', 'json', 'quiet', 'q', 'help', 'h', 'show', 'overwrite', 'keep-agent-data', 'remove-source', 'all', 'fast', 'no-removals', 'version', 'v', 'project-only', 'user-only', 'prune', 'write', 'packet', 'strict']);
+const BOOLEAN_FLAGS = new Set(['yes', 'y', 'force', 'diff', 'json', 'quiet', 'q', 'help', 'h', 'show', 'overwrite', 'keep-agent-data', 'remove-source', 'all', 'fast', 'no-removals', 'version', 'v', 'project-only', 'user-only', 'prune', 'write', 'packet', 'strict', 'select']);
 
 export function parseArgs(argv) {
   const positional = [];
@@ -861,8 +861,123 @@ function cmdExec(ctx, flags, rest) {
   return runInherit(rest[0], rest.slice(1).map(sub), { env });
 }
 
+function syncChoices(ctx, manifest) {
+  const entries = manifest.extends.filter((e) => e.projectsDir);
+  const choices = listProjects(manifest).map((p) => ({
+    name: p.name,
+    from: p.origin ? `extends:${p.origin}` : 'source',
+    dir: p.origin ? path.dirname(p.dir) : ctx.sourceDir,
+    entry: null,
+  }));
+  for (const e of entries) {
+    choices.push({ name: `extends:${e.name}`, from: 'external repository', dir: e.dir || path.dirname(e.projectsDir), entry: e });
+  }
+  return choices;
+}
+
+async function selectSyncProjects(choices) {
+  if (!process.stdin.isTTY) {
+    throw new Error('sync --select requires a terminal; use --projects <name,...> instead.');
+  }
+  if (!choices.length) {
+    throw new Error('no projects available; add a project or an extends.projects entry first.');
+  }
+  table(choices.map((p, i) => [String(i + 1), p.name, p.from]), ['number', 'selection', 'from']);
+  info('Downloads whole Git repositories only; settings are not applied.');
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await new Promise((resolve) => {
+    rl.once('close', () => resolve(''));
+    rl.once('SIGINT', () => rl.close());
+    rl.question('Choose numbers or names separated by commas (Enter cancels): ', resolve);
+  });
+  rl.close();
+  const tokens = list(answer) || [];
+  return tokens.map((token) => {
+    if (/^[0-9]+$/.test(token)) {
+      const choice = choices[Number(token) - 1];
+      if (!choice) {
+        throw new Error(`invalid selection number "${token}"`);
+      }
+      return choice.name;
+    }
+    return token;
+  });
+}
+
+async function cmdSyncSelected(ctx, manifest, flags) {
+  if (flags.select !== undefined && flags.projects !== undefined) {
+    throw new Error('cannot combine --select and --projects; choose one selection method.');
+  }
+  const applyFlags = ['project', 'project-only', 'user-only', 'all', 'path', 'only', 'skip', 'force', 'prune', 'no-removals', 'diff'];
+  const conflicting = applyFlags.filter((key) => flags[key] !== undefined);
+  if (conflicting.length) {
+    throw new Error(`cannot combine selected sync with ${conflicting.map((key) => `--${key}`).join(', ')}; run project plan/apply separately.`);
+  }
+  if (flags.select !== undefined && (flags.quiet || flags.q)) {
+    throw new Error('cannot combine --select with --quiet; the selection menu must be visible.');
+  }
+  const choices = syncChoices(ctx, manifest);
+  let names;
+  if (flags.select !== undefined) {
+    names = await selectSyncProjects(choices);
+    if (!names.length) {
+      info('Cancelled; no repositories were changed.');
+      return 1;
+    }
+  } else {
+    names = list(flags.projects);
+    if (!names?.length) {
+      throw new Error('--projects requires at least one project name or extends:<name>.');
+    }
+  }
+  const selected = [...new Set(names)].map((name) => {
+    const matches = choices.filter((p) => p.name === name);
+    if (matches.length !== 1) {
+      throw new Error(`${matches.length ? 'ambiguous' : 'unknown'} sync selection "${name}". Available: ${choices.map((p) => p.name).join(', ') || 'none'}`);
+    }
+    return matches[0];
+  });
+  const repos = new Map();
+  for (const choice of selected) {
+    let dir = choice.dir;
+    let git = null;
+    if (!exists(dir)) {
+      if (!choice.entry?.git) {
+        throw new Error(`"${choice.name}" is missing at ${dir}; configure its extends.git before syncing.`);
+      }
+      git = choice.entry.git;
+    } else {
+      const result = run('git', ['-C', dir, 'rev-parse', '--show-toplevel']);
+      if (result.code !== 0) {
+        throw new Error(`${dir} is not a git checkout; initialize or clone its setup repository first.`);
+      }
+      dir = result.stdout.trim();
+    }
+    const previous = repos.get(dir);
+    if (previous && previous.git !== git) {
+      throw new Error(`conflicting Git sources for ${dir}; check the selected extends entries.`);
+    }
+    repos.set(dir, { dir, git });
+  }
+  info(`Selected: ${selected.map((p) => p.name).join(', ')}`);
+  info(`Syncing ${repos.size} whole Git repository/repositories; settings are not applied.`);
+  for (const { dir, git } of repos.values()) {
+    info(c.bold(git ? `git clone -> ${short(ctx, dir)}` : `git pull --ff-only (${short(ctx, dir)})`));
+    const code = runInherit('git', git ? ['clone', git, dir] : ['-C', dir, 'pull', '--ff-only']);
+    if (code !== 0) {
+      error(`git ${git ? 'clone' : 'pull'} failed in ${dir}; resolve it and retry the same sync selection.`);
+      return 1;
+    }
+  }
+  info('Downloaded selected repositories. Run "agent-layers project list", then "agent-layers project plan <name> --path <folder>" to review application.');
+  return 0;
+}
+
 async function cmdSync(ctx, flags) {
   const manifest = prepare(ctx);
+  if (flags.projects !== undefined || flags.select !== undefined) {
+    return cmdSyncSelected(ctx, manifest, flags);
+  }
   const repoOf = (d) => (isDir(path.join(d, '.git')) ? d : isDir(path.join(path.dirname(d), '.git')) ? path.dirname(d) : null);
   const repos = [ctx.sourceDir, ...manifest.extends.flatMap((e) => [e.dir, e.projectsDir]).filter(Boolean).map(repoOf).filter(Boolean)];
   for (const repo of [...new Set(repos)]) {
@@ -1076,6 +1191,8 @@ Base layer (home directory)
   uninstall [--yes]                   remove everything agent-layers wrote
 
 Project layers
+  sync --select                      choose projects/repositories to download; no apply
+  sync --projects <name,...>          download chosen projects or extends:<name> repositories
   project list | init <name> [--mode private|shared] [--remote <glob>] [--dir-name <glob>]
   project plan|apply [name] [--path <folder>] [--diff] [--yes] [--force]
   project detect [--path <folder>]

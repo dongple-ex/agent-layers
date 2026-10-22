@@ -114,6 +114,15 @@ projects/<name>/
 
 Projects of another setup repository are imported with the `projects` field of `extends`. See "Projects from another setup repository" in the [guide](docs/GUIDE.en.md).
 
+Run `agent-layers sync --select` to choose projects or external repositories by comma-separated numbers or names. For scripts, use:
+
+```bash
+agent-layers sync --projects a6a,yko
+agent-layers sync --projects extends:team
+```
+
+Use a known project name, or `extends:<name>` for an external repository that has not been downloaded yet. Selected sync clones/pulls whole Git repositories, including other projects in the same repository, and does not apply settings. Review with `project plan` and apply with `project apply` afterwards. Plain `sync` retains its existing full-sync and base-application behavior.
+
 Neutral MCP definition:
 
 ```jsonc
