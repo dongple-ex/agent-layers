@@ -197,6 +197,11 @@ test('jsonc: commas followed by comments are handled in linear time', () => {
   assert.ok(Date.now() - t0 < 1000, `parsing took ${Date.now() - t0} ms`);
   assert.equal(Object.keys(v).length, 201);
   assert.deepEqual(parseJsonc('{\n  "a": [1, 2, // two\n  ],\n  "b": 3, // three\n}\n'), { a: [1, 2], b: 3 });
+  assert.deepEqual(parseJsonc('{\n  "a": 1, // note\n  ,\n}\n'), { a: 1 });
+  assert.throws(() => parseJsonc('{\n  "a": 1,\n  ,\n}\n'), /invalid JSON/);
+  const t1 = Date.now();
+  assert.deepEqual(parseJsonc(`[1${', // c\n'.repeat(2000)}]`), [1]);
+  assert.ok(Date.now() - t1 < 1000, `parsing took ${Date.now() - t1} ms`);
 });
 
 test('frontmatter: yaml subset', () => {

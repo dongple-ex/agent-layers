@@ -17,11 +17,33 @@ function skipBlank(text, j) {
   return j;
 }
 
+function isCloser(ch) {
+  return ch === '}' || ch === ']';
+}
+
+function commaChain(text, i) {
+  for (;;) {
+    let k = i + 1;
+    while (k < text.length && /\s/.test(text[k])) {
+      k += 1;
+    }
+    if (!(text[k] === '/' && (text[k + 1] === '/' || text[k + 1] === '*'))) {
+      return { end: i, drop: isCloser(text[k]) };
+    }
+    const s = skipBlank(text, k);
+    if (text[s] !== ',') {
+      return { end: i, drop: isCloser(text[s]) };
+    }
+    i = s;
+  }
+}
+
 export function stripJsonc(text) {
   let out = '';
   let i = 0;
   const n = text.length;
   let inString = false;
+  let chain = { end: -1, drop: false };
   while (i < n) {
     const ch = text[i];
     const nx = text[i + 1];
@@ -60,8 +82,10 @@ export function stripJsonc(text) {
       continue;
     }
     if (ch === ',') {
-      const j = skipBlank(text, i + 1);
-      if (text[j] === '}' || text[j] === ']') {
+      if (i > chain.end) {
+        chain = commaChain(text, i);
+      }
+      if (chain.drop) {
         i += 1;
         continue;
       }
