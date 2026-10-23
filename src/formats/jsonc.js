@@ -1,3 +1,22 @@
+function skipBlank(text, j) {
+  const n = text.length;
+  while (j < n) {
+    if (/\s/.test(text[j])) {
+      j += 1;
+    } else if (text[j] === '/' && text[j + 1] === '/') {
+      while (j < n && text[j] !== '\n') {
+        j += 1;
+      }
+    } else if (text[j] === '/' && text[j + 1] === '*') {
+      const end = text.indexOf('*/', j + 2);
+      j = end < 0 ? n : end + 2;
+    } else {
+      break;
+    }
+  }
+  return j;
+}
+
 export function stripJsonc(text) {
   let out = '';
   let i = 0;
@@ -41,18 +60,8 @@ export function stripJsonc(text) {
       continue;
     }
     if (ch === ',') {
-      let j = i + 1;
-      while (j < n && /\s/.test(text[j])) {
-        j += 1;
-      }
-      if (text[j] === '/' && (text[j + 1] === '/' || text[j + 1] === '*')) {
-        const rest = stripJsonc(text.slice(j));
-        const k = rest.search(/\S/);
-        if (k >= 0 && (rest[k] === '}' || rest[k] === ']')) {
-          i += 1;
-          continue;
-        }
-      } else if (text[j] === '}' || text[j] === ']') {
+      const j = skipBlank(text, i + 1);
+      if (text[j] === '}' || text[j] === ']') {
         i += 1;
         continue;
       }

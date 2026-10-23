@@ -55,6 +55,17 @@ test('toml: rejects duplicate tables and keys', () => {
   assert.throws(() => parseToml('a.b = 1\n[a]\nc = 2\n'), TomlError);
 });
 
+test('toml: __proto__ keys are rejected and never reach Object.prototype', () => {
+  const cases = ['[__proto__]\nx = 1\n', '[[__proto__]]\nx = 1\n', 'a.__proto__.b = 1\n', 'a = { __proto__ = 1 }\n', '"__proto__" = { x = 1 }\n'];
+  for (const src of cases) {
+    assert.throws(() => parseTomlValue(src), TomlError, src);
+    assert.throws(() => new TomlDocument(src), TomlError, src);
+  }
+  assert.throws(() => new TomlDocument('a = 1\n').setTable(['__proto__'], { x: 1 }), TomlError);
+  assert.equal({}.x, undefined);
+  assert.equal({}.b, undefined);
+});
+
 test('toml: strings, numbers, inline tables, multi-line strings', () => {
   const v = parseTomlValue('s = "a\\tb\\u00e9"\nl = \'C:\\x\'\nm = """\nline1\nline2"""\nn = 1_000\nf = 3.5e2\nh = 0xff\nt = { a = 1, b.c = "x" }\nd = 1979-05-27 07:32:00Z\n');
   assert.equal(v.s, 'a\tb\u00e9');
@@ -173,6 +184,19 @@ test('jsonc: comments and trailing commas', () => {
   const text = '{\n  // line\n  "a": "http://x", /* block */\n  "b": [1, 2,],\n}\n';
   assert.deepEqual(parseJsonc(text), { a: 'http://x', b: [1, 2] });
   assert.equal(stripJsonc('"//not a comment"'), '"//not a comment"');
+});
+
+test('jsonc: commas followed by comments are handled in linear time', () => {
+  const lines = [];
+  for (let i = 0; i < 200; i += 1) {
+    lines.push(`  "key${i}": ${i}, // note ${i}`);
+  }
+  const text = `{\n${lines.join('\n')}\n  "last": true, /* end */\n}\n`;
+  const t0 = Date.now();
+  const v = parseJsonc(text);
+  assert.ok(Date.now() - t0 < 1000, `parsing took ${Date.now() - t0} ms`);
+  assert.equal(Object.keys(v).length, 201);
+  assert.deepEqual(parseJsonc('{\n  "a": [1, 2, // two\n  ],\n  "b": 3, // three\n}\n'), { a: [1, 2], b: 3 });
 });
 
 test('frontmatter: yaml subset', () => {

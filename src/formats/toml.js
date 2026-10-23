@@ -149,6 +149,9 @@ class Parser {
       this.skipWs();
       parts.push(this.simpleKey());
     }
+    if (parts.includes('__proto__')) {
+      this.fail("key '__proto__' is not supported");
+    }
     return parts;
   }
 
