@@ -3,7 +3,7 @@ import path from 'node:path';
 import { readText, writeTextAtomic, writeBytesAtomic, exists, isDir, sha256, hashFiles, readDirSnapshot, removePath, timestamp } from './util/fsx.js';
 import { getBlockContent, upsertBlock, removeBlock } from './formats/mdblock.js';
 import { parseJsonc, stripJsonc } from './formats/jsonc.js';
-import { planManagedMerge, valueHash, getAt, flattenLeaves, pathKey, clone } from './formats/jsonmerge.js';
+import { planManagedMerge, valueHash, getAt, flattenLeaves, pathKey, clone, forgetEntryFor } from './formats/jsonmerge.js';
 import { TomlDocument, toPlain } from './formats/toml.js';
 import { run, which } from './util/proc.js';
 import { formatDiff } from './util/diff.js';
@@ -33,6 +33,9 @@ function keyChanges(changes) {
     }
     if (c.op === 'remove') {
       return `- ${pathKey(c.path)}`;
+    }
+    if (c.op === 'forget') {
+      return `= ${pathKey(c.path)} (no longer managed${c.before === undefined ? '' : '; value kept'})`;
     }
     return `~ ${pathKey(c.path)}: ${describeValue(c.before)} -> ${describeValue(c.after)}`;
   });
@@ -194,7 +197,7 @@ function hasJsonComments(text) {
   return stripJsonc(text).replace(/\s+/g, '') !== text.replace(/\s+/g, '');
 }
 
-function planJson(o, record) {
+function planJson(o, record, { forget = [] } = {}) {
   const ts = textState(o.path);
   let current = {};
   if (ts && ts.text.trim()) {
@@ -205,16 +208,20 @@ function planJson(o, record) {
     }
   }
   const previous = record?.managed || [];
-  const merge = planManagedMerge(current, o.fragment, { atomic: o.atomic || [], previous });
+  const merge = planManagedMerge(current, o.fragment, { atomic: o.atomic || [], previous, forget });
   const prevKeys = new Set(previous.map((m) => pathKey(m.path)));
   const conflicts = merge.changes.filter((c) => c.op === 'set' && !prevKeys.has(pathKey(c.path)));
-  const after = jsonText(merge.result, ts?.text);
+  const forgetOnly = merge.changes.length > 0 && merge.changes.every((c) => c.op === 'forget');
+  const after = forgetOnly ? (ts ? ts.text : null) : jsonText(merge.result, ts?.text);
   const item = { before: ts ? ts.text : null, after, managed: merge.managed, changes: merge.changes, details: keyChanges(merge.changes), result: merge.result, hash: valueHash(merge.managed), beforeHash: rawHash(o.path) };
   if (!merge.changes.length && !merge.drift.length) {
     return { ...item, action: 'noop' };
   }
   if (merge.drift.length) {
     return { ...item, action: 'drift', reason: `managed keys changed outside agent-layers: ${merge.drift.map((d) => pathKey(d.path)).join(', ')}` };
+  }
+  if (forgetOnly) {
+    return { ...item, action: 'update', forgetOnly, reason: 'stops managing keys; the file is not rewritten' };
   }
   if (conflicts.length) {
     return { ...item, action: 'conflict', reason: `would overwrite existing unmanaged values: ${conflicts.map((c) => pathKey(c.path)).join(', ')}` };
@@ -226,11 +233,14 @@ function planJson(o, record) {
 }
 
 function applyJson(o, item) {
+  if (item.forgetOnly) {
+    return;
+  }
   const ts = textState(o.path);
   writeTextAtomic(o.path, item.after, { bom: ts ? ts.bom : false, eol: ts ? ts.eol : 'lf' });
 }
 
-function planToml(o, record) {
+function planToml(o, record, { forget = [] } = {}) {
   const ts = textState(o.path);
   let doc;
   try {
@@ -284,6 +294,11 @@ function planToml(o, record) {
         continue;
       }
       const cur = doc.getValue(prev.path);
+      const forgotten = forgetEntryFor(forget, prev.path);
+      if (forgotten) {
+        changes.push({ op: 'forget', path: prev.path, before: cur, after: cur, layer: forgotten.layer || null });
+        continue;
+      }
       if (cur !== undefined && valueHash(cur) === prev.hash) {
         doc.remove(prev.path);
         changes.push({ op: 'remove', path: prev.path, before: cur });
@@ -295,6 +310,11 @@ function planToml(o, record) {
         continue;
       }
       const cur = doc.getValue(prev.path);
+      const forgotten = forgetEntryFor(forget, prev.path);
+      if (forgotten) {
+        changes.push({ op: 'forget', path: prev.path, before: cur === undefined ? undefined : toPlain(cur), after: cur === undefined ? undefined : toPlain(cur), layer: forgotten.layer || null });
+        continue;
+      }
       if (cur !== undefined && valueHash(toPlain(cur)) === prev.hash) {
         doc.removeTable(prev.path);
         changes.push({ op: 'remove', path: prev.path, before: cur });
@@ -304,9 +324,13 @@ function planToml(o, record) {
     return { action: 'error', reason: `${o.path}: ${err.message}` };
   }
   const after = doc.toString();
+  const forgetOnly = changes.length > 0 && changes.every((c) => c.op === 'forget');
   const item = { before: ts ? before : null, after, managed, tables, changes, details: keyChanges(changes), hash: valueHash({ managed, tables }), beforeHash: rawHash(o.path) };
   if (!changes.length) {
     return { ...item, action: 'noop' };
+  }
+  if (forgetOnly) {
+    return { ...item, action: 'update', forgetOnly, reason: 'stops managing keys; the file is not rewritten' };
   }
   if (drift.length) {
     return { ...item, action: 'drift', reason: `managed keys changed outside agent-layers: ${drift.map(pathKey).join(', ')}` };
@@ -318,6 +342,9 @@ function planToml(o, record) {
 }
 
 function applyToml(o, item) {
+  if (item.forgetOnly) {
+    return;
+  }
   const ts = textState(o.path);
   writeTextAtomic(o.path, item.after, { bom: ts ? ts.bom : false, eol: ts ? ts.eol : 'lf' });
 }
@@ -433,7 +460,7 @@ function applyClaudeMcp(o, item) {
 const PLANNERS = { file: planFile, dir: planDir, block: planBlock, json: planJson, toml: planToml, 'claude-mcp': planClaudeMcp };
 const APPLIERS = { file: applyFile, dir: applyDir, block: applyBlock, json: applyJson, toml: applyToml, 'claude-mcp': applyClaudeMcp };
 
-function planRemoval(rec) {
+function planRemoval(rec, forget = []) {
   const o = rec;
   switch (rec.type) {
     case 'file': {
@@ -494,8 +521,8 @@ function planRemoval(rec) {
         return null;
       }
       const current = parseJsonc(ts.text, o.path);
-      const merge = planManagedMerge(current, {}, { previous: rec.managed || [] });
-      if (!merge.changes.length) {
+      const merge = planManagedMerge(current, {}, { previous: rec.managed || [], forget });
+      if (!merge.changes.some((ch) => ch.op === 'remove')) {
         return null;
       }
       const drop = rec.created === true && Object.keys(merge.result).length === 0;
@@ -517,8 +544,8 @@ function planRemoval(rec) {
       if (!ts) {
         return null;
       }
-      const item = planToml({ path: o.path, values: {}, tables: {} }, rec);
-      if (item.action === 'noop' || !item.changes?.length) {
+      const item = planToml({ path: o.path, values: {}, tables: {} }, rec, { forget });
+      if (item.action === 'noop' || !item.changes?.some((ch) => ch.op === 'remove')) {
         return null;
       }
       const drop = rec.created === true && !item.after.trim();
@@ -574,8 +601,14 @@ function removable(rec, selected) {
   return owners.every((a) => selected.includes(a));
 }
 
-export function buildPlan(ctx, { outputs, state, scopeKey, removals = true, selected = null, backup = true }) {
+export function buildPlan(ctx, { outputs, state, scopeKey, removals = true, selected = null, backup = true, forget = [] }) {
   const plan = { stamp: timestamp(), items: [], backups: [], scopeKey, backup };
+  const forgetByPath = new Map();
+  for (const f of forget) {
+    const k = normalizeKey(f.path);
+    forgetByPath.set(k, [...(forgetByPath.get(k) || []), ...f.entries]);
+  }
+  const forgetFor = (p) => forgetByPath.get(normalizeKey(p)) || [];
   const desiredIds = new Set();
   for (const o of outputs) {
     desiredIds.add(o.id);
@@ -583,7 +616,7 @@ export function buildPlan(ctx, { outputs, state, scopeKey, removals = true, sele
     const planner = PLANNERS[o.type];
     let item;
     try {
-      item = planner(o, record);
+      item = planner(o, record, { forget: forgetFor(o.path) });
     } catch (err) {
       item = { action: 'error', reason: err.message };
     }
@@ -600,7 +633,7 @@ export function buildPlan(ctx, { outputs, state, scopeKey, removals = true, sele
       }
       let r;
       try {
-        r = planRemoval(rec);
+        r = planRemoval(rec, forgetFor(rec.path));
       } catch (err) {
         r = { action: 'error', reason: err.message };
       }
@@ -670,7 +703,7 @@ export function applyPlan(ctx, plan, state, { force = false, scope, project = nu
       } else {
         if (it.type === 'claude-mcp') {
           backupFile(ctx, plan, it.path);
-        } else if (it.action === 'update' || it.action === 'conflict' || it.action === 'drift') {
+        } else if ((it.action === 'update' || it.action === 'conflict' || it.action === 'drift') && !it.forgetOnly) {
           backupFile(ctx, plan, it.path);
         }
         APPLIERS[it.type](it.output, it);
@@ -724,7 +757,21 @@ function recordFor(it, plan, scope, project, root, now, prev = null) {
   } else {
     rec.hash = it.hash;
   }
+  if (o.type === 'json' || o.type === 'toml') {
+    const forgotten = forgottenFor(it, prev, now);
+    if (forgotten.length) {
+      rec.forgotten = forgotten;
+    }
+  }
   return rec;
+}
+
+function forgottenFor(it, prev, now) {
+  const managed = new Set([...(it.managed || []), ...(it.tables || [])].map((m) => pathKey(m.path)));
+  const fresh = (it.changes || []).filter((ch) => ch.op === 'forget').map((ch) => ({ path: ch.path, layer: ch.layer || null, at: now }));
+  const freshKeys = new Set(fresh.map((f) => pathKey(f.path)));
+  const kept = (prev?.forgotten || []).filter((f) => !managed.has(pathKey(f.path)) && !freshKeys.has(pathKey(f.path)));
+  return [...kept, ...fresh];
 }
 
 export function describeItem(it, { diff = false, redact = (s) => s } = {}) {

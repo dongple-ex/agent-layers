@@ -22,6 +22,7 @@ export function summarizeLayer(layer) {
       secrets: [...findSecretRefs(m.def)].sort(),
     })),
     settings: Object.entries(layer.settings).flatMap(([agent, list]) => list.map((s) => ({ agent, file: path.basename(s.file), os: s.os || null, keys: Object.keys(s.value || {}) }))),
+    forget: (layer.forget || []).map((f) => ({ agent: f.agent, key: f.key, file: path.basename(f.file), os: f.os || null })),
     files: Object.entries(layer.files).map(([agent, list]) => ({ agent, files: list.map((f) => f.rel) })),
   };
 }
@@ -34,6 +35,7 @@ export function countItems(summary) {
     agents: summary.agents.length,
     mcp: summary.mcp.length,
     settings: summary.settings.length,
+    forget: (summary.forget || []).length,
     files: summary.files.reduce((n, f) => n + f.files.length, 0),
   };
   return Object.fromEntries(Object.entries(counts).filter(([, n]) => n > 0));

@@ -308,14 +308,14 @@ async function cmdPlanApply(ctx, flags, positional, apply) {
   const doProject = projectFlag !== undefined || flags['project-only'];
   if (doUser) {
     const { rendered, adapters } = userRender(ctx, manifest, flags);
-    const plan = buildPlan(ctx, { outputs: rendered.outputs, state, scopeKey: 'user', removals: !flags['no-removals'], selected: flags.prune ? null : adapters.map((a) => a.id) });
+    const plan = buildPlan(ctx, { outputs: rendered.outputs, state, scopeKey: 'user', removals: !flags['no-removals'], selected: flags.prune ? null : adapters.map((a) => a.id), forget: rendered.forget });
     runs.push({ plan, rendered, scope: 'user', title: `User scope (layers: ${[...manifest.extends.filter((e) => e.dir).map((e) => e.name), 'base'].join(', ')}; agents: ${adapters.map((a) => a.id).join(', ') || 'none'})` });
   }
   if (doProject) {
     const name = typeof projectFlag === 'string' ? projectFlag : positional[0];
     const { rendered, adapters, project, root, how } = projectRender(ctx, manifest, flags, name);
     const scopeKey = scopeKeyOf('project', project.name, root);
-    const plan = buildPlan(ctx, { outputs: rendered.outputs, state, scopeKey, removals: !flags['no-removals'], selected: flags.prune ? null : adapters.map((a) => a.id) });
+    const plan = buildPlan(ctx, { outputs: rendered.outputs, state, scopeKey, removals: !flags['no-removals'], selected: flags.prune ? null : adapters.map((a) => a.id), forget: rendered.forget });
     runs.push({ plan, rendered, scope: 'project', project: project.name, root, title: `Project "${project.name}" at ${short(ctx, root)} (${project.mode} mode, matched by ${how}; agents: ${adapters.map((a) => a.id).join(', ') || 'none'})` });
   }
   for (const r of runs) {
@@ -457,6 +457,7 @@ function printLayerSummary(ctx, v) {
   section('subagents', v.agents.map((s) => [s.name, targetText(s), clip(s.description)]));
   section('mcp', v.mcp.map((m) => [m.name, targetText(m), m.command ? path.basename(m.command) : m.url || '', m.secrets.length ? `secrets: ${m.secrets.join(', ')}` : '']));
   section('settings', v.settings.map((s) => [s.agent, s.file, `${keyText(s.keys)}${s.os ? `  (${s.os})` : ''}`]));
+  section('forget', (v.forget || []).map((f) => [f.agent, f.key, f.os ? `(${f.os})` : '']));
   section('files', v.files.map((f) => [f.agent, f.files.join(', ')]), v.files.reduce((n, f) => n + f.files.length, 0));
 }
 

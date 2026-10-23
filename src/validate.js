@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadManifest, listProjects } from './manifest.js';
 import { loadLayer, mergeLayers } from './layers.js';
+import { deepMerge, flattenLeaves, isPathPrefix } from './formats/jsonmerge.js';
 import { ADAPTERS } from './adapters/registry.js';
 import { listFiles, isProbablyText, isDir } from './util/fsx.js';
 import { findSecretRefs } from './template.js';
@@ -99,6 +100,16 @@ export function validateSource(sourceDir, { os = 'windows' } = {}) {
           if (!known.has(t)) {
             add('error', ins.file, `unknown target "${t}"`);
           }
+        }
+      }
+      for (const f of layer.forget) {
+        if (!known.has(f.agent)) {
+          add('error', f.file, `unknown agent "${f.agent}"`);
+          continue;
+        }
+        const leaves = flattenLeaves((layer.settings[f.agent] || []).reduce((acc, s) => deepMerge(acc, s.value), {}));
+        if (leaves.some((l) => isPathPrefix(f.path, l.path) || isPathPrefix(l.path, f.path))) {
+          add('error', f.file, `${f.agent} setting "${f.key}" is also set in settings/${f.agent}.*; remove it from one of them`);
         }
       }
       for (const key of Object.keys(layer.files)) {

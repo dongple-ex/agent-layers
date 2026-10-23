@@ -3,7 +3,7 @@ import path from 'node:path';
 import { ADAPTERS, getAdapter } from './adapters/registry.js';
 import { joinFrontmatter } from './formats/frontmatter.js';
 import { tomlBasicString } from './formats/toml.js';
-import { deepMerge } from './formats/jsonmerge.js';
+import { deepMerge, flattenLeaves, isPathPrefix } from './formats/jsonmerge.js';
 import { renderString, renderDeep, findSecretRefs, hasSecretRef, secretEnvName, isPureSecretRef, isPureEnvRef } from './template.js';
 import { which, run } from './util/proc.js';
 import { exists, readText } from './util/fsx.js';
@@ -494,6 +494,12 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
   const scoped = merged.instructions.filter((i) => i.paths.length);
   const fileOpts = (prefix) => ({ prefix, manifestOptions: opts });
   const agentsMdReaders = [];
+  const forget = [];
+  for (const f of merged.forget || []) {
+    if (!ADAPTERS.some((x) => x.id === f.agent)) {
+      throw new Error(`${f.file}: unknown agent id "${f.agent}"; expected one of ${ADAPTERS.map((x) => x.id).join(', ')}`);
+    }
+  }
 
   for (const a of adapters) {
     const spec = scope === 'user' ? a.user : a.project;
@@ -677,8 +683,21 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
         fragments = [implied, ...fragments];
       }
     }
+    const forgetEntries = (merged.forget || []).filter((f) => f.agent === a.id);
     if (fragments.length && !setSpec) {
       notes.push({ level: 'info', msg: `${a.id}: settings fragments are not supported at ${scope} level` });
+    }
+    if (forgetEntries.length && !setSpec) {
+      notes.push({ level: 'info', msg: `${a.id}: _forget entries are not supported at ${scope} level` });
+    }
+    if (setSpec && forgetEntries.length) {
+      const leaves = flattenLeaves(fragments.reduce((acc, f) => deepMerge(acc, f), {}));
+      for (const f of forgetEntries) {
+        if (leaves.some((l) => isPathPrefix(f.path, l.path) || isPathPrefix(l.path, f.path))) {
+          throw new Error(`${f.file}: ${a.id} setting "${f.key}" is also set in the ${a.id} settings; remove it from one of them`);
+        }
+      }
+      forget.push({ path: scope === 'user' ? setSpec.file(p, os) : setSpec.file(root), entries: forgetEntries.map((f) => ({ path: f.path, key: f.key, layer: f.layer })) });
     }
     if (setSpec && fragments.length) {
       const value = renderDeep(fragments.reduce((acc, f) => deepMerge(acc, f), {}), vars);
@@ -795,5 +814,5 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
     assertOutputsWithin(outputs, [root, gd].filter(Boolean), [p.claudeJson]);
   }
 
-  return { outputs, notes, requiredEnv: [...requiredEnv].sort(), executables: [...executables].sort(), vars };
+  return { outputs, notes, requiredEnv: [...requiredEnv].sort(), executables: [...executables].sort(), vars, forget };
 }

@@ -253,6 +253,7 @@ agent-layers apply
 | 서브에이전트 | `base/agents/<이름>.md` | Claude에만 적용됩니다 |
 | 에이전트 설정값 | `base/settings/claude.json`, `codex.toml`, `gemini.json` | 적은 키만 병합하고, 나머지 기존 설정은 그대로 둡니다 |
 | 운영체제별 설정값 | `base/settings/claude@windows.json` 처럼 `@운영체제` | 그 운영체제에서만 병합됩니다 |
+| 관리를 그만둘 설정 키 | `base/settings/_forget.jsonc`, 예: `{ "codex": ["model"] }` | 설정 파일에서 뺀 키를 지우지 않고 관리 대상에서만 뺍니다. 값은 그대로 남습니다 |
 | 그대로 복사할 파일 | `base/files/<에이전트>/...` | 에이전트 홈 폴더로 복사됩니다. `.tmpl`은 변수를 채운 뒤 복사합니다 |
 
 스킬은 아래 형식으로 씁니다. `description`이 스킬을 읽을지 판단하는 기준이므로, 무엇을 담았는지와 언제 쓰는지를 함께 적습니다. 이름은 64자 이내로 영문 소문자, 숫자, `-`만 씁니다.

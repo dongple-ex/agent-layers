@@ -3,6 +3,7 @@ import path from 'node:path';
 import { splitFrontmatter } from './formats/frontmatter.js';
 import { parseJsonc } from './formats/jsonc.js';
 import { parseTomlValue } from './formats/toml.js';
+import { isPlainObject, splitPathKey } from './formats/jsonmerge.js';
 import { readText, listFiles, listDirs, isDir, isFile, isProbablyText, normalizeEol, fileMode } from './util/fsx.js';
 
 const OS_TAGS = ['windows', 'macos', 'linux'];
@@ -176,6 +177,29 @@ function loadSettings(dir, os, files) {
   return out;
 }
 
+function loadForget(dir, os, files) {
+  const out = [];
+  for (const f of files(dir, { recursive: false })) {
+    const name = path.basename(f.abs);
+    if (!matchesOs(name, os) || !/^_forget\.jsonc?$/.test(stripOsTag(name))) {
+      continue;
+    }
+    const data = parseJsonc(readText(f.abs).text, f.abs);
+    if (!isPlainObject(data)) {
+      throw new Error(`${f.abs}: must map agent ids to lists of setting keys, for example { "codex": ["model"] }`);
+    }
+    for (const [agent, keys] of Object.entries(data)) {
+      if (!Array.isArray(keys) || keys.some((k) => typeof k !== 'string' || !k.trim())) {
+        throw new Error(`${f.abs}: "${agent}" must be a list of setting keys`);
+      }
+      for (const key of keys) {
+        out.push({ agent, key, path: splitPathKey(key), file: f.abs, os: osTagOf(name) });
+      }
+    }
+  }
+  return out;
+}
+
 function loadFiles(dir, os, files) {
   const out = {};
   for (const adapterId of listDirs(dir)) {
@@ -195,7 +219,7 @@ function loadFiles(dir, os, files) {
 
 export function loadLayer(dir, name, os) {
   if (!isDir(dir)) {
-    return { name, dir, missing: true, instructions: [], skills: [], commands: [], agents: [], mcp: [], settings: {}, files: {}, skipped: [] };
+    return { name, dir, missing: true, instructions: [], skills: [], commands: [], agents: [], mcp: [], settings: {}, forget: [], files: {}, skipped: [] };
   }
   const skipped = [];
   const files = layerFileLister(dir, skipped);
@@ -209,13 +233,14 @@ export function loadLayer(dir, name, os) {
     agents: loadMarkdownItems(path.join(dir, 'agents'), os, files),
     mcp: loadMcp(path.join(dir, 'mcp'), os, files),
     settings: loadSettings(path.join(dir, 'settings'), os, files),
+    forget: loadForget(path.join(dir, 'settings'), os, files),
     files: loadFiles(path.join(dir, 'files'), os, files),
     skipped,
   };
 }
 
 export function mergeLayers(layers) {
-  const merged = { layers: layers.map((l) => l.name), instructions: [], skills: [], commands: [], agents: [], mcp: [], settings: {}, files: {}, shadowed: [], skipped: layers.flatMap((l) => l.skipped || []) };
+  const merged = { layers: layers.map((l) => l.name), instructions: [], skills: [], commands: [], agents: [], mcp: [], settings: {}, forget: layers.flatMap((l) => (l.forget || []).map((f) => ({ ...f, layer: l.name }))), files: {}, shadowed: [], skipped: layers.flatMap((l) => l.skipped || []) };
   const byName = (key, item, layer) => {
     const list = merged[key];
     const idx = list.findIndex((x) => x.name === item.name);

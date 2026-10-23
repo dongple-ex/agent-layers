@@ -83,7 +83,17 @@ export function flattenLeaves(fragment, atomic = [], prefix = []) {
 
 export const pathKey = (p) => p.map((s) => String(s).replace(/\./g, '\\.')).join('.');
 
-export function planManagedMerge(current, fragment, { atomic = [], previous = [] } = {}) {
+export const splitPathKey = (key) => String(key).split(/(?<!\\)\./).map((s) => s.replace(/\\\./g, '.'));
+
+export function isPathPrefix(prefix, p) {
+  return prefix.length <= p.length && prefix.every((seg, i) => String(seg) === String(p[i]));
+}
+
+export function forgetEntryFor(forget, p) {
+  return (forget || []).find((f) => isPathPrefix(f.path, p));
+}
+
+export function planManagedMerge(current, fragment, { atomic = [], previous = [], forget = [] } = {}) {
   const result = clone(current) || {};
   const leaves = flattenLeaves(fragment, atomic);
   const managed = [];
@@ -109,6 +119,11 @@ export function planManagedMerge(current, fragment, { atomic = [], previous = []
       continue;
     }
     const cur = getAt(result, prev.path);
+    const forgotten = forgetEntryFor(forget, prev.path);
+    if (forgotten) {
+      changes.push({ op: 'forget', path: prev.path, before: cur, after: cur, layer: forgotten.layer || null });
+      continue;
+    }
     if (cur === undefined) {
       continue;
     }

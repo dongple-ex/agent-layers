@@ -253,6 +253,7 @@ Use this table to decide where things go. All paths are relative to the setup re
 | Subagents | `base/agents/<name>.md` | Applied to Claude only |
 | Agent settings | `base/settings/claude.json`, `codex.toml`, `gemini.json` | Only the keys you write are merged; other existing settings stay |
 | OS-specific settings | `@os` suffix, for example `base/settings/claude@windows.json` | Merged only on that OS |
+| Setting keys to stop managing | `base/settings/_forget.jsonc`, for example `{ "codex": ["model"] }` | Keys removed from a settings file are left in place and only stop being managed |
 | Files copied as they are | `base/files/<agent>/...` | Copied to the agent's home folder. `.tmpl` files are filled with variables first |
 
 Write skills in the format below. The `description` decides whether a skill is read, so state both what it contains and when to use it. Names use lowercase letters, digits and `-`, up to 64 characters.
