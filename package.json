@@ -1,6 +1,6 @@
 {
   "name": "agent-layers",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Manage instructions, skills, commands, MCP servers and settings for AI coding agents (Claude Code, Codex, Gemini CLI, Antigravity, Copilot, Cursor, ...) as a base layer that follows you to every machine and project layers you can drop when a project ends.",
   "type": "module",
   "bin": {
