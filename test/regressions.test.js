@@ -253,6 +253,74 @@ test('#6 purge removes the local memory folder and keeps exclude entries for fil
   assert.equal(status.trim(), '', `kept files must stay excluded, got:\n${status}`);
 });
 
+function privateIgnoreFixture(t, { memory = false } = {}) {
+  const sb = sandbox();
+  t.after(() => fs.rmSync(sb.root, { recursive: true, force: true }));
+  manifest(sb, ['claude']);
+  const repo = path.join(sb.root, 'client');
+  fs.mkdirSync(repo, { recursive: true });
+  syncGit(['init', '-q', repo]);
+  const project = path.join(sb.source, 'projects', 'private-ignore');
+  write(path.join(project, 'project.jsonc'), JSON.stringify({ name: 'private-ignore', mode: 'private', ...(memory ? { memory: { claude: 'memory[1]/claude' } } : {}) }));
+  write(path.join(project, 'commands', 'fix[1].md'), '# Private command\n');
+  write(path.join(project, 'commands', 'plain.md'), '# Plain command\n');
+  const files = ['note[1].md', 'docs[1]/note.md', '!private.md', '#private.md', 'space name.md'];
+  if (!IS_WIN) {
+    files.push('star*.md', 'question?.md', 'trailing.md ', 'back\\slash.md');
+  }
+  for (const name of files) {
+    write(path.join(project, 'files', 'project', name), '# Private file\n');
+  }
+  const generated = ['.claude/commands/fix[1].md', '.claude/commands/plain.md', ...files];
+  const apply = () => {
+    const r = cli(sb, ['project', 'apply', 'private-ignore', '--path', repo, '--yes']);
+    assert.equal(r.code, 0, r.out);
+  };
+  return { sb, repo, generated, apply };
+}
+
+test('private ignore patterns exclude literal filenames and memory directories without hiding similar files', { skip: !HAS_GIT }, (t) => {
+  const { repo, generated, apply } = privateIgnoreFixture(t, { memory: true });
+  apply();
+  apply();
+  write(path.join(repo, 'memory[1]', 'claude', 'MEMORY.md'), 'private memory\n');
+  for (const name of [...generated, 'memory[1]/claude/MEMORY.md']) {
+    assert.ok(fs.existsSync(path.join(repo, name)), name);
+    assert.match(syncGit(['-C', repo, 'check-ignore', '-v', '--', name]), /info\/exclude/);
+  }
+  assert.equal(syncGit(['-C', repo, 'status', '--porcelain', '--untracked-files=all']), '');
+  assert.equal(syncGit(['-C', repo, 'add', '--dry-run', '.']), '');
+  const publicFiles = ['.claude/commands/fix1.md', 'note1.md', 'docs1/note.md', 'memory1/claude/MEMORY.md'];
+  if (!IS_WIN) {
+    publicFiles.push('star-public.md', 'question1.md', 'trailing.md', 'backslash.md');
+  }
+  for (const name of publicFiles) {
+    write(path.join(repo, name), '# Public file\n');
+    const r = spawnSync('git', ['-C', repo, 'check-ignore', '--', name], { encoding: 'utf8' });
+    assert.equal(r.status, 1, name + ': ' + r.stdout + r.stderr);
+  }
+  const staged = syncGit(['-C', repo, 'add', '--dry-run', '.']);
+  for (const name of publicFiles) {
+    assert.ok(staged.includes(name), staged);
+  }
+});
+
+test('private ignore patterns remain literal when purge preserves edited files', { skip: !HAS_GIT }, (t) => {
+  const { sb, repo, generated, apply } = privateIgnoreFixture(t);
+  apply();
+  for (const name of generated) {
+    write(path.join(repo, name), '# Locally edited private file\n');
+  }
+  const r = cli(sb, ['project', 'purge', 'private-ignore', '--path', repo, '--keep-agent-data', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  for (const name of generated) {
+    assert.equal(read(path.join(repo, name)), '# Locally edited private file\n');
+    assert.match(syncGit(['-C', repo, 'check-ignore', '-v', '--', name]), /info\/exclude/);
+  }
+  assert.equal(syncGit(['-C', repo, 'status', '--porcelain', '--untracked-files=all']), '');
+  assert.equal(syncGit(['-C', repo, 'add', '--dry-run', '.']), '');
+});
+
 test('#7 apply skips files that changed after the plan was made', async () => {
   const { buildPlan, applyPlan } = await import('../src/engine.js');
   const sb = sandbox();

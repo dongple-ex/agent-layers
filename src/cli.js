@@ -6,7 +6,7 @@ import { createContext, hasSource } from './context.js';
 import { loadManifest, listProjects, getProject, projectSources, PROJECT_NAME_RE } from './manifest.js';
 import { loadLayer, mergeLayers } from './layers.js';
 import { ADAPTERS, getAdapter } from './adapters/registry.js';
-import { renderScope, resolveTargets, detectAdapters, gitDir, normalizeKey, trackedFiles } from './render.js';
+import { renderScope, resolveTargets, detectAdapters, gitDir, normalizeKey, trackedFiles, escapeGitIgnorePath } from './render.js';
 import { buildPlan, applyPlan, summarize, pending, describeItem } from './engine.js';
 import { loadState, saveState, scopeKeyOf, recordsForScope } from './state.js';
 import { resolveProject, findAgentData, purgeAgentData, assertSafeRoot, projectMatches } from './project.js';
@@ -727,7 +727,7 @@ async function cmdProject(ctx, flags, positional) {
     }
     const results = applyPlan(ctx, plan, state, { scope: 'project', project: name, root });
     printResults(ctx, results, plan);
-    const kept = plan.items.filter((it) => it.removal && it.action === 'drift' && it.type !== 'block' && isWithinRoot(it.path, root)).map((it) => `/${path.relative(root, it.path).replace(/\\/g, '/')}${it.type === 'dir' ? '/' : ''}`);
+    const kept = plan.items.filter((it) => it.removal && it.action === 'drift' && it.type !== 'block' && isWithinRoot(it.path, root)).map((it) => escapeGitIgnorePath(`/${path.relative(root, it.path).split(path.sep).join('/')}${it.type === 'dir' ? '/' : ''}`));
     const gd = gitDir(root);
     if (kept.length && gd) {
       const excludeFile = path.join(gd, 'info', 'exclude');

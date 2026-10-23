@@ -452,6 +452,10 @@ export function trackedFiles(root, relPaths) {
   return { tracked, reliable: true };
 }
 
+export function escapeGitIgnorePath(filePath) {
+  return filePath.replace(/[\\*?[\] ]/g, '\\$&');
+}
+
 export function gitDir(root) {
   const dotgit = path.join(root, '.git');
   try {
@@ -750,7 +754,7 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
       notes.push({ level: 'error', msg: `memory.claude must be a folder inside ${root}; ${memDir} was not used` });
     } else {
       out.add({ type: 'json', path: path.join(root, '.claude', 'settings.local.json'), fragment: { autoMemoryDirectory: memDir }, atomic: [], adapter: 'claude', scope, exclude: true, skipIfTracked: true });
-      const rel = path.relative(root, memDir).replace(/\\/g, '/').split('/')[0];
+      const rel = path.relative(root, memDir).split(path.sep)[0];
       out.add({ type: 'file', path: path.join(memDir, 'README.md'), content: `# Claude auto memory for ${project.name}\n\nThis folder is local to this machine and is removed by "agent-layers project purge ${project.name}".\n`, adapter: 'claude', scope, exclude: true, excludePath: `/${rel}/`, skipIfTracked: true });
     }
   }
@@ -778,7 +782,7 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
       });
     }
     const gd = gitDir(root);
-    const excl = outputs.filter((o) => o.exclude && o.type !== 'claude-mcp').map((o) => o.excludePath || `/${path.relative(root, o.path).replace(/\\/g, '/')}${o.type === 'dir' ? '/' : ''}`);
+    const excl = outputs.filter((o) => o.exclude && o.type !== 'claude-mcp').map((o) => escapeGitIgnorePath(o.excludePath || `/${path.relative(root, o.path).split(path.sep).join('/')}${o.type === 'dir' ? '/' : ''}`));
     if (gd && excl.length) {
       const uniq = [...new Set(excl)].sort();
       out.map.clear();
