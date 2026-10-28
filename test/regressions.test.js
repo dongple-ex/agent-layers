@@ -1231,3 +1231,50 @@ test('validate, plan and apply reject unknown targets in skills, commands, subag
     assert.deepEqual(snapshot(sb.home), before, `${args.join(' ')} wrote into the home folder`);
   }
 });
+
+test('skill sidecar targets: an empty list deploys nowhere, and empty or null values fall back to SKILL.md', () => {
+  for (const [sidecar, code] of [[{ targets: [] }, 0], [{ targets: '' }, 1], [{ targets: null }, 1], [null, 1]]) {
+    const sb = sandbox();
+    manifest(sb, ['claude']);
+    const skill = path.join(sb.source, 'base', 'skills', 'demo-skill');
+    write(path.join(skill, 'SKILL.md'), '---\nname: demo-skill\ndescription: Demo skill\nagent-layers-targets: [claud]\n---\n# Demo\n');
+    if (sidecar) {
+      write(path.join(skill, 'agent-layers.jsonc'), JSON.stringify(sidecar));
+    }
+    const label = sidecar ? JSON.stringify(sidecar) : 'no sidecar';
+    const before = snapshot(sb.home);
+    for (const args of [['validate'], ['plan'], ['apply', '--yes']]) {
+      const r = cli(sb, args);
+      assert.equal(r.code, code, `${label}: ${args.join(' ')}\n${r.out}`);
+      if (code === 0) {
+        assert.doesNotMatch(r.out, /unknown target/);
+      } else {
+        assert.match(r.out, /demo-skill[\\/]SKILL\.md: unknown target "claud"/);
+        assert.deepEqual(snapshot(sb.home), before, `${label}: ${args.join(' ')} wrote into the home folder`);
+      }
+    }
+    if (code === 0) {
+      assert.ok(!Object.keys(snapshot(sb.home)).some((file) => file.includes('demo-skill')), `${label}: the skill was deployed`);
+    }
+  }
+});
+
+test('user plan and apply keep existing managed outputs when an instruction target becomes unknown', () => {
+  const sb = sandbox();
+  manifest(sb, ['claude', 'codex']);
+  const rule = path.join(sb.source, 'base', 'instructions', '10-role.md');
+  write(rule, '---\ntargets: [codex]\n---\n- ROLE PM\n');
+  const first = cli(sb, ['apply', '--yes']);
+  assert.equal(first.code, 0, first.out);
+  assert.match(read(path.join(sb.home, '.codex', 'AGENTS.md')), /ROLE PM/);
+  const before = snapshot(sb.home);
+  for (const field of ['targets', 'exclude']) {
+    write(rule, `---\n${field}: [codx]\n---\n- ROLE PM\n`);
+    for (const args of [['validate'], ['plan'], ['plan', '--json'], ['apply', '--yes']]) {
+      const r = cli(sb, args);
+      assert.equal(r.code, 1, `${field}: ${args.join(' ')}\n${r.out}`);
+      assert.match(r.out, /10-role\.md: unknown target "codx"/);
+      assert.deepEqual(snapshot(sb.home), before, `${field}: ${args.join(' ')} changed a managed output or the state file`);
+    }
+  }
+});
