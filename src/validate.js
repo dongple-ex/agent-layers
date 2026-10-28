@@ -21,6 +21,31 @@ export const SECRET_FIELD = /"(?:[A-Za-z_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API_?
 export const SECRET_TOML_FIELD = /^\s*[A-Za-z0-9_.-]*(?:password|passwd|secret|token|api_?key)[A-Za-z0-9_-]*\s*=\s*["'](?!\$\{)[^"'\n]{4,}["']/im;
 const SKILL_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+export function unknownTargetIssues(layer) {
+  const known = new Set(ADAPTERS.map((a) => a.id));
+  const issues = [];
+  const check = (where, ids) => {
+    for (const t of ids) {
+      if (!known.has(t)) {
+        issues.push({ where, msg: `unknown target "${t}"` });
+      }
+    }
+  };
+  for (const ins of layer.instructions) {
+    check(ins.file, [...(ins.targets || []), ...(ins.exclude || [])]);
+  }
+  for (const s of layer.skills) {
+    check(s.targetsFile, s.targets || []);
+  }
+  for (const item of [...layer.commands, ...layer.agents]) {
+    check(item.file, item.targets || []);
+  }
+  for (const m of layer.mcp) {
+    check(m.file, [].concat(m.def.targets || []));
+  }
+  return issues;
+}
+
 export function validateSource(sourceDir, { os = 'windows' } = {}) {
   const issues = [];
   const add = (level, where, msg) => issues.push({ level, where, msg });
@@ -63,6 +88,9 @@ export function validateSource(sourceDir, { os = 'windows' } = {}) {
       if (osName !== os) {
         continue;
       }
+      for (const i of unknownTargetIssues(layer)) {
+        add('error', i.where, i.msg);
+      }
       for (const s of layer.skills) {
         if (!SKILL_NAME.test(s.name) || s.name.length > 64) {
           add('error', s.dir, 'skill folder names must be lowercase letters, digits and single hyphens (max 64 chars)');
@@ -81,11 +109,6 @@ export function validateSource(sourceDir, { os = 'windows' } = {}) {
         if (!d.command && !d.url) {
           add('error', m.file, 'an MCP server needs "command" (stdio) or "url" (http/sse)');
         }
-        for (const t of [].concat(d.targets || [])) {
-          if (!known.has(t)) {
-            add('error', m.file, `unknown target "${t}"`);
-          }
-        }
         for (const [k, v] of Object.entries(d.env || {})) {
           if (/(PASS|SECRET|TOKEN|KEY)/i.test(k) && typeof v === 'string' && v && !v.includes('${')) {
             add('error', m.file, `env ${k} looks like a plaintext secret; use "\${secret:NAME}"`);
@@ -95,11 +118,6 @@ export function validateSource(sourceDir, { os = 'windows' } = {}) {
       for (const ins of layer.instructions) {
         if (Buffer.byteLength(ins.body) > 24000) {
           add('warn', ins.file, 'longer than 24,000 bytes; Antigravity truncates rule files above this size and Codex caps AGENTS.md at 32 KiB in total');
-        }
-        for (const t of [...(ins.targets || []), ...(ins.exclude || [])]) {
-          if (!known.has(t)) {
-            add('error', ins.file, `unknown target "${t}"`);
-          }
         }
       }
       for (const f of layer.forget) {

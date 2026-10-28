@@ -12,7 +12,7 @@ import { loadState, saveState, scopeKeyOf, recordsForScope } from './state.js';
 import { resolveProject, findAgentData, purgeAgentData, assertSafeRoot, projectMatches } from './project.js';
 import { runDoctor } from './doctor.js';
 import { planImport, applyImport, detectLanguage, PERSONA_LANGUAGES } from './importer.js';
-import { validateSource } from './validate.js';
+import { validateSource, unknownTargetIssues } from './validate.js';
 import { getSecret, getSecrets, setSecret, deleteSecret, listSecrets, backendFor } from './secrets/index.js';
 import { findSecretRefs } from './template.js';
 import { summarizeLayer, countItems } from './show.js';
@@ -267,6 +267,7 @@ function printResults(ctx, results, plan) {
 
 function userRender(ctx, manifest, flags) {
   const layers = loadUserLayers(ctx, manifest);
+  assertKnownTargets(ctx, layers);
   const merged = mergeLayers(layers);
   const adapters = resolveTargets(ctx, manifest, { only: list(flags.only), skip: list(flags.skip) });
   const rendered = renderScope(ctx, { scope: 'user', manifest, merged, adapters, resolveSecret: secretResolver(ctx) });
@@ -286,11 +287,19 @@ function projectRender(ctx, manifest, flags, nameArg) {
     project.mode = flags.mode;
   }
   const layer = loadLayer(project.dir, `project:${project.name}`, ctx.os);
+  assertKnownTargets(ctx, [layer]);
   const merged = mergeLayers([layer]);
   const adapters = resolveTargets(ctx, manifest, { project, only: list(flags.only), skip: list(flags.skip) });
   const rendered = renderScope(ctx, { scope: 'project', manifest, merged, adapters, project, root, resolveSecret: secretResolver(ctx) });
   pushSkippedLinks(rendered, merged);
   return { rendered, adapters, project, root, how };
+}
+
+function assertKnownTargets(ctx, layers) {
+  const issues = layers.flatMap((l) => unknownTargetIssues(l));
+  if (issues.length) {
+    throw new Error(issues.map((i) => `${short(ctx, i.where)}: ${i.msg}`).join('\n'));
+  }
 }
 
 function pushSkippedLinks(rendered, merged) {

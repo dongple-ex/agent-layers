@@ -107,6 +107,7 @@ function loadSkills(dir, lister) {
       data,
       description: data.description || '',
       targets: targets ? [].concat(targets) : null,
+      targetsFile: sidecar.targets ? path.join(skillDir, 'agent-layers.jsonc') : skillFile,
       files,
     });
   }

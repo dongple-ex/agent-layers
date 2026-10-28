@@ -1157,3 +1157,68 @@ test('shared projects get kimi and grok MCP files with references only', { skip:
   assert.doesNotMatch(grokText, /secret:/);
   assert.match(read(path.join(repo, 'AGENTS.md')), /# Team rules/);
 });
+
+function snapshot(dir, skip = []) {
+  const files = {};
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (skip.includes(e.name)) {
+        continue;
+      }
+      if (e.isDirectory()) {
+        walk(p);
+      } else {
+        files[path.relative(dir, p)] = read(p);
+      }
+    }
+  };
+  walk(dir);
+  return files;
+}
+
+test('plan and apply stop on an unknown instruction target before they change managed outputs', { skip: !HAS_GIT }, () => {
+  const sb = sandbox();
+  manifest(sb, ['codex']);
+  const repo = path.join(sb.root, 'proj');
+  gitFolder(repo);
+  write(path.join(sb.source, 'projects', 'p', 'project.jsonc'), JSON.stringify({ name: 'p', mode: 'private', match: { dirName: ['proj'] } }));
+  const rule = path.join(sb.source, 'projects', 'p', 'instructions', '00-role.md');
+  write(rule, '---\ntargets: [codex]\n---\n- ROLE PM\n');
+  const first = cli(sb, ['project', 'apply', '--yes'], { cwd: repo });
+  assert.equal(first.code, 0, first.out);
+  assert.match(read(path.join(repo, '.codex', 'config.toml')), /ROLE PM/);
+  const outputs = () => ({ home: snapshot(sb.home), repo: snapshot(repo, ['.git']), exclude: read(path.join(repo, '.git', 'info', 'exclude')) });
+  const before = outputs();
+  for (const field of ['targets', 'exclude']) {
+    write(rule, `---\n${field}: [pm]\n---\n- ROLE PM\n`);
+    for (const args of [['project', 'plan'], ['project', 'plan', '--json'], ['project', 'apply', '--yes']]) {
+      const r = cli(sb, args, { cwd: repo });
+      assert.equal(r.code, 1, `${field}: ${args.join(' ')}\n${r.out}`);
+      assert.match(r.out, /00-role\.md: unknown target "pm"/);
+      assert.deepEqual(outputs(), before, `${field}: ${args.join(' ')} changed a managed output or the state file`);
+    }
+  }
+});
+
+test('validate, plan and apply reject unknown targets in skills, commands, subagents, MCP servers and instruction excludes', () => {
+  const sb = sandbox();
+  manifest(sb, ['claude']);
+  write(path.join(sb.source, 'base', 'skills', 'demo-skill', 'SKILL.md'), '---\nname: demo-skill\ndescription: Demo skill\n---\n# Demo\n');
+  write(path.join(sb.source, 'base', 'skills', 'demo-skill', 'agent-layers.jsonc'), JSON.stringify({ targets: ['claud'] }));
+  write(path.join(sb.source, 'base', 'skills', 'note-skill', 'SKILL.md'), '---\nname: note-skill\ndescription: Note skill\nagent-layers-targets: [claud]\n---\n# Note\n');
+  write(path.join(sb.source, 'base', 'commands', 'demo.md'), '---\ndescription: Demo command\ntargets: [claud]\n---\nRun the demo.\n');
+  write(path.join(sb.source, 'base', 'agents', 'helper.md'), '---\nname: helper\ndescription: Demo subagent\ntargets: [claud]\n---\nHelp with the demo.\n');
+  write(path.join(sb.source, 'base', 'mcp', 'demo.jsonc'), JSON.stringify({ command: 'demo', args: [], targets: ['claud'] }));
+  write(path.join(sb.source, 'base', 'instructions', '10-style.md'), '---\nexclude: [claud]\n---\n- Keep answers short.\n');
+  const expected = [/demo-skill[\\/]agent-layers\.jsonc: unknown target "claud"/, /note-skill[\\/]SKILL\.md: unknown target "claud"/, /demo\.md: unknown target "claud"/, /helper\.md: unknown target "claud"/, /demo\.jsonc: unknown target "claud"/, /10-style\.md: unknown target "claud"/];
+  const before = snapshot(sb.home);
+  for (const args of [['validate'], ['plan'], ['apply', '--yes']]) {
+    const r = cli(sb, args);
+    assert.equal(r.code, 1, `${args.join(' ')}\n${r.out}`);
+    for (const re of expected) {
+      assert.match(r.out, re);
+    }
+    assert.deepEqual(snapshot(sb.home), before, `${args.join(' ')} wrote into the home folder`);
+  }
+});
