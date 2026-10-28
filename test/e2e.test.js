@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -11,8 +11,16 @@ import { parseJsonc } from '../src/formats/jsonc.js';
 const BIN = fileURLToPath(new URL('../bin/agent-layers.js', import.meta.url));
 const HAS_GIT = spawnSync('git', ['--version']).status === 0;
 
+const tempRoots = [];
+after(() => {
+  for (const dir of tempRoots) {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+  }
+});
+
 function sandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-layers-test-'));
+  tempRoots.push(root);
   const home = path.join(root, 'home');
   const source = path.join(root, 'source');
   fs.mkdirSync(home, { recursive: true });

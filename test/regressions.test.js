@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,8 +13,16 @@ const BIN = fileURLToPath(new URL('../bin/agent-layers.js', import.meta.url));
 const HAS_GIT = spawnSync('git', ['--version']).status === 0;
 const IS_WIN = process.platform === 'win32';
 
+const tempRoots = [];
+after(() => {
+  for (const dir of tempRoots) {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+  }
+});
+
 function sandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-layers-reg-'));
+  tempRoots.push(root);
   const home = path.join(root, 'home');
   const source = path.join(root, 'source');
   fs.mkdirSync(home, { recursive: true });
@@ -78,6 +86,7 @@ if (args[0] === 'mcp' && args[1] === 'add-json') {
 
 test('#9 windows shims: JSON with quotes, backslashes and %VARS% survives a .cmd round trip', { skip: !IS_WIN }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-layers-shim-'));
+  tempRoots.push(dir);
   fakeCommand(dir, 'echoargs', "process.stdout.write(JSON.stringify(process.argv.slice(2)));");
   const tricky = ['{"a":"C:\\\\x\\\\","b":"say \\"hi\\"","c":"%USERPROFILE%","d":"x&y|z<w>!"}', 'trail\\', 'spaced arg', '^caret', ''];
   const r = run(path.join(dir, 'echoargs.cmd'), tricky);

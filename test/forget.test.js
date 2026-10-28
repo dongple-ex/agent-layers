@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -12,8 +12,16 @@ const BIN = fileURLToPath(new URL('../bin/agent-layers.js', import.meta.url));
 const OS_NAME = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux';
 const OTHER_OS = OS_NAME === 'linux' ? 'macos' : 'linux';
 
+const tempRoots = [];
+after(() => {
+  for (const dir of tempRoots) {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+  }
+});
+
 function sandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-layers-forget-'));
+  tempRoots.push(root);
   const home = path.join(root, 'home');
   const source = path.join(root, 'source');
   fs.mkdirSync(home, { recursive: true });
