@@ -9,7 +9,7 @@
 | 항목 | 내용 |
 | --- | --- |
 | 대상 | Claude Code, Codex, Gemini CLI 같은 AI 코딩 에이전트를 두 개 이상 쓰거나, 여러 PC에서 같은 설정을 쓰고 싶은 사람 |
-| 기준 버전 | agent-layers 0.1.5 |
+| 기준 버전 | agent-layers 0.1.6 |
 | 엔진 저장소 | [github.com/dongple-ex/agent-layers](https://github.com/dongple-ex/agent-layers) |
 | 이번 버전의 검증 환경 | Windows 11 x64(Node.js 24.14.1)와 Linux ARM64(Node.js 24.15.0) 자동 테스트. 최소 지원 버전인 Node.js 18.17, macOS·iOS 실기기, OS 키체인 연동은 이번 버전에서 검증하지 않았습니다 |
 
