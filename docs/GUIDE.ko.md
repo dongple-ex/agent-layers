@@ -270,6 +270,8 @@ description: "커밋 메시지 작성 규칙(제목 길이, 본문 형식). 커�
 ```
 
 - 특정 에이전트에만 배포하려면 스킬 폴더에 `agent-layers.jsonc`를 만들고 `{ "targets": ["claude"] }`처럼 적습니다.
+- `targets`에 agent-layers가 모르는 에이전트 이름이 있으면 `validate`, `plan`, `apply`가 `unknown target` 오류로 멈춥니다. `plan`과 `apply`는 파일을 쓰기 전에 멈춥니다.
+- `{ "targets": [] }`처럼 빈 목록을 적으면 그 스킬은 어느 에이전트에도 배포되지 않습니다.
 - 항상 지킬 규칙은 에이전트가 매 세션 읽으므로 짧게 유지합니다. 길고 가끔 필요한 절차는 스킬로 둡니다. Codex는 규칙 파일을 기본 32 KiB까지만 읽습니다.
 
 ⚠️ `~/.claude/rules/agent-layers/`처럼 agent-layers가 쓴 파일을 직접 고치면, 다음 적용 때 "바깥에서 바뀐 파일(drift)"로 보고 건너뜁니다. 항상 설정 저장소를 고칩니다.
@@ -470,7 +472,7 @@ project 레이어는 특정 프로젝트 폴더에서만 쓰는 내 설정입니
 | `agent-layers status` | agent-layers가 관리하는 파일 목록과, 적용한 뒤 바깥에서 바뀐 파일 | 설정 파일을 직접 고친 것 같을 때 |
 | `agent-layers show` | 레이어별 규칙·스킬·MCP 서버·설정 키·파일과 받는 에이전트, 프로젝트 목록. `show <이름>`은 그 레이어만 자세히 보여 줍니다 | 설정 저장소에 무엇이 들어 있는지 한눈에 보고 싶을 때 |
 | `agent-layers plan --diff` | 적용하면 바뀔 내용과 줄 단위 차이 | 적용하기 전에 항상 |
-| `agent-layers validate` | 설정 저장소의 형식 오류, 평문 비밀값, 잘못된 스킬 이름 | 커밋하기 전 |
+| `agent-layers validate` | 설정 저장소의 형식 오류, 평문 비밀값, 잘못된 스킬 이름, 모르는 대상 에이전트 이름 | 커밋하기 전 |
 | `agent-layers secrets check` | 설정 저장소가 참조하는데 이 PC에 없는 비밀값 | 새 PC에 가져왔을 때 |
 | `agent-layers agents` | 지원 에이전트별 설정 위치와 확인일 | 파일이 어디에 쓰이는지 궁금할 때 |
 

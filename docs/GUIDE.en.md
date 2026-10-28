@@ -270,6 +270,8 @@ Body
 ```
 
 - To deploy a skill to specific agents only, add `agent-layers.jsonc` to the skill folder with `{ "targets": ["claude"] }`.
+- If `targets` contains an agent name that agent-layers does not know, `validate`, `plan` and `apply` stop with an `unknown target` error. `plan` and `apply` stop before they write any file.
+- An empty list such as `{ "targets": [] }` deploys the skill to no agent.
 - Keep always-on rules short, since agents read them in every session. Put long, occasional procedures in skills. Codex reads only the first 32 KiB of rules by default.
 
 ⚠️ If you edit a file that agent-layers wrote, such as `~/.claude/rules/agent-layers/`, the next apply reports it as changed outside agent-layers (drift) and skips it. Always edit the setup repository.
@@ -470,7 +472,7 @@ All of these commands are read-only and safe to run at any time. When something 
 | `agent-layers status` | Files agent-layers manages and files changed outside it since the last apply | When you suspect a config file was edited by hand |
 | `agent-layers show` | Instructions, skills, MCP servers, setting keys and files in each layer, the agents that receive them, and the project list. `show <name>` details one layer | When you want to see what your setup repository holds at a glance |
 | `agent-layers plan --diff` | What an apply would change, line by line | Every time before applying |
-| `agent-layers validate` | Format errors, plain-text secrets and invalid skill names in the setup repository | Before committing |
+| `agent-layers validate` | Format errors, plain-text secrets, invalid skill names and unknown target agent names in the setup repository | Before committing |
 | `agent-layers secrets check` | Secrets the setup repository refers to that this machine lacks | After bringing your setup to a new machine |
 | `agent-layers agents` | Each supported agent's config locations and when they were checked | When you want to know where files go |
 
