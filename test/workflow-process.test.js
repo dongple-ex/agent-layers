@@ -1,10 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { getEventListeners } from 'node:events';
 import { spawnSync } from 'node:child_process';
 import {
-  runProcess, createLineCollector, createTracker, parseProcStat, relayCommand, relayCapability, TREE_KILL_SUPPORTED,
+  runProcess, createLineCollector, createTracker, parseProcStat, relayCommand, relayCapability, sendSignal, TREE_KILL_SUPPORTED,
 } from '../src/workflow/process.js';
 import { which } from '../src/util/proc.js';
 
@@ -473,10 +475,10 @@ test('workflow process: on Linux a timeout ends the whole tree too', { skip: LIN
   }
 });
 
-test('workflow process: on Linux a process that ignores TERM is killed after the grace time', { skip: LINUX_ONLY }, async () => {
+test('workflow process: on Linux a process that ignores TERM is killed after the grace time', { skip: LINUX_ONLY }, async (t) => {
   const abort = new AbortController();
   const started = Date.now();
-  const r = await node(`process.on('SIGTERM', () => {}); console.log('{"ready":true}'); ${SLEEP}`, { signal: abort.signal, graceMs: 300, onEvent: () => abort.abort() });
+  const r = await node(`process.on('SIGTERM', () => {}); console.log('{"ready":true}'); ${SLEEP}`, { signal: abort.signal, graceMs: 300, onSpawn: endsWithTest(t), onEvent: () => abort.abort() });
   assert.equal(r.signal, 'SIGKILL');
   assert.equal(r.tree.confirmed, true);
   assert.ok(Date.now() - started >= 300);
@@ -578,5 +580,30 @@ test('workflow process: the relay check passes on Linux with bash and fails clea
     assert.equal(found.bash, BASH);
   } else {
     assert.equal(found.ok, false);
+  }
+});
+
+test('workflow process: a signal to a process that is already gone is not an error, any other signal failure is', () => {
+  const gone = spawnSync(process.execPath, ['-e', '']).pid;
+  const errors = [];
+  sendSignal(gone, 0, errors);
+  assert.deepEqual(errors, []);
+  sendSignal(process.pid, 'SIGNOPE', errors);
+  assert.deepEqual(errors, [{ target: process.pid, signal: 'SIGNOPE', code: 'ERR_UNKNOWN_SIGNAL' }]);
+});
+
+test('workflow process: on Linux a bash that fails the relay probe is refused', { skip: LINUX_ONLY }, (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-layers-fake-bash-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const bodies = {
+    'wrong exit code': 'printf out; printf err >&2; exit 3',
+    'wrong stdout': 'printf other; printf err >&2; exit 7',
+    'wrong stderr': 'printf out; printf other >&2; exit 7',
+  };
+  for (const [name, body] of Object.entries(bodies)) {
+    fs.writeFileSync(path.join(dir, 'bash'), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+    const r = relayCapability({ PATH: dir });
+    assert.equal(r.ok, false, name);
+    assert.match(r.reason, /the relay probe returned exit/, name);
   }
 });

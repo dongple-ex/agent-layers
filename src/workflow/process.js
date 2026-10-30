@@ -134,7 +134,7 @@ export function createTracker(root, readTable = readProcessTable) {
   };
 }
 
-function sendSignal(target, name, errors) {
+export function sendSignal(target, name, errors) {
   try {
     process.kill(target, name);
   } catch (err) {
@@ -303,7 +303,8 @@ function ownerOf(pid) {
     return { pid, startTime: null, pgid: null };
   }
   try {
-    return { pid, startTime: parseProcStat(fs.readFileSync(`/proc/${pid}/stat`, 'utf8')).startTime, pgid: pid };
+    const info = parseProcStat(fs.readFileSync(`/proc/${pid}/stat`, 'utf8'));
+    return { pid, startTime: info.startTime, pgid: info.pgid };
   } catch (err) {
     if (PROCESS_GONE_CODES.includes(err.code)) {
       return { pid, startTime: null, pgid: pid };
