@@ -138,6 +138,13 @@ function blockContent(rules, vars, layers, opts) {
   return parts.join('\n\n');
 }
 
+function checkCharLimit(notes, a, spec, file, content) {
+  const n = [...content].length;
+  if (spec.maxChars && n > spec.maxChars) {
+    notes.push({ level: 'warn', msg: `${a.id}: agent-layers content for ${file} is ${n} characters; ${a.name} truncates each rules file at ${spec.maxChars.toLocaleString('en-US')} characters` });
+  }
+}
+
 function dialectFile(dialect, { id, prefix = '', paths = [], description = '', always = false }) {
   const globs = paths.join(',');
   switch (dialect) {
@@ -520,7 +527,9 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
         const alwaysRules = hasScoped ? alwaysA : [...alwaysA, ...fallbackScoped];
         if (ins.always.kind === 'block') {
           if (alwaysRules.length) {
-            out.add({ type: 'block', path: ins.always.file(p, os), blockId, content: blockContent(alwaysRules, vars, layerNames, opts), adapter: a.id, scope });
+            const content = blockContent(alwaysRules, vars, layerNames, opts);
+            checkCharLimit(notes, a, ins.always, ins.always.file(p, os), content);
+            out.add({ type: 'block', path: ins.always.file(p, os), blockId, content, adapter: a.id, scope });
           }
         } else if (ins.always.kind === 'files') {
           for (const r of alwaysRules) {
@@ -562,6 +571,7 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
         } else if (projAlways.kind === 'file') {
           const merged1 = { id: project.name, paths: [], description: project.description || `Project rules for ${project.name}`, body: blockContent(rules, vars, layerNames, { ...opts, instructions: { header: false } }), template: false, data: {} };
           const f = ruleFileContent(projAlways.dialect, merged1, vars, layerNames, fileOpts(projAlways.prefix), true);
+          checkCharLimit(notes, a, projAlways, path.join(projAlways.dir(root), f.name), f.content);
           out.add({ type: 'file', path: path.join(projAlways.dir(root), f.name), content: f.content, adapter: a.id, scope, exclude: true, skipIfTracked: true });
         } else if (projAlways.kind === 'toml-key') {
           out.add({ type: 'toml', path: projAlways.file(root), values: { [projAlways.key[0]]: blockContent(rules, vars, layerNames, { ...opts, instructions: { header: false } }) }, tables: {}, adapter: a.id, scope, exclude: true, skipIfTracked: true });

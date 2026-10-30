@@ -1072,6 +1072,24 @@ test('doctor warns when ~/.grok/AGENTS.md exceeds the 10,000 character limit of 
   assert.match(r.out, /warn grok: ~\/\.grok\/AGENTS\.md is 10001 characters/);
 });
 
+test('plan warns when rendered grok instructions exceed the 10,000 character limit', { skip: !HAS_GIT }, () => {
+  const sb = sandbox();
+  manifest(sb, ['grok']);
+  assert.doesNotMatch(cli(sb, ['plan']).out, /warn grok:/);
+  write(path.join(sb.source, 'base', 'instructions', '10-long.md'), '가'.repeat(10000));
+  const r = cli(sb, ['plan']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /warn grok: agent-layers content for .*AGENTS\.md is \d+ characters; xAI Grok Build truncates each rules file at 10,000 characters/);
+  const repo = path.join(sb.root, 'app');
+  write(path.join(repo, 'README.md'), '# app\n');
+  spawnSync('git', ['init', '-q', repo]);
+  write(path.join(sb.source, 'projects', 'p', 'project.jsonc'), JSON.stringify({ name: 'p', mode: 'private', match: { dirName: ['app'] } }));
+  write(path.join(sb.source, 'projects', 'p', 'instructions', '00.md'), '가'.repeat(10001));
+  const p = cli(sb, ['project', 'plan'], { cwd: repo });
+  assert.equal(p.code, 0, p.out);
+  assert.match(p.out, /warn grok: agent-layers content for .*rules.agent-layers-p\.md is \d+ characters/);
+});
+
 test('gemini model settings are managed per key and keep the other model settings of the user', () => {
   const sb = sandbox();
   manifest(sb, ['gemini'], { gemini: { readAgentsMd: false } });
