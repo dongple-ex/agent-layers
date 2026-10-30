@@ -1070,16 +1070,22 @@ test('doctor warns when ~/.grok/AGENTS.md exceeds the 10,000 character limit of 
   const r = cli(sb, ['doctor', '--fast']);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /warn grok: ~\/\.grok\/AGENTS\.md is 10001 characters/);
+  write(path.join(sb.home, '.grok', 'rules', 'agent-layers-10-long.md'), '가'.repeat(10001));
+  write(path.join(sb.home, '.grok', 'rules', 'agent-layers-20-short.md'), '가'.repeat(10000));
+  const rules = cli(sb, ['doctor', '--fast']).out;
+  assert.match(rules, /warn grok: ~\/\.grok\/rules\/agent-layers-10-long\.md is 10001 characters/);
+  assert.doesNotMatch(rules, /agent-layers-20-short\.md/);
 });
 
 test('plan warns when rendered grok instructions exceed the 10,000 character limit', { skip: !HAS_GIT }, () => {
   const sb = sandbox();
   manifest(sb, ['grok']);
   assert.doesNotMatch(cli(sb, ['plan']).out, /warn grok:/);
-  write(path.join(sb.source, 'base', 'instructions', '10-long.md'), '가'.repeat(10000));
+  write(path.join(sb.source, 'base', 'instructions', '10-long.md'), '가'.repeat(10001));
   const r = cli(sb, ['plan']);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /warn grok: agent-layers content for .*AGENTS\.md is \d+ characters; xAI Grok Build truncates each rules file at 10,000 characters/);
+  assert.match(r.out, /warn grok: agent-layers content for .*rules.agent-layers-10-long\.md is \d+ characters; xAI Grok Build truncates each rules file at 10,000 characters/);
+  assert.doesNotMatch(r.out, /agent-layers-00-core\.md is/);
   const repo = path.join(sb.root, 'app');
   write(path.join(repo, 'README.md'), '# app\n');
   spawnSync('git', ['init', '-q', repo]);
@@ -1160,7 +1166,8 @@ test('kimi and grok receive user instructions and MCP servers with secrets handl
   const r = cli(sb, ['apply', '--yes']);
   assert.equal(r.code, 0, r.out);
   assert.match(read(path.join(sb.home, '.kimi-code', 'AGENTS.md')), /Be precise\./);
-  assert.match(read(path.join(sb.home, '.grok', 'AGENTS.md')), /Be precise\./);
+  assert.match(read(path.join(sb.home, '.grok', 'rules', 'agent-layers-00-core.md')), /Be precise\./);
+  assert.equal(fs.existsSync(path.join(sb.home, '.grok', 'AGENTS.md')), false);
   assert.match(r.out, /gh: the kimi config cannot reference environment variables/);
 
   const kimi = JSON.parse(read(path.join(sb.home, '.kimi-code', 'mcp.json'))).mcpServers;

@@ -534,6 +534,7 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
         } else if (ins.always.kind === 'files') {
           for (const r of alwaysRules) {
             const f = ruleFileContent(ins.always.dialect, r, vars, layerNames, fileOpts(ins.always.prefix), true);
+            checkCharLimit(notes, a, ins.always, path.join(ins.always.dir(p, os), f.name), f.content);
             out.add({ type: 'file', path: path.join(ins.always.dir(p, os), f.name), content: f.content, adapter: a.id, scope });
           }
         }

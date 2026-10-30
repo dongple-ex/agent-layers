@@ -250,9 +250,18 @@ export function runDoctor(ctx) {
   if (ag && Buffer.byteLength(ag.text) > 32768) {
     add('warn', `codex: ~/.codex/AGENTS.md is ${Buffer.byteLength(ag.text)} bytes; project_doc_max_bytes defaults to 32 KiB for all AGENTS.md files combined`);
   }
-  const gk = readText(path.join(ctx.paths.grokHome, 'AGENTS.md'));
-  if (gk && [...gk.text].length > 10000) {
-    add('warn', `grok: ~/.grok/AGENTS.md is ${[...gk.text].length} characters; Grok Build truncates each rules file at 10,000 characters`);
+  const grokRules = path.join(ctx.paths.grokHome, 'rules');
+  const grokFiles = [['~/.grok/AGENTS.md', path.join(ctx.paths.grokHome, 'AGENTS.md')]];
+  if (isDir(grokRules)) {
+    for (const name of fs.readdirSync(grokRules).filter((n) => n.endsWith('.md')).sort()) {
+      grokFiles.push([`~/.grok/rules/${name}`, path.join(grokRules, name)]);
+    }
+  }
+  for (const [label, file] of grokFiles) {
+    const gk = readText(file);
+    if (gk && [...gk.text].length > 10000) {
+      add('warn', `grok: ${label} is ${[...gk.text].length} characters; Grok Build truncates each rules file at 10,000 characters`);
+    }
   }
 
   const root = findRepoRoot(ctx.cwd);

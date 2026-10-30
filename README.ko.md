@@ -114,7 +114,7 @@ projects/<name>/
 | `cursor` Cursor | 1 | 계정 설정 화면에서만 가능 | `~/.agents/skills` | `~/.cursor/mcp.json` | `.cursor/rules/*.mdc`, `.cursor/mcp.json` |
 | `zed` Zed | 1 | `%APPDATA%\Zed\AGENTS.md`, `~/.config/zed/AGENTS.md` | `~/.agents/skills` | - | `AGENTS.md` |
 | `kimi` Kimi Code CLI | 2 | `~/.kimi-code/AGENTS.md` (블록) | `~/.agents/skills` | `~/.kimi-code/mcp.json` | `AGENTS.md`, `.agents/skills`, `.kimi-code/mcp.json` |
-| `grok` Grok Build | 2 | `~/.grok/AGENTS.md` (블록, 파일 이름 미확인) | `~/.agents/skills` | `~/.grok/config.toml` | `AGENTS.md`, `.grok/rules`, `.grok/skills`, `.grok/config.toml` |
+| `grok` Grok Build | 2 | `~/.grok/rules/agent-layers-*.md` (규칙마다 파일 하나, `grok inspect`로 확인) | `~/.agents/skills` | `~/.grok/config.toml` | `AGENTS.md`, `.grok/rules`, `.grok/skills`, `.grok/config.toml` |
 | `opencode`, `junie`, `kiro`, `amp`, `factory`, `devin`, `qwen`, `cline`, `goose` | 2 | 각 도구의 전역 지시문 파일 | `~/.agents/skills` 또는 도구별 폴더 | 일부 지원 | `AGENTS.md` 또는 도구별 규칙 폴더 |
 
 Tier 1은 핵심 대상입니다. Tier 2는 best effort 대상이라서, 공급사가 경로나 형식을 바꾸면 반영이 늦을 수 있습니다. `agent-layers agents`는 두 Tier를 서로 다른 표로 나눠 보여 줍니다. `doctor`는 Tier와 관계없이 경고만 있으면 성공으로 끝나고, `--strict`를 붙였을 때만 경고도 실패로 처리합니다.
