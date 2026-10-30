@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { validateRoleResult, pathCovers, RESULT_STATUSES } from './schema.js';
 import { downstreamOf, REVIEW_STEP_ID, AUDIT_STEP_ID } from './graph.js';
 import {
-  readRun, commitRun, writeArtifact, chargeAgentCall, addActiveSeconds, addRepairAttempt,
+  readRun, commitRun, writeArtifact, readArtifact, chargeAgentCall, addActiveSeconds, addRepairAttempt,
   recordFailure, clearFailure, remainingBudget, sanitizeEventData, REVIEW_FIX_TARGET,
 } from './store.js';
 
@@ -13,6 +13,8 @@ const ROLE_RESULT_STATUSES = {
   auditor: ['completed', 'needs_changes', 'blocked'],
 };
 const REVIEW_ROLES = [[REVIEW_STEP_ID, 'reviewer'], [AUDIT_STEP_ID, 'auditor']];
+const ACTIVE_STEP_STATUSES = ['RUNNING', 'VERIFYING'];
+const STREAK_KINDS = ['check', 'review'];
 
 export async function runWorkflow(handle, { provider, verifier, clock = Date.now, resume = false } = {}) {
   if (!provider || typeof provider.call !== 'function') {
@@ -22,6 +24,7 @@ export async function runWorkflow(handle, { provider, verifier, clock = Date.now
     throw new Error('runWorkflow: verifier.run(request) is required');
   }
   const { plan, policy } = readRun(handle.ctx, handle.runId);
+  const byId = new Map(plan.steps.map((s) => [s.id, s]));
   const rt = {
     handle,
     provider,
@@ -30,25 +33,67 @@ export async function runWorkflow(handle, { provider, verifier, clock = Date.now
     plan,
     policy,
     limits: policy.limits,
-    work: plan.steps,
-    byId: new Map(plan.steps.map((s) => [s.id, s])),
+    work: handle.state.order.filter((id) => byId.has(id)).map((id) => byId.get(id)),
+    byId,
     nodes: plan.steps.map((s) => ({ id: s.id, dependsOn: s.dependsOn })),
     stepIds: plan.steps.map((s) => s.id),
     index: new Map(handle.state.order.map((id, i) => [id, i])),
+    inflight: null,
   };
-  if (TERMINAL_RUN_STATUSES.includes(handle.state.status) || !prepare(rt, resume)) {
-    return handle.state;
-  }
-  for (const step of rt.work) {
-    if (!(await runWorkStep(rt, step))) {
+  try {
+    if (TERMINAL_RUN_STATUSES.includes(handle.state.status) || !prepare(rt, resume)) {
       return handle.state;
     }
-  }
-  if (rt.handle.state.steps[REVIEW_STEP_ID].status !== 'SUCCEEDED' && !(await requiredGate(rt))) {
+    for (const step of rt.work) {
+      if (!(await runWorkStep(rt, step))) {
+        return handle.state;
+      }
+    }
+    if (!rt.handle.state.reviewFix && rt.handle.state.steps[REVIEW_STEP_ID].status !== 'SUCCEEDED' && !(await requiredGate(rt))) {
+      return handle.state;
+    }
+    await reviewCycle(rt);
     return handle.state;
+  } catch (err) {
+    throw interruptOnError(rt, err);
   }
-  await reviewCycle(rt);
-  return handle.state;
+}
+
+function withCleanupError(err, commitErr) {
+  if (err instanceof Error && Object.isExtensible(err)) {
+    try {
+      err.cleanupErrors = [...(err.cleanupErrors || []), commitErr];
+      return err;
+    } catch (assignErr) {
+      commitErr = new AggregateError([commitErr, assignErr], 'recording the interruption failed');
+    }
+  }
+  const wrapped = new Error(`workflow run stopped by ${err instanceof Error ? err.message : String(err)}; recording the interruption also failed`, { cause: err });
+  wrapped.cleanupErrors = [commitErr];
+  return wrapped;
+}
+
+function interruptOnError(rt, err) {
+  if (rt.handle.broken) {
+    return err;
+  }
+  const seconds = rt.inflight === null ? 0 : elapsedSeconds(rt, rt.inflight);
+  try {
+    commit(rt, 'run.interrupted', { error: clean(err && err.message ? err.message : err) }, (n) => {
+      addActiveSeconds(n, seconds);
+      if (n.status === 'RUNNING') {
+        n.status = 'INTERRUPTED';
+      }
+      for (const id of n.order) {
+        if (ACTIVE_STEP_STATUSES.includes(n.steps[id].status)) {
+          n.steps[id].status = 'INTERRUPTED';
+        }
+      }
+    });
+  } catch (commitErr) {
+    return withCleanupError(err, commitErr);
+  }
+  return err;
 }
 
 function commit(rt, type, data, mutate = null) {
@@ -63,12 +108,31 @@ function elapsedSeconds(rt, started) {
   return Math.max(0, (rt.clock() - started) / 1000);
 }
 
-function signatureOf(kind, parts) {
-  return `${kind}:${crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 16)}`;
+function signatureOf(kind, target, parts) {
+  return `${kind}|${target}|${crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 16)}`;
 }
 
-function checkSignature(failures) {
-  return signatureOf('check', failures.map((f) => JSON.stringify([f.id, [...f.failedTests].sort()])).sort());
+function checkSignature(target, failures) {
+  return signatureOf('check', target, failures.map((f) => JSON.stringify([f.id, [...f.failedTests].sort()])).sort());
+}
+
+function clearFailureOf(n, target) {
+  const [kind, owner] = String(n.budget.failureStreak.signature).split('|');
+  if (STREAK_KINDS.includes(kind) && owner === target) {
+    clearFailure(n);
+  }
+}
+
+function overrun(rt, id, what) {
+  if (remainingBudget(rt.handle.state, rt.limits).activeSeconds >= 0) {
+    return false;
+  }
+  if (rt.handle.state.steps[id].status === 'PENDING') {
+    stopRun(rt, 'FAILED', 'runTimeoutSeconds', null, { stepId: id });
+  } else {
+    stopStep(rt, id, 'FAILED', 'runTimeoutSeconds', `runTimeoutSeconds passed during ${what}`);
+  }
+  return true;
 }
 
 function limitReached(rt) {
@@ -160,7 +224,7 @@ function succeedStep(rt, id) {
     n.steps[id].status = 'SUCCEEDED';
     delete n.steps[id].reason;
     delete n.steps[id].lastError;
-    clearFailure(n);
+    clearFailureOf(n, id);
   });
 }
 
@@ -175,30 +239,33 @@ async function callRole(rt, req) {
       chargeAgentCall(n);
     });
     const started = rt.clock();
+    rt.inflight = started;
     let result;
     try {
       result = await rt.provider.call(structuredClone(req));
     } catch (err) {
+      if (!err || (!err.transport && !err.timeout)) {
+        throw err;
+      }
       const seconds = elapsedSeconds(rt, started);
-      if (err && err.transport) {
+      if (err.transport) {
         const code = String(err.code || 'unknown');
         let same = false;
         commit(rt, 'call.failed', { ...tag, kind: 'transport', code }, (n) => {
           addActiveSeconds(n, seconds);
           same = recordFailure(n, `transport:${code}`);
         });
+        rt.inflight = null;
         if (same || retry >= rt.limits.maxTransportRetries) {
           return stopStep(rt, req.statusId, 'BLOCKED', 'transport', `transport error ${code}`);
         }
         continue;
       }
-      if (err && err.timeout) {
-        commit(rt, 'call.failed', { ...tag, kind: 'timeout' }, (n) => {
-          addActiveSeconds(n, seconds);
-        });
-        return stopStep(rt, req.statusId, 'BLOCKED', 'timeout', `the ${req.role} call timed out`);
-      }
-      throw err;
+      commit(rt, 'call.failed', { ...tag, kind: 'timeout' }, (n) => {
+        addActiveSeconds(n, seconds);
+      });
+      rt.inflight = null;
+      return stopStep(rt, req.statusId, 'BLOCKED', 'timeout', `the ${req.role} call timed out`);
     }
     const seconds = elapsedSeconds(rt, started);
     commit(rt, 'call.finished', tag, (n) => {
@@ -207,6 +274,10 @@ async function callRole(rt, req) {
         clearFailure(n);
       }
     });
+    rt.inflight = null;
+    if (overrun(rt, req.statusId, `the ${req.role} call`)) {
+      return false;
+    }
     return { result };
   }
 }
@@ -229,7 +300,7 @@ function resultIssues(rt, req, result) {
 
 function recordResult(rt, req, result) {
   const issues = resultIssues(rt, req, result);
-  const name = `${String(rt.index.get(req.statusId)).padStart(2, '0')}-${req.stepId}-${req.attempt}`;
+  const name = `${String(rt.index.get(req.statusId)).padStart(2, '0')}-${req.stepId.replaceAll('.', '_')}-${req.attempt}`;
   const artifact = writeArtifact(rt.handle, name, { role: req.role, stepId: req.stepId, attempt: req.attempt, result: result === undefined ? null : result });
   const valid = issues.length === 0;
   commit(rt, 'role.result', {
@@ -243,7 +314,7 @@ function recordResult(rt, req, result) {
     findings: valid ? result.findings.map((f) => ({ code: f.code, path: f.path === undefined ? null : f.path })) : [],
     issues,
   });
-  return issues;
+  return { issues, artifact };
 }
 
 async function runChecks(rt, statusId, checkIds) {
@@ -255,6 +326,7 @@ async function runChecks(rt, statusId, checkIds) {
     return stopStep(rt, statusId, 'FAILED', 'runTimeoutSeconds', 'runTimeoutSeconds reached before the checks');
   }
   const started = rt.clock();
+  rt.inflight = started;
   const reported = await rt.verifier.run({ stepId: statusId, checkIds: [...ids] });
   const results = ids.map((id) => {
     const r = Array.isArray(reported) ? reported.find((x) => x && x.id === id) : undefined;
@@ -271,6 +343,10 @@ async function runChecks(rt, statusId, checkIds) {
   commit(rt, 'checks.finished', { stepId: statusId, results }, (n) => {
     addActiveSeconds(n, seconds);
   });
+  rt.inflight = null;
+  if (overrun(rt, statusId, 'the checks')) {
+    return false;
+  }
   return { failures: results.filter((r) => r.exitCode !== 0) };
 }
 
@@ -285,6 +361,10 @@ async function runWorkStep(rt, step) {
     if (rt.handle.state.steps[id].status === 'SUCCEEDED') {
       return true;
     }
+    const waiting = step.dependsOn.filter((d) => rt.handle.state.steps[d].status !== 'SUCCEEDED');
+    if (waiting.length > 0) {
+      throw new Error(`step ${id} was about to start before ${waiting.join(', ')} succeeded`);
+    }
     const limit = limitReached(rt);
     if (limit) {
       return stopRun(rt, 'FAILED', limit, null, { stepId: id });
@@ -296,7 +376,7 @@ async function runWorkStep(rt, step) {
     if (!call) {
       return false;
     }
-    const issues = recordResult(rt, req, call.result);
+    const { issues } = recordResult(rt, req, call.result);
     if (issues.length > 0) {
       return stopStep(rt, id, 'BLOCKED', 'invalid-result', `invalid coder result: ${issues.join('; ')}`);
     }
@@ -316,7 +396,7 @@ async function runWorkStep(rt, step) {
     }
     let same = false;
     commit(rt, 'step.check-failed', { stepId: id, attempt, failed: checks.failures.map((f) => f.id) }, (n) => {
-      same = recordFailure(n, checkSignature(checks.failures));
+      same = recordFailure(n, checkSignature(id, checks.failures));
       n.steps[id].lastError = clean(failureText(checks.failures));
     });
     if (same) {
@@ -352,6 +432,14 @@ async function reviewCycle(rt) {
       if (rt.handle.state.steps[id].status === 'SUCCEEDED') {
         continue;
       }
+      const pending = rt.handle.state.reviewFix;
+      if (pending && pending.stepId === id) {
+        if (!(await resumeReviewFix(rt, pending))) {
+          return false;
+        }
+        restart = true;
+        break;
+      }
       const limit = limitReached(rt);
       if (limit) {
         return stopRun(rt, 'FAILED', limit, null, { stepId: id });
@@ -363,7 +451,7 @@ async function reviewCycle(rt) {
       if (!call) {
         return false;
       }
-      const issues = recordResult(rt, req, call.result);
+      const { issues, artifact } = recordResult(rt, req, call.result);
       if (issues.length > 0) {
         return stopStep(rt, id, 'BLOCKED', 'invalid-result', `invalid ${role} result: ${issues.join('; ')}`);
       }
@@ -374,7 +462,7 @@ async function reviewCycle(rt) {
         succeedStep(rt, id);
         continue;
       }
-      if (!(await reviewFix(rt, id, role, call.result.findings))) {
+      if (!(await reviewFix(rt, id, role, call.result.findings, artifact.name))) {
         return false;
       }
       restart = true;
@@ -390,12 +478,12 @@ async function reviewCycle(rt) {
   }
 }
 
-async function reviewFix(rt, id, role, findings) {
+function fixOwners(findings, work) {
   const owners = [];
   for (const f of findings) {
-    const own = rt.work.filter((s) => s.writePaths.some((w) => pathCovers(w, f.path)));
+    const own = work.filter((s) => s.writePaths.some((w) => pathCovers(w, f.path)));
     if (own.length === 0) {
-      return stopStep(rt, id, 'BLOCKED', 'finding-out-of-scope', `finding ${f.code} at ${f.path} is outside every step's writePaths`);
+      return { outside: f };
     }
     for (const s of own) {
       if (!owners.includes(s.id)) {
@@ -403,43 +491,87 @@ async function reviewFix(rt, id, role, findings) {
       }
     }
   }
+  return { owners };
+}
+
+async function reviewFix(rt, id, role, findings, artifact) {
+  const scope = fixOwners(findings, rt.work);
+  if (scope.outside) {
+    return stopStep(rt, id, 'BLOCKED', 'finding-out-of-scope', `finding ${scope.outside.code} at ${scope.outside.path} is outside every step's writePaths`);
+  }
   let same = false;
   commit(rt, 'review.changes-requested', { stepId: id, role, findings: findings.map((f) => ({ code: f.code, path: f.path })) }, (n) => {
-    same = recordFailure(n, signatureOf('review', [role, findings.map((f) => JSON.stringify([f.code, f.path])).sort()]));
+    same = recordFailure(n, signatureOf('review', id, [role, findings.map((f) => JSON.stringify([f.code, f.path])).sort()]));
     n.steps[id].status = 'RETRY_PENDING';
+    n.reviewFix = { stepId: id, role, artifact, attempt: null };
   });
   if (same) {
     return stopStep(rt, id, 'FAILED', 'same-failure', `the ${role} asked for the same changes 3 times in a row`);
   }
+  return fixLoop(rt, id, role, findings, scope.owners);
+}
+
+async function resumeReviewFix(rt, pending) {
+  const saved = readArtifact(rt.handle, pending.artifact);
+  const findings = saved && saved.result && saved.result.findings;
+  if (saved.stepId !== pending.stepId || !Array.isArray(findings)) {
+    throw new Error(`artifact ${pending.artifact} does not hold the ${pending.role} findings for ${REVIEW_FIX_TARGET}`);
+  }
+  const scope = fixOwners(findings, rt.work);
+  if (scope.outside) {
+    throw new Error(`artifact ${pending.artifact} has a finding outside every step's writePaths`);
+  }
+  const { events } = readRun(rt.handle.ctx, rt.handle.runId);
+  const from = events.findLastIndex((e) => e.type === 'review.changes-requested' && e.data.stepId === pending.stepId);
+  if (from < 0) {
+    throw new Error(`events.jsonl has no review.changes-requested event for the pending ${REVIEW_FIX_TARGET} of ${pending.stepId}`);
+  }
+  const lastChecks = events.slice(from + 1).filter((e) => e.type === 'checks.finished' && e.data.stepId === pending.stepId).at(-1);
+  const failures = lastChecks ? lastChecks.data.results.filter((r) => r.exitCode !== 0) : [];
+  return fixLoop(rt, pending.stepId, pending.role, findings, scope.owners, failures.length > 0 ? { findings, failures } : { findings });
+}
+
+async function fixLoop(rt, id, role, findings, owners, firstFeedback = { findings }) {
   const writePaths = [...new Set(owners.flatMap((o) => rt.byId.get(o).writePaths))];
   const affected = downstreamOf(rt.nodes, owners);
   const checkIds = [...new Set([...affected.flatMap((a) => rt.byId.get(a).checkIds), ...rt.policy.requiredChecks])];
-  let feedback = { findings };
+  let feedback = firstFeedback;
   for (;;) {
-    if (remainingBudget(rt.handle.state, rt.limits).repairAttempts(REVIEW_FIX_TARGET) <= 0) {
-      return stopStep(rt, id, 'FAILED', 'repair-limit', `maxRepairAttempts for ${REVIEW_FIX_TARGET} used up`);
+    let attempt = rt.handle.state.reviewFix.attempt;
+    if (attempt !== null) {
+      commit(rt, 'review-fix.resumed', { stepId: id, attempt }, (n) => {
+        n.steps[id].status = 'RUNNING';
+      });
+    } else {
+      if (remainingBudget(rt.handle.state, rt.limits).repairAttempts(REVIEW_FIX_TARGET) <= 0) {
+        return stopStep(rt, id, 'FAILED', 'repair-limit', `maxRepairAttempts for ${REVIEW_FIX_TARGET} used up`);
+      }
+      const limit = limitReached(rt);
+      if (limit) {
+        return stopStep(rt, id, 'FAILED', limit, `${limit} reached before ${REVIEW_FIX_TARGET}`);
+      }
+      commit(rt, 'review-fix.started', { stepId: id, steps: owners }, (n) => {
+        addRepairAttempt(n, REVIEW_FIX_TARGET);
+        attempt = n.budget.repairAttempts[REVIEW_FIX_TARGET];
+        n.reviewFix.attempt = attempt;
+        n.steps[id].status = 'RUNNING';
+      });
     }
-    const limit = limitReached(rt);
-    if (limit) {
-      return stopStep(rt, id, 'FAILED', limit, `${limit} reached before ${REVIEW_FIX_TARGET}`);
-    }
-    let attempt = 0;
-    commit(rt, 'review-fix.started', { stepId: id, steps: owners }, (n) => {
-      addRepairAttempt(n, REVIEW_FIX_TARGET);
-      attempt = n.budget.repairAttempts[REVIEW_FIX_TARGET];
-    });
     const req = { role: 'coder', stepId: REVIEW_FIX_TARGET, statusId: id, attempt, goal: rt.plan.goal, instruction: `Apply the ${role} findings`, acceptance: rt.work.filter((s) => owners.includes(s.id)).flatMap((s) => s.acceptance), writePaths, feedback };
     const call = await callRole(rt, req);
     if (!call) {
       return false;
     }
-    const issues = recordResult(rt, req, call.result);
+    const { issues } = recordResult(rt, req, call.result);
     if (issues.length > 0) {
       return stopStep(rt, id, 'BLOCKED', 'invalid-result', `invalid ${REVIEW_FIX_TARGET} result: ${issues.join('; ')}`);
     }
     if (call.result.status === 'blocked') {
       return stopStep(rt, id, 'BLOCKED', 'role-blocked', `${REVIEW_FIX_TARGET} needs input (${call.result.needsInput.length} items)`);
     }
+    commit(rt, 'review-fix.verifying', { stepId: id, attempt }, (n) => {
+      n.steps[id].status = 'VERIFYING';
+    });
     const checks = await runChecks(rt, id, checkIds);
     if (!checks) {
       return false;
@@ -449,13 +581,17 @@ async function reviewFix(rt, id, role, findings) {
         for (const [rid] of REVIEW_ROLES) {
           n.steps[rid].status = 'PENDING';
         }
+        clearFailureOf(n, REVIEW_FIX_TARGET);
+        delete n.reviewFix;
       });
       return true;
     }
     let sameCheck = false;
     commit(rt, 'review-fix.check-failed', { stepId: id, attempt, failed: checks.failures.map((f) => f.id) }, (n) => {
-      sameCheck = recordFailure(n, checkSignature(checks.failures));
+      sameCheck = recordFailure(n, checkSignature(REVIEW_FIX_TARGET, checks.failures));
       n.steps[id].lastError = clean(failureText(checks.failures));
+      n.steps[id].status = 'RETRY_PENDING';
+      n.reviewFix.attempt = null;
     });
     if (sameCheck) {
       return stopStep(rt, id, 'FAILED', 'same-failure', `the same check failure happened 3 times in a row: ${failureText(checks.failures)}`);

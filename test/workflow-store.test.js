@@ -10,7 +10,7 @@ import { hashJson, PROGRAM_PLAN_FIELDS } from '../src/workflow/schema.js';
 import {
   createRun, readRun, acquireRun, commitRun, releaseRun, runDir, workflowsDir, isSecretKey, sanitizeEventData,
   findSecretAssignment, REDACTED_TEXT,
-  chargeAgentCall, addActiveSeconds, addRepairAttempt, recordFailure, clearFailure, remainingBudget, writeArtifact,
+  chargeAgentCall, addActiveSeconds, addRepairAttempt, recordFailure, clearFailure, remainingBudget, writeArtifact, readArtifact,
 } from '../src/workflow/store.js';
 
 const BIN = fileURLToPath(new URL('../bin/agent-layers.js', import.meta.url));
@@ -819,4 +819,40 @@ test('workflow store: uninstall after apply leaves workflow records in place', (
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout + r.stderr, /AGENTS\.md/);
   assert.deepEqual(hashTree(run.dir), before);
+});
+
+test('workflow store: authorization headers and bearer tokens count as secrets, plain mentions do not', () => {
+  for (const text of ['Authorization: Bearer SYNTHETIC-123456789', 'authorization=Basic c3ludGhldGljOnZhbHVl', 'curl -H "bearer abc.def.ghi-123"']) {
+    assert.notEqual(findSecretAssignment(text), null, text);
+    assert.equal(sanitizeEventData({ summary: text }).summary, REDACTED_TEXT, text);
+  }
+  for (const text of ['Bearer authentication is required', 'the bearer of the news', 'authorizationCount: 3', 'Use Bearer authentication.', 'the bearer returned.']) {
+    assert.equal(findSecretAssignment(text), null, text);
+  }
+});
+
+test('workflow store: readArtifact returns a written artifact and refuses names outside the artifacts folder', (t) => {
+  const { ctx } = tempCtx(t);
+  const run = newRun(ctx);
+  const h = acquireRun(ctx, run.runId);
+  const { name } = writeArtifact(h, '02-review-1', { result: { findings: [] } });
+  assert.deepEqual(readArtifact(h, name), { result: { findings: [] } });
+  for (const bad of ['../plan.json', '02-review-1', 'a/b.json', '..json']) {
+    assert.throws(() => readArtifact(h, bad), { code: 'E_WORKFLOW_INVALID' }, bad);
+  }
+  assert.throws(() => readArtifact(h, '09-missing-1.json'), { code: 'E_WORKFLOW_CORRUPT' });
+  releaseRun(h);
+});
+
+test('workflow store: readRun reports a state that is invalid or differs from the last event snapshot', (t) => {
+  const { ctx } = tempCtx(t);
+  const run = newRun(ctx);
+  const file = path.join(run.dir, 'state.json');
+  const state = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, JSON.stringify({ ...state, status: 'SUCCEEDED' }));
+  assert.ok(readRun(ctx, run.runId).issues.some((i) => /does not match the state saved with event/.test(i)));
+  fs.writeFileSync(file, JSON.stringify({ ...state, status: 'DONE' }));
+  assert.ok(readRun(ctx, run.runId).issues.some((i) => /state\.json: run status "DONE"/.test(i)));
+  fs.writeFileSync(file, 'null');
+  assert.throws(() => readRun(ctx, run.runId), { code: 'E_WORKFLOW_CORRUPT' });
 });

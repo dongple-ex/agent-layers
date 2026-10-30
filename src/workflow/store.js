@@ -17,7 +17,8 @@ const DIR_MODE = 0o700;
 const FILE_MODE = 0o600;
 const EVENT_TYPE_RE = /^[a-z][a-z0-9.-]*$/;
 const COMMIT_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
-const SECRET_WORDS = new Set(['password', 'passwd', 'pwd', 'secret', 'token', 'credential', 'credentials', 'apikey']);
+const SECRET_WORDS = new Set(['password', 'passwd', 'pwd', 'secret', 'token', 'credential', 'credentials', 'apikey', 'authorization']);
+const BEARER_TEXT_RE = /(?<![A-Za-z0-9_-])bearer\s+(?=[A-Za-z._~+/-]*[0-9])[A-Za-z0-9._~+/-]{8,}/i;
 const SECRET_PAIRS = [['api', 'key'], ['private', 'key'], ['access', 'key']];
 const INTERRUPTIBLE_STEPS = ['RUNNING', 'VERIFYING'];
 const NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
@@ -197,6 +198,9 @@ function isSecretField(key, numeric) {
 }
 
 export function findSecretAssignment(text) {
+  if (BEARER_TEXT_RE.test(text)) {
+    return 'Bearer';
+  }
   const re = new RegExp(SECRET_KEY_TEXT_RE.source, 'g');
   const num = new RegExp(NUMBER_VALUE_RE.source, 'y');
   let m;
@@ -587,21 +591,33 @@ function hashIssues(plan, policy) {
   return issues;
 }
 
+function isSameJson(a, b) {
+  return a !== null && typeof a === 'object' && hashJson(a) === hashJson(b);
+}
+
 export function readRun(ctx, runId) {
   const dir = runDir(ctx, runId);
   assertRealDir(dir);
   const plan = readJson(path.join(dir, 'plan.json'), 'plan.json');
   const policy = readJson(path.join(dir, 'policy.json'), 'policy.json');
   const state = readJson(path.join(dir, 'state.json'), 'state.json');
+  for (const [label, value] of [['plan.json', plan], ['policy.json', policy], ['state.json', state]]) {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      throw storeError('E_WORKFLOW_CORRUPT', `${label} is not a JSON object`);
+    }
+  }
   const scan = scanEvents(dir);
   const issues = [...hashIssues(plan, policy), ...scan.issues];
   if (scan.tail.length > 0) {
     issues.push(`events.jsonl ends with ${scan.tail.length} bytes of an unfinished event`);
   }
+  issues.push(...stateIssues(state, state.order).map((i) => `state.json: ${i}`));
   if (state.lastSeq > scan.events.length) {
     issues.push(`state.json is at seq ${state.lastSeq} but events.jsonl ends at ${scan.events.length}`);
   } else if (state.lastSeq < scan.events.length) {
     issues.push(`state.json is behind events.jsonl (${state.lastSeq} < ${scan.events.length})`);
+  } else if (scan.events.length > 0 && !isSameJson(scan.events[scan.events.length - 1].state, state)) {
+    issues.push(`state.json does not match the state saved with event ${scan.events.length}`);
   }
   return { runId, dir, plan, policy, state, events: scan.events, issues };
 }
@@ -806,6 +822,17 @@ export function writeArtifact(handle, name, value) {
   const text = stringifyJson(clean);
   writeDurable(file, text);
   return { name: `${name}.json`, sha256: sha256(text) };
+}
+
+export function readArtifact(handle, file) {
+  assertHeld(handle);
+  const name = typeof file === 'string' && file.endsWith('.json') ? file.slice(0, -'.json'.length) : null;
+  if (name === null || !ARTIFACT_NAME_RE.test(name) || name.includes('..')) {
+    throw storeError('E_WORKFLOW_INVALID', `artifact file ${JSON.stringify(file)} must be <name>.json with a name matching ${ARTIFACT_NAME_RE} without ".."`);
+  }
+  const dir = path.join(handle.dir, 'artifacts');
+  assertRealDir(dir);
+  return readJson(path.join(dir, file), `artifact ${file}`);
 }
 
 function repairCount(state, target) {

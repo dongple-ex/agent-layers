@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createRun, acquireRun, releaseRun } from '../src/workflow/store.js';
+import { hashJson } from '../src/workflow/schema.js';
 import { runWorkflow } from '../src/workflow/engine.js';
 import { POLICY, PLAN, fakeProvider, fakeVerifier } from './fixtures/workflow/fakes.js';
 
@@ -150,4 +151,67 @@ test('workflow cli: help lists the workflow commands and existing commands keep 
   assert.match(help.stdout, /plan, run, resume and cancel are not available yet/);
   const unknown = cli(home, 'no-such-command');
   assert.equal(unknown.code, 2);
+});
+
+test('workflow cli: validate rechecks a policy whose hash was updated and a malformed policy without crashing', (t) => {
+  const { home, ctx } = tempHome(t);
+  const run = newRun(ctx);
+  const policyFile = path.join(run.dir, 'policy.json');
+  const planFile = path.join(run.dir, 'plan.json');
+  const original = fs.readFileSync(policyFile, 'utf8');
+  const rehash = (policy) => {
+    fs.writeFileSync(policyFile, JSON.stringify(policy));
+    const plan = JSON.parse(fs.readFileSync(planFile, 'utf8'));
+    plan.policyHash = hashJson(policy);
+    fs.writeFileSync(planFile, JSON.stringify(plan));
+  };
+  rehash({ ...JSON.parse(original), requiredChecks: [] });
+  let r = cli(home, 'workflow', 'validate', run.runId, '--json');
+  assert.equal(r.code, 2, r.stderr);
+  let view = JSON.parse(r.stdout);
+  assert.ok(view.issues.some((i) => /^policy requiredChecks/.test(i)), view.issues.join('\n'));
+  assert.ok(!view.issues.some((i) => /policyHash/.test(i)), view.issues.join('\n'));
+  rehash({ ...JSON.parse(original), checks: null });
+  r = cli(home, 'workflow', 'validate', run.runId, '--json');
+  assert.equal(r.code, 2, r.stderr);
+  view = JSON.parse(r.stdout);
+  assert.ok(view.issues.some((i) => /^policy checks/.test(i)), view.issues.join('\n'));
+});
+
+test('workflow cli: validate reports a state that differs from the last event', (t) => {
+  const { home, ctx } = tempHome(t);
+  const run = newRun(ctx);
+  const file = path.join(run.dir, 'state.json');
+  fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), status: 'SUCCEEDED' }));
+  const r = cli(home, 'workflow', 'validate', run.runId, '--json');
+  assert.equal(r.code, 2, r.stderr);
+  assert.ok(JSON.parse(r.stdout).issues.some((i) => /does not match the state saved with event/.test(i)));
+});
+
+test('workflow cli: unknown options and values on switches exit 2 without output on stdout', (t) => {
+  const { home, ctx } = tempHome(t);
+  const run = newRun(ctx);
+  for (const args of [['--jsno'], ['--json=false'], ['--json=true'], ['--env', 'A=1']]) {
+    const r = cli(home, 'workflow', 'status', run.runId, ...args);
+    assert.equal(r.code, 2, args.join(' '));
+    assert.equal(r.stdout, '', args.join(' '));
+    assert.match(r.stderr, /unknown option|takes no value/, args.join(' '));
+  }
+  assert.equal(cli(home, 'workflow', 'status', run.runId, '--json', '--quiet', '--source', home).code, 0);
+});
+
+test('workflow cli: validate accepts a stored policy whose add-check exception is already applied', (t) => {
+  const { home, ctx } = tempHome(t);
+  const run = createRun(ctx, {
+    plan: PLAN,
+    policy: { ...POLICY, exceptions: [{ id: 'more', kind: 'add-check', check: { id: 'extra', command: 'npm', args: ['run', 'extra'], timeout: 60 } }] },
+    usedAgentCalls: 1,
+    planRepairs: 0,
+    baseCommit: 'b'.repeat(40),
+    providerFingerprint: 'fake 0.0.0',
+    workspaceKey: `ws-${crypto.randomUUID()}`,
+  });
+  const r = cli(home, 'workflow', 'validate', run.runId, '--json');
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.deepEqual(JSON.parse(r.stdout).issues, []);
 });
