@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { hashJson, PROGRAM_PLAN_FIELDS } from '../src/workflow/schema.js';
 import {
   createRun, readRun, acquireRun, commitRun, releaseRun, runDir, workflowsDir, isSecretKey, sanitizeEventData,
+  findSecretAssignment, REDACTED_TEXT,
   chargeAgentCall, addActiveSeconds, addRepairAttempt, recordFailure, clearFailure, remainingBudget,
 } from '../src/workflow/store.js';
 
@@ -232,6 +233,10 @@ test('workflow store: secret-looking string fields are masked in events, usage a
     token: ['t2', 't3'],
     credentials: { user: 'u', pass: 'p' },
     summary: 'retry with token=abc123, 12 passed, passed: 12',
+    note: '12 passed, passed: 12, token_count=40',
+    token_count: 40,
+    tokenLimit: 100,
+    token_total: 'abc',
   });
   releaseRun(h);
   const data = events(run.dir).find((e) => e.type === 'call.finished').data;
@@ -246,7 +251,11 @@ test('workflow store: secret-looking string fields are masked in events, usage a
     keyCount: 3,
     token: '***',
     credentials: '***',
-    summary: 'retry with token=***, 12 passed, passed: 12',
+    summary: REDACTED_TEXT,
+    note: '12 passed, passed: 12, token_count=40',
+    token_count: 40,
+    tokenLimit: 100,
+    token_total: '***',
   });
   assert.equal(isSecretKey('compass'), false);
   assert.equal(isSecretKey('PRIVATE_KEY'), true);
@@ -297,16 +306,10 @@ test('workflow store: an event without a usable state snapshot is not replayed',
   assert.deepEqual(lockFiles(ctx, run.runId), []);
 });
 
-test('workflow store: secrets are refused in state, quoted JSON secrets are masked in event strings', (t) => {
+test('workflow store: secrets are refused in state, step ids are not field names, and quoted JSON keys are detected', (t) => {
   const { ctx } = tempCtx(t);
-  assert.equal(
-    sanitizeEventData('{"token":"abc","input_tokens":12,"passed":12}'),
-    '{"token":"***","input_tokens":12,"passed":12}',
-  );
-  assert.equal(
-    sanitizeEventData('output: {"token":"abc","input_tokens":12,"passed":12} end'),
-    'output: {"token":***,"input_tokens":12,"passed":12} end',
-  );
+  assert.equal(sanitizeEventData('{"token":"abc","input_tokens":12,"passed":12}'), REDACTED_TEXT);
+  assert.equal(sanitizeEventData('output: {"token":"abc","input_tokens":12,"passed":12} end'), REDACTED_TEXT);
   const step = (id) => ({ ...PLAN.steps[0], id });
   const run = newRun(ctx, { plan: { ...PLAN, steps: [step('token'), step('api-key')] } });
   const h = acquireRun(ctx, run.runId);
@@ -324,13 +327,19 @@ test('workflow store: secrets are refused in state, quoted JSON secrets are mask
   }, /state\.steps\.token\.result\.authToken looks like a secret/);
   refuse((s) => {
     s.steps['api-key'].note = 'retry with password=hunter2';
-  }, /state\.steps\.api-key\.note contains a secret-looking assignment/);
+  }, /state\.steps\.api-key\.note contains a secret-looking assignment \(password\)/);
+  refuse((s) => {
+    s['budget.repairAttempts'] = { token: 1 };
+  }, /state\.budget\.repairAttempts\.token looks like a secret/);
+  refuse((s) => {
+    s.steps.token.extra = { steps: { token: 'x' } };
+  }, /state\.steps\.token\.extra\.steps\.token looks like a secret/);
   assert.deepEqual(fs.readFileSync(path.join(run.dir, 'events.jsonl')), before);
   assert.equal(h.broken, undefined);
   releaseRun(h);
 });
 
-test('workflow store: JSON text is cleaned field by field in events and refused in state', (t) => {
+test('workflow store: text with a secret-looking assignment is replaced whole in events and refused in state', (t) => {
   const { ctx } = tempCtx(t);
   const cases = {
     array: JSON.stringify({ token: ['SYN1', 'SYN2'], passed: 12 }),
@@ -338,19 +347,27 @@ test('workflow store: JSON text is cleaned field by field in events and refused 
     nested: JSON.stringify({ summary: 'retry token=SYN4', passed: 3 }),
     reencoded: JSON.stringify(JSON.stringify({ token: 'SYN5' })),
     padded: `  ${JSON.stringify([{ apiKey: 'SYN6' }])}\n`,
+    duplicate: '{"summary":"token=SYN_DUP","summary":"done"}',
+    duplicateNull: '{"token":"SYN_DUP2","token":null}',
+    prefixArray: 'prefix token=[[SYN7], [SYN8]] end',
+    notJson: '{not json token=SYN9',
+    spaced: 'password : SYN10',
   };
   for (const [name, text] of Object.entries(cases)) {
-    assert.doesNotMatch(sanitizeEventData(text), /SYN|N3/, name);
+    assert.equal(sanitizeEventData(text), REDACTED_TEXT, name);
   }
-  assert.equal(sanitizeEventData(cases.array), '{"token":"***","passed":12}');
-  assert.equal(sanitizeEventData(cases.nested), '{"summary":"retry token=***","passed":3}');
-  const plain = '{ "passed": 12,\n  "input_tokens": 5 }';
-  assert.equal(sanitizeEventData(plain), plain);
-  assert.equal(sanitizeEventData('{not json token=SYN7'), '{not json token=***');
-  assert.equal(
-    sanitizeEventData('note: password="SY\\"N8" token=[SYN9, SYN10] passed=4'),
-    'note: password=*** token=*** passed=4',
-  );
+  const kept = [
+    '{ "passed": 12,\n  "input_tokens": 9007199254740993, "big": 1e400, "a": 1, "a": 2 }',
+    'token_count=12 input_tokens=34 "tokenLimit": 5',
+    'compass=north, 12 passed, passed: 12, tokenizer: bpe',
+    '2026-10-30T13:14:09.000Z',
+    '['.repeat(8000) + '0' + ']'.repeat(8000),
+  ];
+  for (const text of kept) {
+    assert.equal(sanitizeEventData(text), text);
+    assert.equal(findSecretAssignment(text), null);
+  }
+  assert.equal(findSecretAssignment('token_count=abc'), 'token_count');
 
   const run = newRun(ctx);
   const h = acquireRun(ctx, run.runId);
@@ -362,16 +379,52 @@ test('workflow store: JSON text is cleaned field by field in events and refused 
       () => commitRun(h, 'step.result', {}, (s) => {
         s.steps.impl.output = text;
       }),
-      (err) => err.code === 'E_WORKFLOW_INVALID_STATE' && /state\.steps\.impl\.output\(json\)/.test(err.message),
+      (err) => err.code === 'E_WORKFLOW_INVALID_STATE' && /state\.steps\.impl\.output contains a secret-looking assignment/.test(err.message),
       name,
     );
   }
-  commitRun(h, 'step.result', {}, (s) => {
-    s.steps.impl.output = plain;
+  commitRun(h, 'step.result', { notes: kept }, (s) => {
+    s.steps.impl.notes = kept;
   });
   releaseRun(h);
+  const stored = readState(run.dir).steps.impl.notes;
+  assert.deepEqual(stored, kept);
+  assert.deepEqual(events(run.dir).find((e) => e.type === 'step.result').data.notes, kept);
   assert.doesNotMatch(fs.readFileSync(path.join(run.dir, 'events.jsonl'), 'utf8'), /SYN/);
   assert.doesNotMatch(fs.readFileSync(path.join(run.dir, 'state.json'), 'utf8'), /SYN/);
+});
+
+test('workflow store: secret detection stays linear on long input', () => {
+  const inputs = ['x='.repeat(128000) + '0', 'a'.repeat(256000), 'a '.repeat(128000), 'a:'.repeat(128000)];
+  for (const text of inputs) {
+    const start = performance.now();
+    assert.equal(findSecretAssignment(text), null);
+    assert.ok(performance.now() - start < 1500, `detection took ${Math.round(performance.now() - start)}ms on ${text.slice(0, 4)}...`);
+  }
+});
+
+test('workflow store: deeply nested data is refused before anything is written', (t) => {
+  const { ctx } = tempCtx(t);
+  const run = newRun(ctx);
+  const h = acquireRun(ctx, run.runId);
+  let deep = 'x';
+  for (let i = 0; i < 100; i += 1) {
+    deep = [deep];
+  }
+  const before = fs.readFileSync(path.join(run.dir, 'events.jsonl'));
+  assert.throws(() => commitRun(h, 'deep', { deep }), (err) => err.code === 'E_WORKFLOW_INVALID' && /nested deeper than 64/.test(err.message));
+  assert.throws(() => commitRun(h, 'deep', {}, (s) => {
+    s.steps.impl.deep = deep;
+  }), (err) => err.code === 'E_WORKFLOW_INVALID_STATE' && /nested deeper than 64/.test(err.message));
+  assert.deepEqual(fs.readFileSync(path.join(run.dir, 'events.jsonl')), before);
+  assert.equal(h.broken, undefined);
+  releaseRun(h);
+});
+
+test('workflow store: createRun checks the initial state before it writes any file', (t) => {
+  const { ctx } = tempCtx(t);
+  assert.throws(() => newRun(ctx, { workspaceKey: 'token=SYN_BOOT' }), (err) => err.code === 'E_WORKFLOW_INVALID' && /workspaceKey contains a secret-looking assignment/.test(err.message));
+  assert.equal(fs.existsSync(workflowsDir(ctx)), false);
 });
 
 test('workflow store: recovery stays resumable when any state write during acquire fails', (t) => {

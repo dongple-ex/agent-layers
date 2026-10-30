@@ -21,8 +21,11 @@ const SECRET_WORDS = new Set(['password', 'passwd', 'pwd', 'secret', 'token', 'c
 const SECRET_PAIRS = [['api', 'key'], ['private', 'key'], ['access', 'key']];
 const INTERRUPTIBLE_STEPS = ['RUNNING', 'VERIFYING'];
 const NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
-const SECRET_ASSIGNMENT_RE = /([A-Za-z][A-Za-z0-9_.-]*)(["']?\s*[:=]\s*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\[[^\]]*\]|[^\s,;]+)/g;
-const ID_KEYED_STATE_PATHS = new Set(['state.steps', 'state.budget.repairAttempts']);
+const SECRET_KEY_TEXT_RE = /(?<![A-Za-z0-9_.-])([A-Za-z][A-Za-z0-9_.-]*)\\*["']?\s*[:=]/g;
+const NUMBER_VALUE_RE = /\s*\\*["']?\s*-?\d/y;
+const QUANTITY_WORDS = new Set(['count', 'counts', 'total', 'usage', 'used', 'remaining', 'limit', 'limits', 'length', 'size', 'max', 'min', 'budget', 'number', 'num']);
+const MAX_DATA_DEPTH = 64;
+export const REDACTED_TEXT = '[redacted: text contained a secret-looking assignment]';
 
 function storeError(code, message, extra = {}) {
   const err = new Error(message);
@@ -184,76 +187,73 @@ export function isSecretKey(key) {
   return SECRET_PAIRS.some(([a, b]) => words.some((w, i) => w === a && words[i + 1] === b));
 }
 
-export function maskSecretAssignments(text) {
-  const re = new RegExp(SECRET_ASSIGNMENT_RE.source, 'g');
-  let out = '';
-  let pos = 0;
+function isSecretField(key, numeric) {
+  if (!isSecretKey(key)) {
+    return false;
+  }
+  const words = keyWords(key);
+  return !(numeric && QUANTITY_WORDS.has(words[words.length - 1]));
+}
+
+export function findSecretAssignment(text) {
+  const re = new RegExp(SECRET_KEY_TEXT_RE.source, 'g');
+  const num = new RegExp(NUMBER_VALUE_RE.source, 'y');
   let m;
   while ((m = re.exec(text)) !== null) {
-    const [whole, key, sep] = m;
-    if (isSecretKey(key)) {
-      out += `${text.slice(pos, m.index)}${key}${sep}***`;
-      pos = m.index + whole.length;
-    } else {
-      re.lastIndex = m.index + key.length + sep.length;
+    num.lastIndex = re.lastIndex;
+    if (isSecretField(m[1], num.test(text))) {
+      return m[1];
     }
   }
-  return out + text.slice(pos);
+  return null;
 }
 
-function parseJsonText(text) {
-  const t = text.trim();
-  if (!/^[[{"]/.test(t)) {
-    return undefined;
+export function sanitizeEventData(value, depth = 0) {
+  if (depth > MAX_DATA_DEPTH) {
+    throw storeError('E_WORKFLOW_INVALID', `event data is nested deeper than ${MAX_DATA_DEPTH} levels`);
   }
-  try {
-    return JSON.parse(t);
-  } catch (err) {
-    if (err instanceof SyntaxError) {
-      return undefined;
-    }
-    throw err;
-  }
-}
-
-export function sanitizeEventData(value) {
   if (Array.isArray(value)) {
-    return value.map(sanitizeEventData);
+    return value.map((v) => sanitizeEventData(v, depth + 1));
   }
   if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(Object.keys(value).map((k) => [k, value[k] !== null && isSecretKey(k) ? '***' : sanitizeEventData(value[k])]));
+    return Object.fromEntries(Object.keys(value).map((k) => [k, value[k] !== null && isSecretField(k, typeof value[k] === 'number') ? '***' : sanitizeEventData(value[k], depth + 1)]));
   }
-  if (typeof value === 'string') {
-    const parsed = parseJsonText(value);
-    if ((parsed !== null && typeof parsed === 'object') || typeof parsed === 'string') {
-      const clean = JSON.stringify(sanitizeEventData(parsed));
-      return clean === JSON.stringify(parsed) ? value : clean;
-    }
-    return maskSecretAssignments(value);
+  if (typeof value === 'string' && findSecretAssignment(value) !== null) {
+    return REDACTED_TEXT;
   }
   return value;
 }
 
-function secretFieldIssues(value, where, idKeyed = false) {
+function childScope(scope, key) {
+  if (scope === 'root') {
+    return key === 'steps' ? 'ids' : key === 'budget' ? 'budget' : 'plain';
+  }
+  if (scope === 'budget') {
+    return key === 'repairAttempts' ? 'ids' : 'plain';
+  }
+  return 'plain';
+}
+
+function secretFieldIssues(value, where, scope = 'root', depth = 0) {
+  if (depth > MAX_DATA_DEPTH) {
+    return [`${where} is nested deeper than ${MAX_DATA_DEPTH} levels`];
+  }
   if (Array.isArray(value)) {
-    return value.flatMap((v, i) => secretFieldIssues(v, `${where}[${i}]`));
+    return value.flatMap((v, i) => secretFieldIssues(v, `${where}[${i}]`, 'plain', depth + 1));
   }
   if (value !== null && typeof value === 'object') {
     return Object.keys(value).flatMap((k) => {
       const at = `${where}.${k}`;
-      if (!idKeyed && value[k] !== null && isSecretKey(k)) {
+      if (scope !== 'ids' && value[k] !== null && isSecretField(k, typeof value[k] === 'number')) {
         return [`${at} looks like a secret; workflow state must not store secrets`];
       }
-      return secretFieldIssues(value[k], at, ID_KEYED_STATE_PATHS.has(at));
+      return secretFieldIssues(value[k], at, childScope(scope, k), depth + 1);
     });
   }
   if (typeof value === 'string') {
-    const parsed = parseJsonText(value);
-    if ((parsed !== null && typeof parsed === 'object') || typeof parsed === 'string') {
-      return secretFieldIssues(parsed, `${where}(json)`);
-    }
-    if (maskSecretAssignments(value) !== value) {
-      return [`${where} contains a secret-looking assignment; workflow state must not store secrets`];
+    const key = findSecretAssignment(value);
+    if (key !== null) {
+      return [`${where} contains a secret-looking assignment (${key}); workflow state must not store secrets`];
     }
   }
   return [];
@@ -511,16 +511,11 @@ export function createRun(ctx, { plan, policy: rawPolicy, usedAgentCalls, planRe
   }
   const runId = crypto.randomUUID();
   const dir = runDir(ctx, runId);
-  ensureRealDir(workflowsDir(ctx));
-  fs.mkdirSync(dir, { mode: DIR_MODE });
-  fs.mkdirSync(path.join(dir, 'artifacts'), { mode: DIR_MODE });
   const createdAt = new Date().toISOString();
   const planHash = hashJson(plan);
   const policyHash = hashJson(policy);
   const stored = { ...structuredClone(plan), runId, baseCommit, policyHash, planHash, providerFingerprint, createdAt };
   const order = topologicalOrder(withProgramSteps(plan.steps));
-  writeDurable(path.join(dir, 'policy.json'), stringifyJson(policy));
-  writeDurable(path.join(dir, 'plan.json'), stringifyJson(stored));
   const state = {
     schemaVersion: SCHEMA_VERSION,
     runId,
@@ -534,6 +529,15 @@ export function createRun(ctx, { plan, policy: rawPolicy, usedAgentCalls, planRe
     steps: Object.fromEntries(order.map((id) => [id, { status: 'PENDING', attempts: 0 }])),
     budget: emptyBudget(usedAgentCalls, planRepairs),
   };
+  const stateProblems = stateIssues(state, order);
+  if (stateProblems.length > 0) {
+    throw storeError('E_WORKFLOW_INVALID', `the initial workflow state is invalid: ${stateProblems.join('; ')}`, { issues: stateProblems });
+  }
+  ensureRealDir(workflowsDir(ctx));
+  fs.mkdirSync(dir, { mode: DIR_MODE });
+  fs.mkdirSync(path.join(dir, 'artifacts'), { mode: DIR_MODE });
+  writeDurable(path.join(dir, 'policy.json'), stringifyJson(policy));
+  writeDurable(path.join(dir, 'plan.json'), stringifyJson(stored));
   writeDurable(path.join(dir, 'state.json'), stringifyJson(state));
   fs.writeFileSync(path.join(dir, 'events.jsonl'), '', { flag: 'wx', mode: FILE_MODE });
   commitEvent(dir, state, 'run.created', { planHash, policyHash, baseCommit, providerFingerprint, usedAgentCalls, planRepairs });
