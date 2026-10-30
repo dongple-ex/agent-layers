@@ -1,0 +1,830 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { stringifyJson } from '../formats/jsonc.js';
+import { sha256, sleepSync } from '../util/fsx.js';
+import { normalizePolicy, validatePlan, hashJson, assertJsonValue, PROGRAM_PLAN_FIELDS, STEP_STATUSES, RUN_STATUSES, SCHEMA_VERSION } from './schema.js';
+import { withProgramSteps, topologicalOrder } from './graph.js';
+
+export const RUN_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+export const SAME_FAILURE_LIMIT = 3;
+export const REVIEW_FIX_TARGET = 'review-fix';
+
+const IS_WIN = process.platform === 'win32';
+const IS_LINUX = process.platform === 'linux';
+const DIR_MODE = 0o700;
+const FILE_MODE = 0o600;
+const EVENT_TYPE_RE = /^[a-z][a-z0-9.-]*$/;
+const COMMIT_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+const SECRET_WORDS = new Set(['password', 'passwd', 'pwd', 'secret', 'token', 'credential', 'credentials', 'apikey']);
+const SECRET_PAIRS = [['api', 'key'], ['private', 'key'], ['access', 'key']];
+const INTERRUPTIBLE_STEPS = ['RUNNING', 'VERIFYING'];
+const NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
+const SECRET_ASSIGNMENT_RE = /([A-Za-z][A-Za-z0-9_.-]*)(["']?\s*[:=]\s*)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|\[[^\]]*\]|[^\s,;]+)/g;
+const ID_KEYED_STATE_PATHS = new Set(['state.steps', 'state.budget.repairAttempts']);
+
+function storeError(code, message, extra = {}) {
+  const err = new Error(message);
+  err.code = code;
+  Object.assign(err, extra);
+  return err;
+}
+
+export function workflowsDir(ctx) {
+  return path.join(ctx.paths.stateDir, 'workflows');
+}
+
+export function runDir(ctx, runId) {
+  if (typeof runId !== 'string' || !RUN_ID_RE.test(runId)) {
+    throw storeError('E_WORKFLOW_BAD_RUN_ID', `invalid run id ${JSON.stringify(runId)}`);
+  }
+  return path.join(workflowsDir(ctx), runId);
+}
+
+function assertRealDir(dir) {
+  let st;
+  try {
+    st = fs.lstatSync(dir);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      throw storeError('E_WORKFLOW_NOT_FOUND', `${dir} does not exist`);
+    }
+    throw err;
+  }
+  if (st.isSymbolicLink() || !st.isDirectory()) {
+    throw storeError('E_WORKFLOW_UNSAFE_PATH', `${dir} must be a real directory, not a link or file`);
+  }
+}
+
+function ensureRealDir(dir) {
+  try {
+    assertRealDir(dir);
+  } catch (err) {
+    if (err.code !== 'E_WORKFLOW_NOT_FOUND') {
+      throw err;
+    }
+    fs.mkdirSync(dir, { recursive: true, mode: DIR_MODE });
+    assertRealDir(dir);
+  }
+}
+
+function fsyncDir(dir) {
+  if (IS_WIN) {
+    return;
+  }
+  const fd = fs.openSync(dir, 'r');
+  try {
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function writeFileSynced(file, text, flag) {
+  const fd = fs.openSync(file, flag, FILE_MODE);
+  try {
+    fs.writeFileSync(fd, text);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function renameNoCopy(from, to) {
+  for (let i = 0; ; i += 1) {
+    try {
+      fs.renameSync(from, to);
+      return;
+    } catch (err) {
+      if (!IS_WIN || !['EPERM', 'EBUSY', 'EACCES'].includes(err.code) || i >= 7) {
+        fs.rmSync(from, { force: true });
+        throw err;
+      }
+      sleepSync(40 * (i + 1));
+    }
+  }
+}
+
+function writeDurable(file, text) {
+  const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`);
+  writeFileSynced(tmp, text, 'wx');
+  renameNoCopy(tmp, file);
+  fsyncDir(path.dirname(file));
+}
+
+function assertPlainFile(st, file) {
+  if (st.isSymbolicLink() || !st.isFile() || st.nlink !== 1) {
+    throw storeError('E_WORKFLOW_UNSAFE_PATH', `${file} must be a regular file with a single link`);
+  }
+}
+
+function openRecord(file, flags) {
+  assertPlainFile(fs.lstatSync(file), file);
+  const fd = fs.openSync(file, flags | NOFOLLOW);
+  try {
+    const opened = fs.fstatSync(fd);
+    const now = fs.lstatSync(file);
+    assertPlainFile(now, file);
+    if (opened.ino !== now.ino || opened.dev !== now.dev || opened.nlink !== 1) {
+      throw storeError('E_WORKFLOW_UNSAFE_PATH', `${file} changed while it was opened`);
+    }
+    return fd;
+  } catch (err) {
+    fs.closeSync(fd);
+    throw err;
+  }
+}
+
+function readRecord(file) {
+  const fd = openRecord(file, fs.constants.O_RDONLY);
+  try {
+    return fs.readFileSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function appendRecord(file, text) {
+  const fd = openRecord(file, fs.constants.O_WRONLY | fs.constants.O_APPEND);
+  try {
+    fs.writeFileSync(fd, text);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function readJson(file, label) {
+  let text;
+  try {
+    text = readRecord(file).toString('utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      throw storeError('E_WORKFLOW_CORRUPT', `${label} is missing (${file})`);
+    }
+    throw err;
+  }
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw storeError('E_WORKFLOW_CORRUPT', `${label} is not valid JSON (${err.message})`);
+  }
+}
+
+function keyWords(key) {
+  return key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+export function isSecretKey(key) {
+  const words = keyWords(key);
+  if (words.some((w) => SECRET_WORDS.has(w))) {
+    return true;
+  }
+  return SECRET_PAIRS.some(([a, b]) => words.some((w, i) => w === a && words[i + 1] === b));
+}
+
+export function maskSecretAssignments(text) {
+  const re = new RegExp(SECRET_ASSIGNMENT_RE.source, 'g');
+  let out = '';
+  let pos = 0;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const [whole, key, sep] = m;
+    if (isSecretKey(key)) {
+      out += `${text.slice(pos, m.index)}${key}${sep}***`;
+      pos = m.index + whole.length;
+    } else {
+      re.lastIndex = m.index + key.length + sep.length;
+    }
+  }
+  return out + text.slice(pos);
+}
+
+function parseJsonText(text) {
+  const t = text.trim();
+  if (!/^[[{"]/.test(t)) {
+    return undefined;
+  }
+  try {
+    return JSON.parse(t);
+  } catch (err) {
+    if (err instanceof SyntaxError) {
+      return undefined;
+    }
+    throw err;
+  }
+}
+
+export function sanitizeEventData(value) {
+  if (Array.isArray(value)) {
+    return value.map(sanitizeEventData);
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).map((k) => [k, value[k] !== null && isSecretKey(k) ? '***' : sanitizeEventData(value[k])]));
+  }
+  if (typeof value === 'string') {
+    const parsed = parseJsonText(value);
+    if ((parsed !== null && typeof parsed === 'object') || typeof parsed === 'string') {
+      const clean = JSON.stringify(sanitizeEventData(parsed));
+      return clean === JSON.stringify(parsed) ? value : clean;
+    }
+    return maskSecretAssignments(value);
+  }
+  return value;
+}
+
+function secretFieldIssues(value, where, idKeyed = false) {
+  if (Array.isArray(value)) {
+    return value.flatMap((v, i) => secretFieldIssues(v, `${where}[${i}]`));
+  }
+  if (value !== null && typeof value === 'object') {
+    return Object.keys(value).flatMap((k) => {
+      const at = `${where}.${k}`;
+      if (!idKeyed && value[k] !== null && isSecretKey(k)) {
+        return [`${at} looks like a secret; workflow state must not store secrets`];
+      }
+      return secretFieldIssues(value[k], at, ID_KEYED_STATE_PATHS.has(at));
+    });
+  }
+  if (typeof value === 'string') {
+    const parsed = parseJsonText(value);
+    if ((parsed !== null && typeof parsed === 'object') || typeof parsed === 'string') {
+      return secretFieldIssues(parsed, `${where}(json)`);
+    }
+    if (maskSecretAssignments(value) !== value) {
+      return [`${where} contains a secret-looking assignment; workflow state must not store secrets`];
+    }
+  }
+  return [];
+}
+
+function processStartTime(pid) {
+  if (!IS_LINUX) {
+    return null;
+  }
+  let text;
+  try {
+    text = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return null;
+    }
+    throw err;
+  }
+  return text.slice(text.lastIndexOf(')') + 2).split(' ')[19] || null;
+}
+
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    if (err.code === 'ESRCH') {
+      return false;
+    }
+    if (err.code === 'EPERM') {
+      return true;
+    }
+    throw err;
+  }
+}
+
+function newOwner(runId) {
+  return {
+    runId,
+    ownerId: crypto.randomUUID(),
+    pid: process.pid,
+    hostname: os.hostname(),
+    processStart: processStartTime(process.pid),
+    acquiredAt: new Date().toISOString(),
+  };
+}
+
+function validOwner(o) {
+  return o !== null && typeof o === 'object' && typeof o.ownerId === 'string' && Number.isSafeInteger(o.pid) && o.pid > 0
+    && typeof o.hostname === 'string' && (o.processStart === null || typeof o.processStart === 'string');
+}
+
+function readLock(file) {
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return null;
+    }
+    throw err;
+  }
+  try {
+    const owner = JSON.parse(text);
+    return validOwner(owner) ? { owner } : { unreadable: true };
+  } catch {
+    return { unreadable: true };
+  }
+}
+
+export function lockIsStale(owner) {
+  if (owner.hostname !== os.hostname()) {
+    return false;
+  }
+  if (!pidAlive(owner.pid)) {
+    return true;
+  }
+  if (IS_LINUX && owner.processStart !== null) {
+    const current = processStartTime(owner.pid);
+    return current !== null && current !== owner.processStart;
+  }
+  return false;
+}
+
+function createLock(file, owner) {
+  const tmp = `${file}.${owner.ownerId}.tmp`;
+  writeFileSynced(tmp, stringifyJson(owner), 'wx');
+  try {
+    fs.linkSync(tmp, file);
+  } catch (err) {
+    if (err.code !== 'EEXIST') {
+      attachCleanup(err, () => fs.rmSync(tmp, { force: true }));
+      throw err;
+    }
+    fs.rmSync(tmp, { force: true });
+    return false;
+  }
+  try {
+    fs.rmSync(tmp);
+    fsyncDir(path.dirname(file));
+    return true;
+  } catch (err) {
+    attachCleanup(err, () => fs.rmSync(tmp, { force: true }));
+    attachCleanup(err, () => removeOwnLock(file, owner));
+    throw err;
+  }
+}
+
+function attachCleanup(err, fn) {
+  try {
+    fn();
+  } catch (cleanupErr) {
+    err.cleanupErrors = [...(err.cleanupErrors || []), cleanupErr];
+  }
+}
+
+function removeOwnLock(file, owner) {
+  if (readLock(file)?.owner?.ownerId === owner.ownerId) {
+    fs.rmSync(file);
+  }
+}
+
+function lockedError(label, file, owner) {
+  return storeError('E_WORKFLOW_LOCKED', `${label} is locked by pid ${owner.pid} on ${owner.hostname} (run ${owner.runId})`, { lockFile: file, owner });
+}
+
+function acquireLock(file, owner, label) {
+  if (createLock(file, owner)) {
+    return null;
+  }
+  const current = readLock(file);
+  if (current === null) {
+    if (createLock(file, owner)) {
+      return null;
+    }
+    throw storeError('E_WORKFLOW_LOCKED', `${label} lock ${file} is being taken by another process`, { lockFile: file });
+  }
+  if (current.unreadable) {
+    throw storeError('E_WORKFLOW_LOCKED', `${label} lock ${file} is unreadable; make sure no workflow is running, then remove it by hand`, { lockFile: file });
+  }
+  if (!lockIsStale(current.owner)) {
+    throw lockedError(label, file, current.owner);
+  }
+  return reclaimStaleLock(file, owner, label, current.owner);
+}
+
+function reclaimStaleLock(file, owner, label, stale) {
+  const guard = `${file}.reclaim`;
+  if (!createLock(guard, owner)) {
+    const g = readLock(guard);
+    const who = g && g.owner ? ` (pid ${g.owner.pid} on ${g.owner.hostname})` : '';
+    throw storeError('E_WORKFLOW_LOCKED', `${label} lock ${file} is being reclaimed by another process${who}; if no workflow is running, remove ${guard} by hand`, { lockFile: file, guard });
+  }
+  let again;
+  try {
+    again = readLock(file);
+    if (again !== null && (again.unreadable || again.owner.ownerId !== stale.ownerId)) {
+      throw storeError('E_WORKFLOW_LOCKED', `${label} lock ${file} changed owner while it was being reclaimed; retry`, { lockFile: file });
+    }
+    if (again !== null) {
+      fs.rmSync(file);
+    }
+    if (!createLock(file, owner)) {
+      throw storeError('E_WORKFLOW_LOCKED', `${label} lock ${file} was taken by another process after a stale lock was removed`, { lockFile: file });
+    }
+  } catch (err) {
+    attachCleanup(err, () => releaseLock(guard, owner));
+    throw err;
+  }
+  releaseLock(guard, owner);
+  return again === null ? null : stale;
+}
+
+function releaseLock(file, owner) {
+  const current = readLock(file);
+  if (!current || current.unreadable || current.owner.ownerId !== owner.ownerId) {
+    throw storeError('E_WORKFLOW_LOCK_CHANGED', `lock ${file} is no longer held by this process`, { lockFile: file });
+  }
+  fs.rmSync(file);
+}
+
+function workspaceLockFile(ctx, workspaceKey) {
+  return path.join(workflowsDir(ctx), 'locks', `${sha256(workspaceKey)}.lock`);
+}
+
+function emptyBudget(usedAgentCalls, planRepairs) {
+  return { agentCalls: usedAgentCalls, activeSeconds: 0, planRepairs, repairAttempts: {}, failureStreak: { signature: null, count: 0 } };
+}
+
+function stateIssues(state, order) {
+  const issues = [];
+  if (!Array.isArray(order) || !Array.isArray(state.order) || state.order.join('\0') !== order.join('\0')) {
+    return ['state order must match the planned step order'];
+  }
+  if (!RUN_STATUSES.includes(state.status)) {
+    issues.push(`run status ${JSON.stringify(state.status)} is not one of ${RUN_STATUSES.join(', ')}`);
+  }
+  const ids = Object.keys(state.steps || {});
+  if (ids.length !== order.length || !order.every((id) => ids.includes(id))) {
+    issues.push('steps must match the planned step ids');
+  }
+  for (const id of ids) {
+    const s = state.steps[id];
+    if (!STEP_STATUSES.includes(s.status)) {
+      issues.push(`step ${id} status ${JSON.stringify(s.status)} is not one of ${STEP_STATUSES.join(', ')}`);
+    }
+    if (!Number.isSafeInteger(s.attempts) || s.attempts < 0) {
+      issues.push(`step ${id} attempts must be an integer of 0 or more`);
+    }
+  }
+  const b = state.budget || {};
+  for (const k of ['agentCalls', 'planRepairs']) {
+    if (!Number.isSafeInteger(b[k]) || b[k] < 0) {
+      issues.push(`budget.${k} must be an integer of 0 or more`);
+    }
+  }
+  if (typeof b.activeSeconds !== 'number' || !Number.isFinite(b.activeSeconds) || b.activeSeconds < 0) {
+    issues.push('budget.activeSeconds must be a number of 0 or more');
+  }
+  for (const [target, n] of Object.entries(b.repairAttempts || {})) {
+    if (target !== REVIEW_FIX_TARGET && !ids.includes(target)) {
+      issues.push(`budget.repairAttempts has unknown target "${target}"`);
+    }
+    if (!Number.isSafeInteger(n) || n < 0) {
+      issues.push(`budget.repairAttempts.${target} must be an integer of 0 or more`);
+    }
+  }
+  const f = b.failureStreak || {};
+  if (!(f.signature === null || typeof f.signature === 'string') || !Number.isSafeInteger(f.count) || f.count < 0) {
+    issues.push('budget.failureStreak must have a signature (string or null) and a count');
+  }
+  issues.push(...secretFieldIssues(state, 'state'));
+  return issues;
+}
+
+export function createRun(ctx, { plan, policy: rawPolicy, usedAgentCalls, planRepairs, baseCommit, providerFingerprint, workspaceKey }) {
+  const { policy, issues: policyIssues } = normalizePolicy(rawPolicy);
+  if (!policy) {
+    throw storeError('E_WORKFLOW_INVALID', 'workflow policy is invalid', { issues: policyIssues });
+  }
+  const planIssues = validatePlan(plan, policy, { usedAgentCalls });
+  if (planIssues.length > 0) {
+    throw storeError('E_WORKFLOW_INVALID', 'workflow plan is invalid', { issues: planIssues });
+  }
+  if (!Number.isSafeInteger(planRepairs) || planRepairs < 0 || planRepairs > policy.limits.maxPlanRepairs) {
+    throw storeError('E_WORKFLOW_INVALID', `planRepairs must be an integer from 0 to maxPlanRepairs (${policy.limits.maxPlanRepairs})`);
+  }
+  if (typeof baseCommit !== 'string' || !COMMIT_RE.test(baseCommit)) {
+    throw storeError('E_WORKFLOW_INVALID', 'baseCommit must be a full lowercase commit hash');
+  }
+  for (const [name, v] of [['providerFingerprint', providerFingerprint], ['workspaceKey', workspaceKey]]) {
+    if (typeof v !== 'string' || v.trim() === '') {
+      throw storeError('E_WORKFLOW_INVALID', `${name} must be a non-empty string`);
+    }
+  }
+  const runId = crypto.randomUUID();
+  const dir = runDir(ctx, runId);
+  ensureRealDir(workflowsDir(ctx));
+  fs.mkdirSync(dir, { mode: DIR_MODE });
+  fs.mkdirSync(path.join(dir, 'artifacts'), { mode: DIR_MODE });
+  const createdAt = new Date().toISOString();
+  const planHash = hashJson(plan);
+  const policyHash = hashJson(policy);
+  const stored = { ...structuredClone(plan), runId, baseCommit, policyHash, planHash, providerFingerprint, createdAt };
+  const order = topologicalOrder(withProgramSteps(plan.steps));
+  writeDurable(path.join(dir, 'policy.json'), stringifyJson(policy));
+  writeDurable(path.join(dir, 'plan.json'), stringifyJson(stored));
+  const state = {
+    schemaVersion: SCHEMA_VERSION,
+    runId,
+    workspaceKey,
+    status: 'PLANNED',
+    lastSeq: 0,
+    owner: null,
+    createdAt,
+    updatedAt: createdAt,
+    order,
+    steps: Object.fromEntries(order.map((id) => [id, { status: 'PENDING', attempts: 0 }])),
+    budget: emptyBudget(usedAgentCalls, planRepairs),
+  };
+  writeDurable(path.join(dir, 'state.json'), stringifyJson(state));
+  fs.writeFileSync(path.join(dir, 'events.jsonl'), '', { flag: 'wx', mode: FILE_MODE });
+  commitEvent(dir, state, 'run.created', { planHash, policyHash, baseCommit, providerFingerprint, usedAgentCalls, planRepairs });
+  return { runId, dir, planHash, policyHash };
+}
+
+function scanEvents(dir) {
+  const file = path.join(dir, 'events.jsonl');
+  let buf;
+  try {
+    buf = readRecord(file);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return { events: [], tail: Buffer.alloc(0), completeBytes: 0, issues: ['events.jsonl is missing'] };
+    }
+    throw err;
+  }
+  const cut = buf.lastIndexOf(0x0a) + 1;
+  const tail = buf.subarray(cut);
+  const events = [];
+  const issues = [];
+  buf.subarray(0, cut).toString('utf8').split('\n').slice(0, -1).forEach((line, i) => {
+    try {
+      events.push(JSON.parse(line));
+    } catch {
+      issues.push(`events.jsonl line ${i + 1} is not valid JSON`);
+    }
+  });
+  events.forEach((e, i) => {
+    if (e.seq !== i + 1) {
+      issues.push(`events.jsonl line ${i + 1} has seq ${JSON.stringify(e.seq)}; expected ${i + 1}`);
+    }
+  });
+  return { events, tail, completeBytes: cut, issues };
+}
+
+function hashIssues(plan, policy) {
+  const issues = [];
+  const modelPart = Object.fromEntries(Object.keys(plan).filter((k) => !PROGRAM_PLAN_FIELDS.includes(k)).map((k) => [k, plan[k]]));
+  if (hashJson(modelPart) !== plan.planHash) {
+    issues.push('plan.json does not match its planHash');
+  }
+  if (hashJson(policy) !== plan.policyHash) {
+    issues.push('policy.json does not match the policyHash in plan.json');
+  }
+  return issues;
+}
+
+export function readRun(ctx, runId) {
+  const dir = runDir(ctx, runId);
+  assertRealDir(dir);
+  const plan = readJson(path.join(dir, 'plan.json'), 'plan.json');
+  const policy = readJson(path.join(dir, 'policy.json'), 'policy.json');
+  const state = readJson(path.join(dir, 'state.json'), 'state.json');
+  const scan = scanEvents(dir);
+  const issues = [...hashIssues(plan, policy), ...scan.issues];
+  if (scan.tail.length > 0) {
+    issues.push(`events.jsonl ends with ${scan.tail.length} bytes of an unfinished event`);
+  }
+  if (state.lastSeq > scan.events.length) {
+    issues.push(`state.json is at seq ${state.lastSeq} but events.jsonl ends at ${scan.events.length}`);
+  } else if (state.lastSeq < scan.events.length) {
+    issues.push(`state.json is behind events.jsonl (${state.lastSeq} < ${scan.events.length})`);
+  }
+  return { runId, dir, plan, policy, state, events: scan.events, issues };
+}
+
+function commitEvent(dir, state, type, data, mutate = null) {
+  if (typeof type !== 'string' || !EVENT_TYPE_RE.test(type)) {
+    throw new Error(`invalid event type ${JSON.stringify(type)}`);
+  }
+  const next = structuredClone(state);
+  if (mutate) {
+    mutate(next);
+  }
+  const issues = stateIssues(next, state.order);
+  if (issues.length > 0) {
+    throw storeError('E_WORKFLOW_INVALID_STATE', `refusing to write an invalid workflow state: ${issues.join('; ')}`, { issues });
+  }
+  const seq = state.lastSeq + 1;
+  const at = new Date().toISOString();
+  next.lastSeq = seq;
+  next.updatedAt = at;
+  const event = { seq, at, type, data: sanitizeEventData(data), state: next };
+  assertJsonValue(event, 'event');
+  try {
+    appendRecord(path.join(dir, 'events.jsonl'), `${JSON.stringify(event)}\n`);
+    writeDurable(path.join(dir, 'state.json'), stringifyJson(next));
+  } catch (err) {
+    err.partialCommit = true;
+    throw err;
+  }
+  return next;
+}
+
+function snapshotFrom(event, order, seq) {
+  const snap = event && event.state;
+  if (!snap || typeof snap !== 'object' || snap.lastSeq !== seq || stateIssues(snap, order).length > 0) {
+    return null;
+  }
+  return snap;
+}
+
+function recover(handle, staleOwners) {
+  const { dir } = handle;
+  const plan = readJson(path.join(dir, 'plan.json'), 'plan.json');
+  const policy = readJson(path.join(dir, 'policy.json'), 'policy.json');
+  let state = readJson(path.join(dir, 'state.json'), 'state.json');
+  const integrity = hashIssues(plan, policy);
+  const scan = scanEvents(dir);
+  if (integrity.length > 0 || scan.issues.length > 0) {
+    throw storeError('E_WORKFLOW_CORRUPT', `run ${handle.runId} cannot be recovered automatically: ${[...integrity, ...scan.issues].join('; ')}`);
+  }
+  const eventsSeq = scan.events.length;
+  if (state.lastSeq > eventsSeq || state.lastSeq < eventsSeq - 1) {
+    throw storeError('E_WORKFLOW_CORRUPT', `run ${handle.runId} cannot be recovered automatically: state.json is at seq ${state.lastSeq} and events.jsonl ends at ${eventsSeq}`);
+  }
+  const notes = {};
+  let behindSnapshot = null;
+  if (state.lastSeq === eventsSeq - 1) {
+    behindSnapshot = snapshotFrom(scan.events[eventsSeq - 1], state.order, eventsSeq);
+    if (!behindSnapshot) {
+      throw storeError('E_WORKFLOW_CORRUPT', `run ${handle.runId} cannot be recovered automatically: event ${eventsSeq} has no usable state snapshot`);
+    }
+  }
+  if (scan.tail.length > 0) {
+    const kept = path.join(dir, `events.unfinished-${eventsSeq + 1}-${crypto.randomBytes(4).toString('hex')}.txt`);
+    writeDurable(kept, scan.tail);
+    const fd = openRecord(path.join(dir, 'events.jsonl'), fs.constants.O_RDWR);
+    try {
+      fs.ftruncateSync(fd, scan.completeBytes);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    notes.unfinishedEvent = path.basename(kept);
+  }
+  if (behindSnapshot) {
+    writeDurable(path.join(dir, 'state.json'), stringifyJson(behindSnapshot));
+    notes.stateBehindEvent = eventsSeq;
+    state = behindSnapshot;
+  }
+  if (state.owner !== null) {
+    notes.previousOwner = state.owner;
+  }
+  const stale = staleOwners.filter(Boolean);
+  if (stale.length > 0) {
+    notes.staleLocks = stale;
+  }
+  const interrupted = Boolean(notes.unfinishedEvent || notes.stateBehindEvent || notes.previousOwner);
+  if (interrupted) {
+    notes.previousStatus = state.status;
+  }
+  if (Object.keys(notes).length > 0) {
+    state = commitEvent(dir, state, 'run.recovered', notes, (s) => {
+      if (!interrupted) {
+        return;
+      }
+      if (s.status === 'RUNNING') {
+        s.status = 'INTERRUPTED';
+      }
+      for (const id of s.order) {
+        if (INTERRUPTIBLE_STEPS.includes(s.steps[id].status)) {
+          s.steps[id].status = 'INTERRUPTED';
+        }
+      }
+    });
+  }
+  return { state, interrupted, notes };
+}
+
+export function acquireRun(ctx, runId) {
+  const dir = runDir(ctx, runId);
+  assertRealDir(workflowsDir(ctx));
+  assertRealDir(dir);
+  const owner = newOwner(runId);
+  const runLock = path.join(dir, 'lock');
+  let wsLock = null;
+  try {
+    const staleRun = acquireLock(runLock, owner, 'run');
+    const { workspaceKey } = readJson(path.join(dir, 'state.json'), 'state.json');
+    if (typeof workspaceKey !== 'string' || workspaceKey === '') {
+      throw storeError('E_WORKFLOW_CORRUPT', 'state.json has no workspaceKey');
+    }
+    wsLock = workspaceLockFile(ctx, workspaceKey);
+    ensureRealDir(path.dirname(wsLock));
+    const staleWs = acquireLock(wsLock, owner, 'workspace');
+    const handle = { ctx, runId, dir, owner, runLock, wsLock, held: true };
+    const recovery = recover(handle, [staleRun, staleWs]);
+    const ownerInfo = { ownerId: owner.ownerId, pid: owner.pid, hostname: owner.hostname, acquiredAt: owner.acquiredAt };
+    handle.state = commitEvent(dir, recovery.state, 'run.acquired', ownerInfo, (s) => {
+      s.owner = ownerInfo;
+    });
+    handle.recovery = recovery;
+    return handle;
+  } catch (err) {
+    if (wsLock) {
+      attachCleanup(err, () => removeOwnLock(wsLock, owner));
+    }
+    attachCleanup(err, () => removeOwnLock(runLock, owner));
+    throw err;
+  }
+}
+
+function assertHeld(handle) {
+  if (!handle || !handle.held) {
+    throw new Error('workflow run handle is not held');
+  }
+}
+
+export function commitRun(handle, type, data = {}, mutate = null) {
+  assertHeld(handle);
+  if (handle.broken) {
+    throw storeError('E_WORKFLOW_BROKEN_HANDLE', `an earlier write for run ${handle.runId} failed part way; release this handle and acquire the run again to recover`);
+  }
+  const state = readJson(path.join(handle.dir, 'state.json'), 'state.json');
+  if (state.lastSeq !== handle.state.lastSeq) {
+    throw storeError('E_WORKFLOW_CORRUPT', `state.json changed outside this handle (seq ${state.lastSeq}, expected ${handle.state.lastSeq})`);
+  }
+  try {
+    handle.state = commitEvent(handle.dir, state, type, data, mutate);
+  } catch (err) {
+    if (err.partialCommit) {
+      handle.broken = true;
+    }
+    throw err;
+  }
+  return handle.state;
+}
+
+export function releaseRun(handle) {
+  assertHeld(handle);
+  try {
+    if (!handle.broken) {
+      commitRun(handle, 'run.released', { ownerId: handle.owner.ownerId }, (s) => {
+        s.owner = null;
+      });
+    }
+  } finally {
+    handle.held = false;
+    try {
+      releaseLock(handle.wsLock, handle.owner);
+    } finally {
+      releaseLock(handle.runLock, handle.owner);
+    }
+  }
+}
+
+function repairCount(state, target) {
+  return Object.prototype.hasOwnProperty.call(state.budget.repairAttempts, target) ? state.budget.repairAttempts[target] : 0;
+}
+
+export function chargeAgentCall(state, n = 1) {
+  if (!Number.isSafeInteger(n) || n < 1) {
+    throw new Error('chargeAgentCall: n must be a positive integer');
+  }
+  state.budget.agentCalls += n;
+}
+
+export function addActiveSeconds(state, seconds) {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) {
+    throw new Error('addActiveSeconds: seconds must be a number of 0 or more');
+  }
+  state.budget.activeSeconds += seconds;
+}
+
+export function addRepairAttempt(state, target) {
+  if (target !== REVIEW_FIX_TARGET && !state.order.includes(target)) {
+    throw new Error(`addRepairAttempt: unknown target "${target}"`);
+  }
+  state.budget.repairAttempts[target] = repairCount(state, target) + 1;
+}
+
+export function recordFailure(state, signature) {
+  if (typeof signature !== 'string' || signature === '') {
+    throw new Error('recordFailure: signature must be a non-empty string');
+  }
+  const f = state.budget.failureStreak;
+  state.budget.failureStreak = { signature, count: f.signature === signature ? f.count + 1 : 1 };
+  return state.budget.failureStreak.count >= SAME_FAILURE_LIMIT;
+}
+
+export function clearFailure(state) {
+  state.budget.failureStreak = { signature: null, count: 0 };
+}
+
+export function remainingBudget(state, limits) {
+  return {
+    agentCalls: limits.maxAgentCalls - state.budget.agentCalls,
+    activeSeconds: limits.runTimeoutSeconds - state.budget.activeSeconds,
+    planRepairs: limits.maxPlanRepairs - state.budget.planRepairs,
+    repairAttempts: (target) => limits.maxRepairAttempts - repairCount(state, target),
+  };
+}

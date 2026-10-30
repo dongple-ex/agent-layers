@@ -19,6 +19,8 @@ export const DEFAULT_LIMITS = {
   runTimeoutSeconds: 3600,
 };
 export const DEFAULT_REQUIRED_ROLES = ['reviewer', 'auditor'];
+export const STEP_STATUSES = ['PENDING', 'READY', 'RUNNING', 'VERIFYING', 'RETRY_PENDING', 'SUCCEEDED', 'BLOCKED', 'FAILED', 'CANCELLED', 'INTERRUPTED'];
+export const RUN_STATUSES = ['PLANNED', 'RUNNING', 'BLOCKED', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'INTERRUPTED'];
 
 const POSITIVE_LIMITS = ['maxSteps', 'maxAgentCalls', 'stepTimeoutSeconds', 'runTimeoutSeconds'];
 const RETRY_LIMITS = ['maxRepairAttempts', 'maxTransportRetries', 'maxPlanRepairs'];
@@ -503,7 +505,7 @@ export function validateRoleResult(result, { stepIds }) {
   return issues;
 }
 
-function assertJsonValue(value, where) {
+export function assertJsonValue(value, where) {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') {
     return;
   }
