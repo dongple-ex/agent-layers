@@ -554,7 +554,7 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
       const rules = spec.scoped ? alwaysA : [...alwaysA, ...fallbackScoped];
       if (projAlways && rules.length) {
         if (projAlways.kind === 'agents-md' || projAlways.kind === 'claude-agents-shim') {
-          agentsMdReaders.push({ id: a.id, rules });
+          agentsMdReaders.push({ id: a.id, rules, adapter: a, spec: projAlways });
           if (projAlways.kind === 'claude-agents-shim') {
             const claudeMd = path.join(root, 'CLAUDE.md');
             const text = readText(claudeMd)?.text;
@@ -759,7 +759,11 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
     if (targeted.length) {
       notes.push({ level: 'info', msg: `AGENTS.md is shared by ${agentsMdReaders.map((r) => r.id).join(', ')}; agent-targeted rules (${targeted.map((r) => r.id).join(', ')}) are visible to all of them` });
     }
-    out.add({ type: 'block', path: path.join(root, 'AGENTS.md'), blockId, content: blockContent(rules, vars, layerNames, opts), adapter: agentsMdReaders.map((r) => r.id), scope, shared: true });
+    const content = blockContent(rules, vars, layerNames, opts);
+    for (const reader of agentsMdReaders) {
+      checkCharLimit(notes, reader.adapter, reader.spec, path.join(root, 'AGENTS.md'), content);
+    }
+    out.add({ type: 'block', path: path.join(root, 'AGENTS.md'), blockId, content, adapter: agentsMdReaders.map((r) => r.id), scope, shared: true });
   }
 
   const homeFiles = scope === 'user' ? merged.files.home || [] : merged.files.project || [];

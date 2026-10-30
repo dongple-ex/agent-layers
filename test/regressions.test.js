@@ -1090,6 +1090,23 @@ test('plan warns when rendered grok instructions exceed the 10,000 character lim
   assert.match(p.out, /warn grok: agent-layers content for .*rules.agent-layers-p\.md is \d+ characters/);
 });
 
+test('project plan warns about the shared AGENTS.md only when grok reads it', { skip: !HAS_GIT }, () => {
+  const sb = sandbox();
+  const repo = path.join(sb.root, 'team');
+  write(path.join(repo, 'README.md'), '# team\n');
+  spawnSync('git', ['init', '-q', repo]);
+  write(path.join(sb.source, 'projects', 't', 'project.jsonc'), JSON.stringify({ name: 't', mode: 'shared', match: { dirName: ['team'] } }));
+  write(path.join(sb.source, 'projects', 't', 'instructions', '00.md'), '가'.repeat(10001));
+  manifest(sb, ['codex']);
+  const codexOnly = cli(sb, ['project', 'plan'], { cwd: repo });
+  assert.equal(codexOnly.code, 0, codexOnly.out);
+  assert.doesNotMatch(codexOnly.out, /truncates each rules file/);
+  manifest(sb, ['codex', 'grok']);
+  const r = cli(sb, ['project', 'plan'], { cwd: repo });
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /warn grok: agent-layers content for .*team.AGENTS\.md is \d+ characters/);
+});
+
 test('gemini model settings are managed per key and keep the other model settings of the user', () => {
   const sb = sandbox();
   manifest(sb, ['gemini'], { gemini: { readAgentsMd: false } });

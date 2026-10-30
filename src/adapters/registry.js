@@ -345,7 +345,7 @@ export const ADAPTERS = [
       files: (p) => p.grokHome,
     },
     project: {
-      always: { shared: { kind: 'agents-md' }, private: { kind: 'file', dir: (r) => j(r, '.grok', 'rules'), dialect: 'plain', prefix: 'agent-layers-', maxChars: 10000 } },
+      always: { shared: { kind: 'agents-md', maxChars: 10000 }, private: { kind: 'file', dir: (r) => j(r, '.grok', 'rules'), dialect: 'plain', prefix: 'agent-layers-', maxChars: 10000 } },
       skills: (r) => [j(r, '.grok', 'skills')],
       mcp: { shared: { kind: 'toml', file: (r) => j(r, '.grok', 'config.toml'), table: ['mcp_servers'], format: 'grok', env: '${VAR}' }, private: { kind: 'toml', file: (r) => j(r, '.grok', 'config.toml'), table: ['mcp_servers'], format: 'grok', env: '${VAR}' } },
     },
