@@ -1061,6 +1061,17 @@ test('doctor --strict fails on warnings that a plain doctor run only reports', (
   }
 });
 
+test('doctor warns when ~/.grok/AGENTS.md exceeds the 10,000 character limit of Grok Build', () => {
+  const sb = sandbox();
+  const file = path.join(sb.home, '.grok', 'AGENTS.md');
+  write(file, '가'.repeat(10000));
+  assert.doesNotMatch(cli(sb, ['doctor', '--fast']).out, /warn grok:/);
+  write(file, '가'.repeat(10001));
+  const r = cli(sb, ['doctor', '--fast']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /warn grok: ~\/\.grok\/AGENTS\.md is 10001 characters/);
+});
+
 test('gemini model settings are managed per key and keep the other model settings of the user', () => {
   const sb = sandbox();
   manifest(sb, ['gemini'], { gemini: { readAgentsMd: false } });
