@@ -24,6 +24,7 @@ import { info, warn, error, table, c, mask, setQuiet, printable } from './util/l
 import { maskSecretFields } from './util/redact.js';
 import { loadReviewRules, planRuleChange, saveRuleChange, resolveReviewRules } from './review-rules.js';
 import { reviewSource, compareReviews, validateReviewDecisions, redactReview } from './review.js';
+import { workflowCommand } from './workflow/cli.js';
 
 const PKG = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const TEMPLATE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'init');
@@ -1212,6 +1213,11 @@ Secrets (OS keychain: Windows Credential Manager, macOS Keychain, libsecret)
   secrets list | check | set <name> [--value v] | get <name> [--show] | delete <name>
   exec [--env KEY=VALUE]... -- <command> [args]   run an MCP server with secrets injected
 
+Workflow (preview: plan, run, resume and cancel are not available yet)
+  workflow validate <run-id> [--json]  check a stored run's plan, policy and records
+  workflow status <run-id> [--json]    show step states, attempts and budget use
+  workflow report <run-id> [--json]    show check results, artifacts and remaining steps
+
 Options
   --source <dir>   setup repository (default from ~/.agent-layers/config.jsonc)
   --home <dir>     use <dir> as the home directory (sandbox / testing)
@@ -1266,6 +1272,8 @@ export async function main(argv) {
       return cmdReview(ctx, flags, positional);
     case 'uninstall':
       return cmdUninstall(ctx, flags);
+    case 'workflow':
+      return workflowCommand(ctx, flags, positional);
     default:
       error(`unknown command "${cmd}". Run "agent-layers help".`);
       return 2;

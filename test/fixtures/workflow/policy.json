@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "provider": { "id": "codex", "model": "fake-model", "reasoningEffort": "high" },
+  "allowedWritePaths": ["src", "test"],
+  "checks": [
+    { "id": "unit", "command": "npm", "args": ["test"], "timeout": 600 },
+    { "id": "lint", "command": "npm", "args": ["run", "lint"], "timeout": 600 }
+  ],
+  "requiredChecks": ["unit"]
+}

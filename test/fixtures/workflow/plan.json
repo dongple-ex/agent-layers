@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "goal": "Add input validation",
+  "steps": [
+    { "id": "impl", "role": "coder", "dependsOn": [], "instruction": "Implement validation", "writePaths": ["src/a.js"], "checkIds": ["unit"], "acceptance": ["Rejects bad input"] },
+    { "id": "tests", "role": "coder", "dependsOn": ["impl"], "instruction": "Add tests", "writePaths": ["test/a.test.js"], "checkIds": ["unit"], "acceptance": ["Covers bad input"] }
+  ]
+}

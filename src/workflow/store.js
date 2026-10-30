@@ -25,6 +25,7 @@ const SECRET_KEY_TEXT_RE = /(?<![A-Za-z0-9_.-])([A-Za-z][A-Za-z0-9_.-]*)\\*["']?
 const NUMBER_VALUE_RE = /\s*\\*["']?\s*-?\d/y;
 const QUANTITY_WORDS = new Set(['count', 'counts', 'total', 'usage', 'used', 'remaining', 'limit', 'limits', 'length', 'size', 'max', 'min', 'budget', 'number', 'num']);
 const MAX_DATA_DEPTH = 64;
+const ARTIFACT_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 export const REDACTED_TEXT = '[redacted: text contained a secret-looking assignment]';
 
 function storeError(code, message, extra = {}) {
@@ -784,6 +785,27 @@ export function releaseRun(handle) {
       releaseLock(handle.runLock, handle.owner);
     }
   }
+}
+
+export function writeArtifact(handle, name, value) {
+  assertHeld(handle);
+  if (handle.broken) {
+    throw storeError('E_WORKFLOW_BROKEN_HANDLE', `an earlier write for run ${handle.runId} failed part way; release this handle and acquire the run again to recover`);
+  }
+  if (typeof name !== 'string' || !ARTIFACT_NAME_RE.test(name) || name.includes('..')) {
+    throw storeError('E_WORKFLOW_INVALID', `artifact name ${JSON.stringify(name)} must match ${ARTIFACT_NAME_RE} without ".."`);
+  }
+  const dir = path.join(handle.dir, 'artifacts');
+  assertRealDir(dir);
+  const file = path.join(dir, `${name}.json`);
+  if (fs.existsSync(file)) {
+    throw storeError('E_WORKFLOW_INVALID', `artifact ${name}.json already exists; artifacts are never overwritten`);
+  }
+  const clean = sanitizeEventData(value);
+  assertJsonValue(clean, 'artifact');
+  const text = stringifyJson(clean);
+  writeDurable(file, text);
+  return { name: `${name}.json`, sha256: sha256(text) };
 }
 
 function repairCount(state, target) {

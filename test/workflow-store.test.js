@@ -10,7 +10,7 @@ import { hashJson, PROGRAM_PLAN_FIELDS } from '../src/workflow/schema.js';
 import {
   createRun, readRun, acquireRun, commitRun, releaseRun, runDir, workflowsDir, isSecretKey, sanitizeEventData,
   findSecretAssignment, REDACTED_TEXT,
-  chargeAgentCall, addActiveSeconds, addRepairAttempt, recordFailure, clearFailure, remainingBudget,
+  chargeAgentCall, addActiveSeconds, addRepairAttempt, recordFailure, clearFailure, remainingBudget, writeArtifact,
 } from '../src/workflow/store.js';
 
 const BIN = fileURLToPath(new URL('../bin/agent-layers.js', import.meta.url));
@@ -732,6 +732,23 @@ test('workflow store: step ids that are Object property names keep integer repai
   assert.deepEqual(h2.state.budget.repairAttempts, { constructor: 1, toString: 1 });
   assert.equal(remainingBudget(h2.state, limits).repairAttempts('constructor'), 1);
   releaseRun(h2);
+});
+
+test('workflow store: artifacts are written once with safe names and never overwritten', (t) => {
+  const { ctx } = tempCtx(t);
+  const run = newRun(ctx);
+  const h = acquireRun(ctx, run.runId);
+  const first = writeArtifact(h, '00-impl-1', { summary: 'first' });
+  assert.equal(first.name, '00-impl-1.json');
+  const file = path.join(run.dir, 'artifacts', '00-impl-1.json');
+  assert.equal(first.sha256, crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'));
+  assert.throws(() => writeArtifact(h, '00-impl-1', { summary: 'second' }), { code: 'E_WORKFLOW_INVALID' });
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { summary: 'first' });
+  for (const bad of ['../escape', 'a/b', '.hidden', '', 'x..y']) {
+    assert.throws(() => writeArtifact(h, bad, {}), { code: 'E_WORKFLOW_INVALID' }, bad);
+  }
+  releaseRun(h);
+  assert.throws(() => writeArtifact(h, '01-impl-2', {}));
 });
 
 test('workflow store: on Linux a reused pid with a different start time counts as stale',{ skip: !IS_LINUX && 'Linux only: /proc start time' }, (t) => {
