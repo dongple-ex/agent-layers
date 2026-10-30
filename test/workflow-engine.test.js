@@ -40,6 +40,19 @@ function withLimits(limits) {
   return { ...POLICY, limits };
 }
 
+function stepChanges(run, id) {
+  const all = events(run);
+  const changes = [];
+  for (let i = 1; i < all.length; i += 1) {
+    const from = all[i - 1].state.steps[id].status;
+    const to = all[i].state.steps[id].status;
+    if (from !== to) {
+      changes.push(`${from}->${to}`);
+    }
+  }
+  return changes;
+}
+
 test('workflow engine: a clean run goes coder by coder, then review and audit, and succeeds', async (t) => {
   const { run, handle } = setup(t);
   const provider = fakeProvider({ 'coder:impl': [{ summary: 'impl-summary-marker' }] });
@@ -492,5 +505,77 @@ test('workflow engine: when the interruption cannot be recorded, the original er
     assert.match(err.message, /recording the interruption also failed/);
     assert.equal(err.cleanupErrors.length, 1);
     assert.equal(err.cleanupErrors[0].code, 'ENOENT');
+  }
+});
+
+test('workflow engine: a review-fix that cannot go on stops from RUNNING or VERIFYING, never from RETRY_PENDING', async (t) => {
+  const needs = (code) => ({ status: 'needs_changes', findings: [{ code, severity: 'high', path: 'src/a.js', evidence: 'e' }] });
+  const fail = (name) => ({ exitCode: 1, failedTests: [name] });
+  const cases = [
+    { name: 'the last attempt fails its recheck', script: { 'reviewer:review': [needs('a')] }, checks: { unit: [{}, {}, {}, fail('x'), fail('y')] }, reason: 'repair-limit', last: 'VERIFYING->FAILED' },
+    { name: 'new findings after the last attempt', script: { 'reviewer:review': [needs('a'), needs('b'), needs('c')] }, reason: 'repair-limit', last: 'RUNNING->FAILED' },
+    { name: 'the same findings three times', limits: { maxRepairAttempts: 5 }, script: { 'reviewer:review': [needs('a'), needs('a'), needs('a')] }, reason: 'same-failure', last: 'RUNNING->FAILED' },
+    { name: 'the same recheck failure three times', limits: { maxRepairAttempts: 5 }, script: { 'reviewer:review': [needs('a')] }, checks: { unit: [{}, {}, {}, fail('x'), fail('x'), fail('x')] }, reason: 'same-failure', last: 'VERIFYING->FAILED' },
+    { name: 'no agent call left for the fix', limits: { maxSteps: 2, maxAgentCalls: 5 }, script: { 'coder:impl': [{ transport: 'EA' }], 'reviewer:review': [needs('a')] }, reason: 'maxAgentCalls', last: 'RUNNING->FAILED' },
+    { name: 'no agent call left after a failed recheck', limits: { maxSteps: 2, maxAgentCalls: 5 }, script: { 'reviewer:review': [needs('a')] }, checks: { unit: [{}, {}, {}, fail('x')] }, reason: 'maxAgentCalls', last: 'VERIFYING->FAILED' },
+    { name: 'no active time left for the fix', limits: { runTimeoutSeconds: 90 }, seconds: 30, script: { 'reviewer:review': [needs('a')] }, reason: 'runTimeoutSeconds', last: 'RUNNING->FAILED' },
+  ];
+  for (const c of cases) {
+    const { run, handle } = setup(t, { policy: c.limits ? withLimits(c.limits) : POLICY });
+    const clock = fakeClock();
+    const provider = fakeProvider(c.script, { clock, secondsPerCall: c.seconds || 0 });
+    const state = await runWorkflow(handle, { provider, verifier: fakeVerifier(c.checks), clock: clock.now });
+    assert.equal(state.status, 'FAILED', c.name);
+    assert.equal(state.stopReason, c.reason, c.name);
+    assert.equal(state.steps.review.status, 'FAILED', c.name);
+    assert.equal(state.steps.review.reason, c.reason, c.name);
+    const changes = stepChanges(run, 'review');
+    assert.equal(changes.at(-1), c.last, `${c.name}: ${changes.join(', ')}`);
+    assert.ok(!changes.includes('RETRY_PENDING->FAILED'), `${c.name}: ${changes.join(', ')}`);
+    releaseRun(handle);
+  }
+});
+
+test('workflow engine: every review-fix attempt goes through READY before it runs', async (t) => {
+  const { run, handle } = setup(t);
+  const finding = { code: 'bug', severity: 'high', path: 'src/a.js', evidence: 'e' };
+  const provider = fakeProvider({ 'reviewer:review': [{ status: 'needs_changes', findings: [finding] }] });
+  const state = await runWorkflow(handle, { provider, verifier: fakeVerifier({ unit: [{}, {}, {}, { exitCode: 1, failedTests: ['x'] }] }) });
+  assert.equal(state.status, 'SUCCEEDED');
+  assert.deepEqual(stepChanges(run, 'review'), [
+    'PENDING->READY', 'READY->RUNNING', 'RUNNING->RETRY_PENDING',
+    'RETRY_PENDING->READY', 'READY->RUNNING', 'RUNNING->VERIFYING', 'VERIFYING->RETRY_PENDING',
+    'RETRY_PENDING->READY', 'READY->RUNNING', 'RUNNING->VERIFYING', 'VERIFYING->PENDING',
+    'PENDING->READY', 'READY->RUNNING', 'RUNNING->SUCCEEDED',
+  ]);
+  releaseRun(handle);
+});
+
+test('workflow engine: a review step that has not started keeps its status when the time ends at the required gate', async (t) => {
+  const exact = setup(t, { policy: withLimits({ runTimeoutSeconds: 100 }) });
+  const clock = fakeClock();
+  const provider = fakeProvider({}, { clock, secondsPerCall: 40 });
+  const s1 = await runWorkflow(exact.handle, { provider, verifier: fakeVerifier({}, { clock, secondsPerRun: 10 }), clock: clock.now });
+  assert.equal(s1.status, 'FAILED');
+  assert.equal(s1.stopReason, 'runTimeoutSeconds');
+  assert.equal(s1.budget.activeSeconds, 100);
+  assert.equal(s1.steps.review.status, 'PENDING');
+  assert.equal(s1.steps.review.reason, undefined);
+  assert.deepEqual(callKeys(provider), ['coder:impl:1', 'coder:tests:1']);
+  releaseRun(exact.handle);
+
+  for (const [limit, gateSeconds, used] of [[100, 0, 100], [105, 10, 110]]) {
+    const blocked = setup(t, { policy: withLimits({ runTimeoutSeconds: limit }) });
+    const time = fakeClock();
+    const script = { 'reviewer:review': ['EA', 'EB', 'EC'].map((code) => ({ transport: code })) };
+    const s2 = await runWorkflow(blocked.handle, { provider: fakeProvider(script, { clock: time, secondsPerCall: 20 }), verifier: fakeVerifier(), clock: time.now });
+    assert.equal(s2.status, 'BLOCKED');
+    assert.equal(s2.steps.review.reason, 'transport');
+    const s3 = await runWorkflow(blocked.handle, { provider: fakeProvider(), verifier: fakeVerifier({}, { clock: time, secondsPerRun: gateSeconds }), clock: time.now, resume: true });
+    assert.equal(s3.status, 'FAILED', `limit ${limit}`);
+    assert.equal(s3.stopReason, 'runTimeoutSeconds', `limit ${limit}`);
+    assert.equal(s3.budget.activeSeconds, used, `limit ${limit}`);
+    assert.equal(s3.steps.review.status, 'READY', `limit ${limit}`);
+    releaseRun(blocked.handle);
   }
 });

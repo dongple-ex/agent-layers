@@ -856,3 +856,15 @@ test('workflow store: readRun reports a state that is invalid or differs from th
   fs.writeFileSync(file, 'null');
   assert.throws(() => readRun(ctx, run.runId), { code: 'E_WORKFLOW_CORRUPT' });
 });
+
+test('workflow store: readRun lists a step entry that is not an object instead of crashing', (t) => {
+  const { ctx } = tempCtx(t);
+  const run = newRun(ctx);
+  const file = path.join(run.dir, 'state.json');
+  const state = JSON.parse(fs.readFileSync(file, 'utf8'));
+  for (const bad of [null, 'RUNNING', 7]) {
+    fs.writeFileSync(file, JSON.stringify({ ...state, steps: { ...state.steps, impl: bad } }));
+    const { issues } = readRun(ctx, run.runId);
+    assert.ok(issues.includes('state.json: step impl must be an object'), issues.join('\n'));
+  }
+});

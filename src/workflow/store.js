@@ -448,7 +448,7 @@ function emptyBudget(usedAgentCalls, planRepairs) {
   return { agentCalls: usedAgentCalls, activeSeconds: 0, planRepairs, repairAttempts: {}, failureStreak: { signature: null, count: 0 } };
 }
 
-function stateIssues(state, order) {
+export function stateIssues(state, order) {
   const issues = [];
   if (!Array.isArray(order) || !Array.isArray(state.order) || state.order.join('\0') !== order.join('\0')) {
     return ['state order must match the planned step order'];
@@ -462,6 +462,10 @@ function stateIssues(state, order) {
   }
   for (const id of ids) {
     const s = state.steps[id];
+    if (s === null || typeof s !== 'object') {
+      issues.push(`step ${id} must be an object`);
+      continue;
+    }
     if (!STEP_STATUSES.includes(s.status)) {
       issues.push(`step ${id} status ${JSON.stringify(s.status)} is not one of ${STEP_STATUSES.join(', ')}`);
     }

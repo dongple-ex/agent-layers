@@ -1,4 +1,4 @@
-import { readRun } from './store.js';
+import { readRun, stateIssues } from './store.js';
 import { validatePlan, normalizePolicy, hashJson, PROGRAM_PLAN_FIELDS } from './schema.js';
 import { executionOrder } from './graph.js';
 import { statusView, reportView, formatStatus, formatReport } from './report.js';
@@ -98,7 +98,7 @@ function cmdValidate(ctx, flags, runId) {
   } else if (policy) {
     const planIssues = validatePlan(model, policy, { usedAgentCalls: created.data.usedAgentCalls });
     issues.push(...planIssues.map((i) => `plan ${issueText(i)}`));
-    if (planIssues.length === 0 && executionOrder(model.steps).join('\0') !== run.state.order.join('\0')) {
+    if (planIssues.length === 0 && Array.isArray(run.state.order) && executionOrder(model.steps).join('\0') !== run.state.order.join('\0')) {
       issues.push('state.json step order does not match the plan');
     }
   }
@@ -114,14 +114,23 @@ function cmdValidate(ctx, flags, runId) {
   return view.valid ? 0 : 2;
 }
 
+function readViewableRun(ctx, runId) {
+  const run = readRun(ctx, runId);
+  const problems = stateIssues(run.state, run.state.order);
+  if (problems.length > 0) {
+    throw Object.assign(new Error(`state.json of run ${runId} is damaged and cannot be shown: ${problems.join('; ')}`), { code: 'E_WORKFLOW_CORRUPT' });
+  }
+  return run;
+}
+
 function cmdStatus(ctx, flags, runId) {
-  const view = statusView(readRun(ctx, runId));
+  const view = statusView(readViewableRun(ctx, runId));
   info(flags.json ? JSON.stringify(view, null, 2) : formatStatus(view));
   return 0;
 }
 
 function cmdReport(ctx, flags, runId) {
-  const view = reportView(readRun(ctx, runId));
+  const view = reportView(readViewableRun(ctx, runId));
   info(flags.json ? JSON.stringify(view, null, 2) : formatReport(view));
   return 0;
 }

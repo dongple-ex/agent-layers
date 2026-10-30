@@ -123,15 +123,18 @@ function clearFailureOf(n, target) {
   }
 }
 
+function stopOnTime(rt, id, message) {
+  if (ACTIVE_STEP_STATUSES.includes(rt.handle.state.steps[id].status)) {
+    return stopStep(rt, id, 'FAILED', 'runTimeoutSeconds', message);
+  }
+  return stopRun(rt, 'FAILED', 'runTimeoutSeconds', null, { stepId: id });
+}
+
 function overrun(rt, id, what) {
   if (remainingBudget(rt.handle.state, rt.limits).activeSeconds >= 0) {
     return false;
   }
-  if (rt.handle.state.steps[id].status === 'PENDING') {
-    stopRun(rt, 'FAILED', 'runTimeoutSeconds', null, { stepId: id });
-  } else {
-    stopStep(rt, id, 'FAILED', 'runTimeoutSeconds', `runTimeoutSeconds passed during ${what}`);
-  }
+  stopOnTime(rt, id, `runTimeoutSeconds passed during ${what}`);
   return true;
 }
 
@@ -323,7 +326,7 @@ async function runChecks(rt, statusId, checkIds) {
     return { failures: [] };
   }
   if (remainingBudget(rt.handle.state, rt.limits).activeSeconds <= 0) {
-    return stopStep(rt, statusId, 'FAILED', 'runTimeoutSeconds', 'runTimeoutSeconds reached before the checks');
+    return stopOnTime(rt, statusId, 'runTimeoutSeconds reached before the checks');
   }
   const started = rt.clock();
   rt.inflight = started;
@@ -478,6 +481,14 @@ async function reviewCycle(rt) {
   }
 }
 
+function fixStop(rt) {
+  if (remainingBudget(rt.handle.state, rt.limits).repairAttempts(REVIEW_FIX_TARGET) <= 0) {
+    return { reason: 'repair-limit', message: `maxRepairAttempts for ${REVIEW_FIX_TARGET} used up` };
+  }
+  const limit = limitReached(rt);
+  return limit ? { reason: limit, message: `${limit} reached before ${REVIEW_FIX_TARGET}` } : null;
+}
+
 function fixOwners(findings, work) {
   const owners = [];
   for (const f of findings) {
@@ -499,16 +510,16 @@ async function reviewFix(rt, id, role, findings, artifact) {
   if (scope.outside) {
     return stopStep(rt, id, 'BLOCKED', 'finding-out-of-scope', `finding ${scope.outside.code} at ${scope.outside.path} is outside every step's writePaths`);
   }
-  let same = false;
+  let stop = null;
   commit(rt, 'review.changes-requested', { stepId: id, role, findings: findings.map((f) => ({ code: f.code, path: f.path })) }, (n) => {
-    same = recordFailure(n, signatureOf('review', id, [role, findings.map((f) => JSON.stringify([f.code, f.path])).sort()]));
-    n.steps[id].status = 'RETRY_PENDING';
-    n.reviewFix = { stepId: id, role, artifact, attempt: null };
+    const same = recordFailure(n, signatureOf('review', id, [role, findings.map((f) => JSON.stringify([f.code, f.path])).sort()]));
+    stop = same ? { reason: 'same-failure', message: `the ${role} asked for the same changes 3 times in a row` } : fixStop(rt);
+    if (!stop) {
+      n.steps[id].status = 'RETRY_PENDING';
+      n.reviewFix = { stepId: id, role, artifact, attempt: null };
+    }
   });
-  if (same) {
-    return stopStep(rt, id, 'FAILED', 'same-failure', `the ${role} asked for the same changes 3 times in a row`);
-  }
-  return fixLoop(rt, id, role, findings, scope.owners);
+  return stop ? stopStep(rt, id, 'FAILED', stop.reason, stop.message) : fixLoop(rt, id, role, findings, scope.owners);
 }
 
 async function resumeReviewFix(rt, pending) {
@@ -543,13 +554,7 @@ async function fixLoop(rt, id, role, findings, owners, firstFeedback = { finding
         n.steps[id].status = 'RUNNING';
       });
     } else {
-      if (remainingBudget(rt.handle.state, rt.limits).repairAttempts(REVIEW_FIX_TARGET) <= 0) {
-        return stopStep(rt, id, 'FAILED', 'repair-limit', `maxRepairAttempts for ${REVIEW_FIX_TARGET} used up`);
-      }
-      const limit = limitReached(rt);
-      if (limit) {
-        return stopStep(rt, id, 'FAILED', limit, `${limit} reached before ${REVIEW_FIX_TARGET}`);
-      }
+      markReady(rt, id);
       commit(rt, 'review-fix.started', { stepId: id, steps: owners }, (n) => {
         addRepairAttempt(n, REVIEW_FIX_TARGET);
         attempt = n.budget.repairAttempts[REVIEW_FIX_TARGET];
@@ -586,15 +591,18 @@ async function fixLoop(rt, id, role, findings, owners, firstFeedback = { finding
       });
       return true;
     }
-    let sameCheck = false;
+    let stop = null;
     commit(rt, 'review-fix.check-failed', { stepId: id, attempt, failed: checks.failures.map((f) => f.id) }, (n) => {
-      sameCheck = recordFailure(n, checkSignature(REVIEW_FIX_TARGET, checks.failures));
+      const same = recordFailure(n, checkSignature(REVIEW_FIX_TARGET, checks.failures));
+      stop = same ? { reason: 'same-failure', message: `the same check failure happened 3 times in a row: ${failureText(checks.failures)}` } : fixStop(rt);
       n.steps[id].lastError = clean(failureText(checks.failures));
-      n.steps[id].status = 'RETRY_PENDING';
       n.reviewFix.attempt = null;
+      if (!stop) {
+        n.steps[id].status = 'RETRY_PENDING';
+      }
     });
-    if (sameCheck) {
-      return stopStep(rt, id, 'FAILED', 'same-failure', `the same check failure happened 3 times in a row: ${failureText(checks.failures)}`);
+    if (stop) {
+      return stopStep(rt, id, 'FAILED', stop.reason, stop.message);
     }
     feedback = { findings, failures: checks.failures };
   }

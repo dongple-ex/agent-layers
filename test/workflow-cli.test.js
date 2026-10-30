@@ -215,3 +215,30 @@ test('workflow cli: validate accepts a stored policy whose add-check exception i
   assert.equal(r.code, 0, r.stdout + r.stderr);
   assert.deepEqual(JSON.parse(r.stdout).issues, []);
 });
+
+test('workflow cli: a damaged state.json is exit 2 from validate and exit 3 from status and report, never a crash', (t) => {
+  const { home, ctx } = tempHome(t);
+  const run = newRun(ctx);
+  const file = path.join(run.dir, 'state.json');
+  const state = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const damaged = {
+    'empty object': {},
+    'order missing': { ...state, order: undefined },
+    'steps missing': { ...state, steps: undefined },
+    'a step is null': { ...state, steps: { ...state.steps, impl: null } },
+    'a step status is a number': { ...state, steps: { ...state.steps, impl: { status: 5, attempts: 0 } } },
+    'budget missing': { ...state, budget: undefined },
+  };
+  for (const [name, value] of Object.entries(damaged)) {
+    fs.writeFileSync(file, JSON.stringify(value));
+    const validate = cli(home, 'workflow', 'validate', run.runId, '--json');
+    assert.equal(validate.code, 2, `${name}: ${validate.stderr}`);
+    assert.equal(JSON.parse(validate.stdout).valid, false, name);
+    for (const args of [['status', run.runId, '--json'], ['status', run.runId], ['report', run.runId, '--json']]) {
+      const r = cli(home, 'workflow', ...args);
+      assert.equal(r.code, 3, `${name}, ${args.join(' ')}: ${r.stderr}`);
+      assert.equal(r.stdout, '', `${name}, ${args.join(' ')}`);
+      assert.match(r.stderr, /state\.json of run .* is damaged/, `${name}, ${args.join(' ')}`);
+    }
+  }
+});
