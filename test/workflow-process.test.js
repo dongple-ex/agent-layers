@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { getEventListeners } from 'node:events';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import {
-  runProcess, createLineCollector, createTracker, parseProcStat, relayCommand, relayCapability, sendSignal, TREE_KILL_SUPPORTED,
+  runProcess, createLineCollector, createTracker, findLeftovers, parseProcStat, relayCommand, relayCapability, sendSignal, TREE_KILL_SUPPORTED,
 } from '../src/workflow/process.js';
 import { which } from '../src/util/proc.js';
 
@@ -581,6 +581,36 @@ test('workflow process: the relay check passes on Linux with bash and fails clea
   } else {
     assert.equal(found.ok, false);
   }
+});
+
+test('workflow process: leftovers are live processes of a recorded group or session, and a reused pid means the old ones are gone', () => {
+  const entry = (pid, pgid, sid, startTime, state = 'S') => [pid, { pid, state, ppid: 1, pgid, sid, startTime }];
+  const record = { pid: 100, pgid: 100, startTime: '5' };
+  const pidsIn = (rows, records = [record]) => findLeftovers(records, () => new Map(rows)).map((p) => p.pid);
+  const others = [entry(101, 100, 100, '6'), entry(102, 102, 100, '7'), entry(103, 100, 100, '8', 'Z'), entry(200, 200, 200, '9')];
+
+  assert.deepEqual(pidsIn([entry(100, 100, 100, '5'), ...others]), [100, 101, 102]);
+  assert.deepEqual(pidsIn(others), [101, 102]);
+  assert.deepEqual(pidsIn([entry(100, 100, 100, '5', 'Z'), ...others]), [101, 102]);
+  assert.deepEqual(pidsIn([entry(100, 100, 100, '99'), ...others]), []);
+  assert.deepEqual(pidsIn([entry(100, 100, 100, '99'), ...others], [{ ...record, startTime: null }]), [100, 101, 102]);
+  assert.deepEqual(pidsIn([entry(200, 200, 200, '9')]), []);
+  assert.deepEqual(pidsIn(others, []), []);
+  assert.deepEqual(findLeftovers([record], () => new Map([entry(101, 100, 100, '6')])), [{ pid: 101, pgid: 100, sid: 100, startTime: '6' }]);
+});
+
+test('workflow process: on Linux a real detached process is a leftover until it has ended', { skip: LINUX_ONLY }, async (t) => {
+  const child = spawn(process.execPath, ['-e', SLEEP], { detached: true, stdio: 'ignore' });
+  killAll(t, [child.pid]);
+  const exited = new Promise((resolve) => {
+    child.once('exit', resolve);
+  });
+  const info = parseProcStat(fs.readFileSync(`/proc/${child.pid}/stat`, 'utf8'));
+  const record = { pid: child.pid, pgid: info.pgid, startTime: info.startTime };
+  assert.deepEqual(findLeftovers([record]).map((p) => p.pid), [child.pid]);
+  process.kill(child.pid, 'SIGKILL');
+  await exited;
+  assert.deepEqual(findLeftovers([record]), []);
 });
 
 test('workflow process: a signal to a process that is already gone is not an error, any other signal failure is', () => {

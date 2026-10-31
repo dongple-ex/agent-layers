@@ -113,7 +113,12 @@ test('workflow cli: exit codes follow the contract and diagnostics go to stderr'
     [['workflow', 'status', run.runId, 'extra'], 2, /usage/],
     [['workflow'], 2, /missing workflow command/],
     [['workflow', 'explode', run.runId], 2, /unknown workflow command "explode"/],
-    [['workflow', 'cancel', run.runId], 2, /workflow cancel is not available yet.*Ctrl\+C/],
+    [['workflow', 'cancel'], 2, /one run id is needed/],
+    [['workflow', 'cancel', run.runId, 'extra'], 2, /one run id is needed/],
+    [['workflow', 'cancel', run.runId, '--yes'], 2, /unknown option --yes/],
+    [['workflow', 'cancel', 'not-a-uuid'], 2, /run id/i],
+    [['workflow', 'cancel', crypto.randomUUID()], 2, /does not exist/],
+    [['workflow', 'cancel', run.runId], 2, /has not started/],
     [['workflow', 'plan'], 2, /missing --goal-file/],
     [['workflow', 'plan', '--goal-file', 'g'], 2, /missing --config/],
     [['workflow', 'plan', run.runId, '--goal-file', 'g', '--config', 'c'], 2, /takes no run id/],
@@ -161,6 +166,7 @@ test('workflow cli: help lists the workflow commands and existing commands keep 
   assert.match(help.stdout, /workflow plan --goal-file <file> --config <file>/);
   assert.match(help.stdout, /workflow run <run-id>/);
   assert.match(help.stdout, /workflow resume <run-id>/);
+  assert.match(help.stdout, /workflow cancel <run-id> \[--json\]/);
   assert.match(help.stdout, /stop a run with Ctrl\+C/);
   assert.doesNotMatch(help.stdout, /not available yet/);
   const unknown = cli(home, 'no-such-command');

@@ -134,6 +134,17 @@ export function createTracker(root, readTable = readProcessTable) {
   };
 }
 
+export function findLeftovers(records, readTable = readProcessTable) {
+  const table = readTable();
+  const active = records.filter((r) => {
+    const current = table.get(r.pid);
+    return !(current && r.startTime !== null && current.startTime !== r.startTime);
+  });
+  return [...table.values()]
+    .filter((p) => !DEAD_STATES.includes(p.state) && active.some((r) => p.pid === r.pid || p.pgid === r.pgid || p.sid === r.pid))
+    .map(({ pid, pgid, sid, startTime }) => ({ pid, pgid, sid, startTime }));
+}
+
 export function sendSignal(target, name, errors) {
   try {
     process.kill(target, name);

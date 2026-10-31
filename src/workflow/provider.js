@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { firstLine } from '../util/proc.js';
 import { runProcess } from './process.js';
-import { cancelError, childEnv, commandProblem, isRelativeCommand } from './verify.js';
+import { cancelError, childEnv, commandProblem, isRelativeCommand, runTracked } from './verify.js';
 
 const TEMPLATE_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'templates', 'workflow');
 const RESULT_BYTES = 8 * 1024 * 1024;
@@ -80,12 +80,12 @@ export function readResultJson(output) {
   return open < 0 ? undefined : parseJson(text.slice(open + FENCE_OPEN.length, close));
 }
 
-export function createProvider({ policy, cwd, signal = null, retryDelayMs = DEFAULT_RETRY_DELAY_MS, onDiagnostic = () => {} }) {
+export function createProvider({ policy, cwd, signal = null, retryDelayMs = DEFAULT_RETRY_DELAY_MS, onDiagnostic = () => {}, track = null }) {
   const { command, args, roleArgs } = policy.provider;
   const env = providerEnv(policy);
   return {
     async call(request) {
-      const r = await runProcess({
+      const r = await runTracked(track, { role: request.role, stepId: request.stepId, attempt: request.attempt }, {
         file: command,
         args: roleArgs[request.role] || args,
         cwd,

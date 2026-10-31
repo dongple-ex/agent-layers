@@ -1,11 +1,10 @@
-import { readRun, stateIssues } from './store.js';
+import { readRun, readRunOwner, stateIssues } from './store.js';
 import { validatePlan, normalizePolicy, hashJson, PROGRAM_PLAN_FIELDS } from './schema.js';
 import { executionOrder } from './graph.js';
 import { statusView, reportView, formatStatus, formatReport } from './report.js';
-import { cmdPlan, cmdRun } from './run.js';
+import { cmdCancel, cmdPlan, cmdRun } from './run.js';
 import { info, error } from '../util/log.js';
 
-const LATER_COMMANDS = ['cancel'];
 const EXIT_CODES = {
   E_WORKFLOW_BAD_RUN_ID: 2,
   E_WORKFLOW_NOT_FOUND: 2,
@@ -37,6 +36,9 @@ function reportWorkflowError(err) {
 
 async function startCommand(ctx, flags, sub, runId, confirm) {
   try {
+    if (sub === 'cancel') {
+      return await cmdCancel(ctx, flags, runId);
+    }
     return await (sub === 'plan' ? cmdPlan(ctx, flags, { confirm }) : cmdRun(ctx, flags, runId, { confirm, resume: sub === 'resume' }));
   } catch (err) {
     return reportWorkflowError(err);
@@ -45,9 +47,13 @@ async function startCommand(ctx, flags, sub, runId, confirm) {
 
 export function workflowCommand(ctx, flags, positional, { confirm } = {}) {
   const [sub, runId, ...extra] = positional;
-  if (LATER_COMMANDS.includes(sub)) {
-    error(`workflow ${sub} is not available yet; press Ctrl+C in the terminal that runs the workflow`);
-    return 2;
+  if (sub === 'cancel') {
+    const issue = !runId || extra.length > 0 ? 'one run id is needed' : flagProblem(flags, FLAG_KINDS);
+    if (issue) {
+      error(`${issue}. usage: agent-layers workflow cancel <run-id> [--json]`);
+      return 2;
+    }
+    return startCommand(ctx, flags, sub, runId, confirm);
   }
   if (sub === 'plan') {
     const issue = flagProblem(flags, PLAN_FLAG_KINDS) || (positional.length > 1 ? 'workflow plan takes no run id' : null) || (typeof flags['goal-file'] !== 'string' ? 'missing --goal-file' : null) || (typeof flags.config !== 'string' ? 'missing --config' : null);
@@ -155,7 +161,7 @@ function readViewableRun(ctx, runId) {
   if (problems.length > 0) {
     throw Object.assign(new Error(`state.json of run ${runId} is damaged and cannot be shown: ${problems.join('; ')}`), { code: 'E_WORKFLOW_CORRUPT' });
   }
-  return run;
+  return { ...run, owner: readRunOwner(ctx, runId).status };
 }
 
 function cmdStatus(ctx, flags, runId) {

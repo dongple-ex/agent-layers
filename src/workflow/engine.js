@@ -15,8 +15,15 @@ const ROLE_RESULT_STATUSES = {
 const REVIEW_ROLES = [[REVIEW_STEP_ID, 'reviewer'], [AUDIT_STEP_ID, 'auditor']];
 const ACTIVE_STEP_STATUSES = ['RUNNING', 'VERIFYING'];
 const STREAK_KINDS = ['check', 'review'];
+const RECOVERY_REASONS = ['interrupted', 'process-left', 'process-unconfirmed'];
 
-export async function runWorkflow(handle, { provider, verifier, clock = Date.now, resume = false } = {}) {
+export function wasInterrupted(state) {
+  return state.status === 'INTERRUPTED'
+    || state.order.some((id) => state.steps[id].status === 'INTERRUPTED')
+    || (state.status === 'BLOCKED' && RECOVERY_REASONS.includes(state.stopReason));
+}
+
+export async function runWorkflow(handle, { provider, verifier, clock = Date.now, resume = false, recovery = null } = {}) {
   if (!provider || typeof provider.call !== 'function') {
     throw new Error('runWorkflow: provider.call(request) is required');
   }
@@ -39,6 +46,7 @@ export async function runWorkflow(handle, { provider, verifier, clock = Date.now
     stepIds: plan.steps.map((s) => s.id),
     index: new Map(handle.state.order.map((id, i) => [id, i])),
     inflight: null,
+    recovery,
   };
   try {
     if (TERMINAL_RUN_STATUSES.includes(handle.state.status) || !prepare(rt, resume)) {
@@ -169,17 +177,49 @@ function stopStep(rt, id, status, reason, message) {
   }, { stepId: id });
 }
 
+function resumeSteps(rt, steps, data = {}) {
+  commit(rt, 'run.resumed', { steps, ...data }, (n) => {
+    for (const id of steps) {
+      n.steps[id].status = 'READY';
+      delete n.steps[id].reason;
+      delete n.steps[id].lastError;
+    }
+    n.status = 'RUNNING';
+    delete n.stopReason;
+  });
+  return true;
+}
+
+function prepareInterrupted(rt) {
+  const s = rt.handle.state;
+  const { recovery } = rt;
+  const steps = s.order.filter((id) => s.steps[id].status === 'INTERRUPTED' || (s.steps[id].status === 'BLOCKED' && RECOVERY_REASONS.includes(s.steps[id].reason)));
+  if (recovery && recovery.passed) {
+    return resumeSteps(rt, steps, { recovery: recovery.artifact });
+  }
+  if (!recovery && s.status === 'BLOCKED' && !s.order.some((id) => s.steps[id].status === 'INTERRUPTED')) {
+    return false;
+  }
+  const { status, reason, message } = recovery || { status: 'BLOCKED', reason: 'interrupted' };
+  return stopRun(rt, status, reason, (n) => {
+    for (const id of steps) {
+      n.steps[id].status = status;
+      n.steps[id].reason = reason;
+      if (message) {
+        n.steps[id].lastError = clean(message);
+      }
+    }
+  }, { steps });
+}
+
+function interruptionNote(rt) {
+  return rt.recovery && rt.recovery.passed ? { interrupted: true, changedFiles: rt.recovery.changedFiles } : null;
+}
+
 function prepare(rt, resume) {
   const s = rt.handle.state;
-  const interrupted = s.order.filter((id) => s.steps[id].status === 'INTERRUPTED');
-  if (interrupted.length > 0 || s.status === 'INTERRUPTED') {
-    //20261030 TODO W4 checks leftover processes and artifacts before an interrupted step may return to READY
-    return stopRun(rt, 'BLOCKED', 'interrupted', (n) => {
-      for (const id of interrupted) {
-        n.steps[id].status = 'BLOCKED';
-        n.steps[id].reason = 'interrupted';
-      }
-    }, { steps: interrupted });
+  if (wasInterrupted(s)) {
+    return prepareInterrupted(rt);
   }
   if (s.status === 'BLOCKED') {
     const blocked = s.order.filter((id) => s.steps[id].status === 'BLOCKED');
@@ -187,16 +227,7 @@ function prepare(rt, resume) {
     if (!resume || retry.length === 0 || retry.length !== blocked.length) {
       return false;
     }
-    commit(rt, 'run.resumed', { steps: retry }, (n) => {
-      for (const id of retry) {
-        n.steps[id].status = 'READY';
-        delete n.steps[id].reason;
-        delete n.steps[id].lastError;
-      }
-      n.status = 'RUNNING';
-      delete n.stopReason;
-    });
-    return true;
+    return resumeSteps(rt, retry);
   }
   if (s.status !== 'RUNNING') {
     commit(rt, 'run.started', {}, (n) => {
@@ -367,7 +398,7 @@ function failureText(failures) {
 
 async function runWorkStep(rt, step) {
   const id = step.id;
-  let feedback = null;
+  let feedback = rt.handle.state.steps[id].attempts > 0 ? interruptionNote(rt) : null;
   for (;;) {
     if (rt.handle.state.steps[id].status === 'SUCCEEDED') {
       return true;
@@ -547,7 +578,7 @@ async function resumeReviewFix(rt, pending) {
   }
   const lastChecks = events.slice(from + 1).filter((e) => e.type === 'checks.finished' && e.data.stepId === pending.stepId).at(-1);
   const failures = lastChecks ? lastChecks.data.results.filter((r) => r.exitCode !== 0) : [];
-  return fixLoop(rt, pending.stepId, pending.role, findings, scope.owners, failures.length > 0 ? { findings, failures } : { findings });
+  return fixLoop(rt, pending.stepId, pending.role, findings, scope.owners, { ...(failures.length > 0 ? { findings, failures } : { findings }), ...interruptionNote(rt) });
 }
 
 async function fixLoop(rt, id, role, findings, owners, firstFeedback = { findings }) {

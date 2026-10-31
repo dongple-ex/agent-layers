@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { TREE_KILL_SUPPORTED } from '../src/workflow/process.js';
 import { REDACTED_TEXT } from '../src/workflow/store.js';
-import { checkCommandProblem, childEnv, commandProblem, EXIT_TIMED_OUT, isRelativeCommand, runChecks } from '../src/workflow/verify.js';
+import { cancelError, checkCommandProblem, childEnv, commandProblem, EXIT_TIMED_OUT, isRelativeCommand, runChecks, runTracked } from '../src/workflow/verify.js';
 
 function tempDir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-layers-wf-verify-'));
@@ -71,8 +72,50 @@ test('workflow verify: a cancelled check throws a cancel error and the next chec
   const running = runChecks({ checks, checkIds: ['slow', 'next'], worktree: dir, signal: controller.signal });
   await waitFor(started);
   controller.abort();
-  await assert.rejects(running, (err) => err.cancelled === true && /check "slow" was cancelled/.test(err.message));
+  await assert.rejects(running, (err) => err.cancelRequested === true && err.cancelled === TREE_KILL_SUPPORTED && /check "slow" was cancelled/.test(err.message));
   assert.equal(fs.existsSync(later), false);
+});
+
+test('workflow verify: a cancel counts as finished only when the end of the processes is confirmed or none started', () => {
+  const result = (started, tree) => ({ started, tree: { supported: true, confirmed: false, remaining: [], ...tree } });
+  const cases = [
+    ['not started', result(false, { supported: false }), true, /^it was cancelled$/],
+    ['confirmed', result(true, { confirmed: true }), true, /^it was cancelled$/],
+    ['left behind', result(true, { remaining: [{ pid: 1 }, { pid: 2 }] }), false, /but 2 process\(es\) could not be ended/],
+    ['not confirmed', result(true, {}), false, /could not be confirmed/],
+    ['not supported', result(true, { supported: false }), false, /only the direct child is ended/],
+  ];
+  for (const [name, r, cancelled, message] of cases) {
+    const err = cancelError('it', r);
+    assert.equal(err.cancelled, cancelled, name);
+    assert.equal(err.cancelRequested, true, name);
+    assert.match(err.message, message, name);
+  }
+});
+
+test('workflow verify: a tracked process is reported as starting, started and ended, and a failed start still ends the record', async (t) => {
+  const dir = tempDir(t);
+  const seen = [];
+  const track = {
+    starting: (what) => seen.push(['starting', what.checkId]),
+    started: (what, owner) => seen.push(['started', what.checkId, typeof owner.pid]),
+    ended: (what, r) => seen.push(['ended', what.checkId, r === null ? null : r.started]),
+  };
+  const [r] = await runChecks({ checks: [nodeCheck('ok', '')], checkIds: ['ok'], worktree: dir, track, stepId: 'impl' });
+  assert.equal(r.exitCode, 0);
+  assert.deepEqual(seen.splice(0), [['starting', 'ok'], ['started', 'ok', 'number'], ['ended', 'ok', true]]);
+
+  const missing = { file: path.join(dir, 'no-such-program'), args: [], cwd: dir, env: childEnv() };
+  await assert.rejects(runTracked(track, { checkId: 'none' }, missing), (err) => err.code === 'E_WORKFLOW_SPAWN');
+  assert.deepEqual(seen.splice(0), [['starting', 'none'], ['ended', 'none', null]]);
+
+  const controller = new AbortController();
+  controller.abort();
+  const stopped = await runTracked(track, { checkId: 'early' }, { file: process.execPath, args: [], cwd: dir, env: childEnv(), signal: controller.signal });
+  assert.equal(stopped.started, false);
+  assert.deepEqual(seen.splice(0), [['starting', 'early'], ['ended', 'early', false]]);
+  assert.equal((await runTracked(null, {}, { file: process.execPath, args: ['-e', ''], cwd: dir, env: childEnv() })).exitCode, 0);
+  assert.deepEqual(seen, []);
 });
 
 test('workflow verify: a check that cannot start is a start error, and only the named environment variables are passed on', async (t) => {

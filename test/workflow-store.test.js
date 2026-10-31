@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { hashJson, PROGRAM_PLAN_FIELDS } from '../src/workflow/schema.js';
 import {
   createRun, readRun, acquireRun, commitRun, releaseRun, runDir, workflowsDir, isSecretKey, sanitizeEventData,
-  findSecretAssignment, policySecretIssues, REDACTED_TEXT,
+  findSecretAssignment, policySecretIssues, REDACTED_TEXT, readRunOwner, requestCancel, cancelRequested,
   chargeAgentCall, addActiveSeconds, addRepairAttempt, recordFailure, clearFailure, remainingBudget, writeArtifact, readArtifact,
 } from '../src/workflow/store.js';
 
@@ -670,6 +670,50 @@ test('workflow store: stale lock rules follow the owner process, host and readab
   assert.equal(h.recovery.interrupted, false);
   assert.equal(fs.readdirSync(run.dir).some((f) => f.includes('.stale-')), false);
   releaseRun(h);
+});
+
+test('workflow store: the owner state follows the lock, the process and the host without taking the lock', (t) => {
+  const { ctx } = tempCtx(t);
+  const run = newRun(ctx);
+  const lock = path.join(run.dir, 'lock');
+  assert.deepEqual(readRunOwner(ctx, run.runId), { status: 'none', owner: null });
+
+  writeOwner(lock, { pid: process.pid });
+  assert.equal(readRunOwner(ctx, run.runId).status, 'alive');
+  const pid = deadPid();
+  writeOwner(lock, { pid });
+  const gone = readRunOwner(ctx, run.runId);
+  assert.equal(gone.status, 'gone');
+  assert.equal(gone.owner.pid, pid);
+  assert.ok(fs.existsSync(lock));
+  writeOwner(lock, { pid, hostname: `${os.hostname()}-other` });
+  assert.equal(readRunOwner(ctx, run.runId).status, 'elsewhere');
+  fs.writeFileSync(lock, '{}');
+  assert.deepEqual(readRunOwner(ctx, run.runId), { status: 'unreadable', owner: null });
+});
+
+test('workflow store: a cancel request belongs to one owner, can be repeated and refuses an unusable owner id', (t) => {
+  const { ctx } = tempCtx(t);
+  const run = newRun(ctx);
+  const h = acquireRun(ctx, run.runId);
+  const { owner } = readRunOwner(ctx, run.runId);
+  assert.equal(owner.ownerId, h.owner.ownerId);
+  assert.equal(cancelRequested(h), false);
+  assert.equal(requestCancel(ctx, run.runId, owner), true);
+  assert.equal(requestCancel(ctx, run.runId, owner), false);
+  assert.equal(cancelRequested(h), true);
+  commitRun(h, 'test.after-request');
+  releaseRun(h);
+  assert.deepEqual(readRun(ctx, run.runId).issues, []);
+
+  const later = acquireRun(ctx, run.runId);
+  assert.equal(cancelRequested(later), false);
+  releaseRun(later);
+
+  for (const ownerId of ['../outside', 'x']) {
+    assert.throws(() => requestCancel(ctx, run.runId, { ownerId }), (err) => err.code === 'E_WORKFLOW_LOCKED');
+  }
+  assert.deepEqual(fs.readdirSync(run.dir).filter((n) => n.startsWith('cancel-')), [`cancel-${owner.ownerId}.json`]);
 });
 
 test('workflow store: stale lock reclaim is serialized and never removes a lock that changed owner', (t) => {

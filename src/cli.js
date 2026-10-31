@@ -1213,13 +1213,14 @@ Secrets (OS keychain: Windows Credential Manager, macOS Keychain, libsecret)
   secrets list | check | set <name> [--value v] | get <name> [--show] | delete <name>
   exec [--env KEY=VALUE]... -- <command> [args]   run an MCP server with secrets injected
 
-Workflow (preview: runs the AI CLI named in the policy file; stop a run with Ctrl+C)
+Workflow (preview: runs the AI CLI named in the policy file; stop a run with Ctrl+C or workflow cancel)
   workflow plan --goal-file <file> --config <file> [--path <repo>] [--yes] [--json]
                                        ask the AI CLI for a plan and store a new run
   workflow run <run-id> [--path <repo>] [--yes] [--json]
                                        run the plan in its own worktree
   workflow resume <run-id> [--path <repo>] [--yes] [--json]
-                                       continue a run stopped by a failed AI CLI call
+                                       continue a run stopped by a failed AI CLI call or an interruption
+  workflow cancel <run-id> [--json]    ask a running run to stop and wait for the result
   workflow validate <run-id> [--json]  check a stored run's plan, policy and records
   workflow status <run-id> [--json]    show step states, attempts and budget use
   workflow report <run-id> [--json]    show check results, artifacts and remaining steps

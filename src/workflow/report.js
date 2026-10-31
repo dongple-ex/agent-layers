@@ -3,7 +3,7 @@ import { remainingBudget } from './store.js';
 const NOT_GUARANTEED = [
   'isolation: sandboxing is left to the AI CLI and the policy, and checks run with your permissions',
   'write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted',
-  'processes: one that left its session is not found when a run ends',
+  'processes: one that left its session is not found when a run ends, is cancelled or is resumed',
   'AI CLI settings: changes a CLI makes to its own global settings are not cleaned up',
   'model and usage: not recorded; only calls and active time are counted',
   'result patch: a record with secret-looking lines masked; take the change from the worktree',
@@ -17,6 +17,7 @@ export function statusView(run) {
     runId: run.runId,
     status: state.status,
     stopReason: state.stopReason === undefined ? null : state.stopReason,
+    owner: run.owner === undefined ? null : run.owner,
     steps: state.order.map((id) => {
       const s = state.steps[id];
       return { id, status: s.status, attempts: s.attempts, reason: s.reason === undefined ? null : s.reason, lastError: s.lastError === undefined ? null : s.lastError };
@@ -71,6 +72,7 @@ export function reportView(run) {
     treeKillSupported: workspace ? workspace.data.treeKillSupported : null,
     resultPatch: outcome ? { path: `artifacts/${outcome.data.patch}`, bytes: outcome.data.patchBytes, sha256: outcome.data.patchSha256 } : null,
     sourceChanges: [...new Set(outcomes.flatMap((e) => e.data.sourceChanges))],
+    sourceChangedSinceStart: outcome ? outcome.data.sourceChangedSinceStart === true : false,
     notGuaranteed: workspace ? NOT_GUARANTEED : [],
   };
 }
@@ -96,6 +98,9 @@ export function formatStatus(view) {
   for (const issue of view.issues) {
     lines.push(`issue: ${issue}`);
   }
+  if (view.status === 'RUNNING' && view.owner === 'gone') {
+    lines.push('warning: the process that ran this is gone; workflow resume checks what it left before continuing');
+  }
   return lines.join('\n');
 }
 
@@ -117,6 +122,8 @@ export function formatReport(view) {
   }
   if (view.sourceChanges.length > 0) {
     lines.push(`warning: the source repository changed during the run: ${view.sourceChanges.join(', ')}`);
+  } else if (view.sourceChangedSinceStart) {
+    lines.push('warning: the source repository changed since the run started');
   }
   if (view.treeKillSupported === false) {
     lines.push('warning: on this OS only the direct child is ended, so its descendants may keep running');

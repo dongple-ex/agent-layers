@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseJsonc } from '../src/formats/jsonc.js';
 import { buildPrompt, commandVersion, createProvider, providerProblem, readResultJson } from '../src/workflow/provider.js';
+import { TREE_KILL_SUPPORTED } from '../src/workflow/process.js';
 import { normalizePolicy } from '../src/workflow/schema.js';
 import { policySecretIssues } from '../src/workflow/store.js';
 
@@ -133,9 +134,9 @@ test('workflow provider: a cancelled call throws a cancel error and ends the chi
     }
   }
   controller.abort();
-  await assert.rejects(running, (err) => err.cancelled === true);
+  await assert.rejects(running, (err) => err.cancelRequested === true && err.cancelled === TREE_KILL_SUPPORTED);
   assert.throws(() => process.kill(s.calls()[0].pid, 0));
-  await assert.rejects(provider.call(REQUEST), (err) => err.cancelled === true);
+  await assert.rejects(provider.call(REQUEST), (err) => err.cancelRequested === true && err.cancelled === true);
   assert.equal(s.calls().length, 1);
 });
 

@@ -43,24 +43,49 @@ export function checkCommandProblem(checks, env = childEnv()) {
   return null;
 }
 
+function unconfirmedEnd({ remaining, supported }) {
+  if (remaining.length > 0) {
+    return `${remaining.length} process(es) could not be ended`;
+  }
+  return supported ? 'the end of the processes it started could not be confirmed' : 'on this system only the direct child is ended, so its descendants may keep running';
+}
+
 export function cancelError(what, result) {
-  const left = result.tree.remaining.length;
-  const message = left > 0 ? `${what} was cancelled, but ${left} process(es) could not be ended` : `${what} was cancelled`;
-  return Object.assign(new Error(message), { cancelled: left === 0 });
+  const confirmed = !result.started || result.tree.confirmed;
+  const message = confirmed ? `${what} was cancelled` : `${what} was cancelled, but ${unconfirmedEnd(result.tree)}`;
+  return Object.assign(new Error(message), { cancelled: confirmed, cancelRequested: true });
+}
+
+export async function runTracked(track, what, options) {
+  if (!track) {
+    return runProcess(options);
+  }
+  track.starting(what);
+  let result;
+  try {
+    result = await runProcess({ ...options, onSpawn: (owner) => track.started(what, owner) });
+  } catch (err) {
+    if (err.code === 'E_WORKFLOW_SPAWN') {
+      track.ended(what, null);
+    }
+    throw err;
+  }
+  track.ended(what, result);
+  return result;
 }
 
 function logLines(output) {
   return sanitizeEventData(output.tail.split('\n'));
 }
 
-export async function runChecks({ checks, checkIds, worktree, signal = null, env = childEnv() }) {
+export async function runChecks({ checks, checkIds, worktree, signal = null, env = childEnv(), track = null, stepId = null }) {
   const results = [];
   for (const id of checkIds) {
     const check = checks.find((c) => c.id === id);
     if (!check) {
       throw new Error(`check "${id}" is not in the policy`);
     }
-    const r = await runProcess({ file: check.command, args: check.args, cwd: path.join(worktree, check.cwd), env, signal, timeoutMs: check.timeout * 1000 });
+    const r = await runTracked(track, { stepId, checkId: id }, { file: check.command, args: check.args, cwd: path.join(worktree, check.cwd), env, signal, timeoutMs: check.timeout * 1000 });
     if (r.cancelled) {
       throw cancelError(`check "${id}"`, r);
     }

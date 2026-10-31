@@ -308,6 +308,101 @@ test('workflow engine: a run recovered as interrupted is blocked and no role is 
   releaseRun(h2);
 });
 
+function interruptedAtImpl(t) {
+  const { ctx, run, handle } = setup(t);
+  commitRun(handle, 'step.started', { stepId: 'impl' }, (s) => {
+    s.status = 'RUNNING';
+    s.steps.impl.status = 'RUNNING';
+    s.steps.impl.attempts = 1;
+    s.budget.agentCalls += 1;
+  });
+  fs.rmSync(path.join(run.dir, 'lock'));
+  fs.rmSync(handle.wsLock);
+  return { run, handle: acquireRun(ctx, run.runId) };
+}
+
+const PASSED = { passed: true, artifact: 'recovery-9.json', changedFiles: ['src/a.js'] };
+
+test('workflow engine: a passed recovery check runs the step again with a note and the counts so far', async (t) => {
+  const { run, handle } = interruptedAtImpl(t);
+  const provider = fakeProvider();
+  const state = await runWorkflow(handle, { provider, verifier: fakeVerifier(), resume: true, recovery: PASSED });
+  assert.equal(state.status, 'SUCCEEDED');
+  assert.deepEqual(callKeys(provider), ['coder:impl:2', 'coder:tests:1', 'reviewer:review:1', 'auditor:audit:1']);
+  assert.deepEqual(provider.calls[0].feedback, { interrupted: true, changedFiles: ['src/a.js'] });
+  assert.equal(provider.calls[1].feedback, null);
+  assert.equal(state.budget.agentCalls, 6);
+  assert.deepEqual(events(run).find((e) => e.type === 'run.resumed').data, { steps: ['impl'], recovery: 'recovery-9.json' });
+  assert.deepEqual(stepChanges(run, 'impl').slice(-5), ['RUNNING->INTERRUPTED', 'INTERRUPTED->READY', 'READY->RUNNING', 'RUNNING->VERIFYING', 'VERIFYING->SUCCEEDED']);
+  releaseRun(handle);
+});
+
+test('workflow engine: a failed recovery check stops the run without a call until a later check passes', async (t) => {
+  const { handle } = interruptedAtImpl(t);
+  const provider = fakeProvider();
+  const options = { provider, verifier: fakeVerifier(), resume: true };
+  const left = { passed: false, status: 'BLOCKED', reason: 'process-left', message: 'pid 123 is alive' };
+  for (const recovery of [left, left, { ...left, reason: 'process-unconfirmed', message: 'cannot confirm' }]) {
+    const state = await runWorkflow(handle, { ...options, recovery });
+    assert.equal(state.status, 'BLOCKED');
+    assert.equal(state.stopReason, recovery.reason);
+    assert.equal(state.steps.impl.status, 'BLOCKED');
+    assert.equal(state.steps.impl.reason, recovery.reason);
+    assert.equal(state.steps.impl.lastError, recovery.message);
+  }
+  const unchecked = await runWorkflow(handle, options);
+  assert.equal(unchecked.status, 'BLOCKED');
+  assert.equal(unchecked.stopReason, 'process-unconfirmed');
+  assert.equal(provider.calls.length, 0);
+  assert.equal(handle.state.budget.agentCalls, 2);
+
+  const state = await runWorkflow(handle, { ...options, recovery: PASSED });
+  assert.equal(state.status, 'SUCCEEDED');
+  assert.equal(state.steps.impl.attempts, 2);
+  assert.equal(state.steps.impl.lastError, undefined);
+  releaseRun(handle);
+});
+
+test('workflow engine: a recovery check that found a violation ends the run as FAILED for good', async (t) => {
+  const { handle } = interruptedAtImpl(t);
+  const provider = fakeProvider();
+  const options = { provider, verifier: fakeVerifier(), resume: true };
+  const state = await runWorkflow(handle, { ...options, recovery: { passed: false, status: 'FAILED', reason: 'policy-violation', message: 'docs/x.txt is outside' } });
+  assert.equal(state.status, 'FAILED');
+  assert.equal(state.stopReason, 'policy-violation');
+  assert.equal(state.steps.impl.status, 'FAILED');
+  assert.match(state.steps.impl.lastError, /docs\/x\.txt/);
+  assert.equal((await runWorkflow(handle, { ...options, recovery: PASSED })).status, 'FAILED');
+  assert.equal(provider.calls.length, 0);
+  releaseRun(handle);
+});
+
+test('workflow engine: a review fix cut off by an interruption continues with the findings and the note', async (t) => {
+  const { ctx, run, handle } = setup(t);
+  const finding = { code: 'F1', severity: 'high', path: 'src/a.js', evidence: 'wrong' };
+  const failing = fakeProvider({ 'reviewer:review': [{ status: 'needs_changes', findings: [finding] }] });
+  const provider = {
+    async call(req) {
+      if (req.stepId === 'review-fix') {
+        throw new Error('the manager stopped');
+      }
+      return failing.call(req);
+    },
+  };
+  await assert.rejects(runWorkflow(handle, { provider, verifier: fakeVerifier() }), /the manager stopped/);
+  assert.equal(handle.state.steps.review.status, 'INTERRUPTED');
+  releaseRun(handle);
+
+  const again = acquireRun(ctx, run.runId);
+  const resumed = fakeProvider();
+  const state = await runWorkflow(again, { provider: resumed, verifier: fakeVerifier(), resume: true, recovery: PASSED });
+  assert.equal(state.status, 'SUCCEEDED');
+  assert.equal(callKeys(resumed)[0], 'coder:review-fix:1');
+  assert.deepEqual(resumed.calls[0].feedback, { findings: [finding], interrupted: true, changedFiles: ['src/a.js'] });
+  assert.deepEqual(events(run).filter((e) => e.type === 'run.resumed').map((e) => e.data.steps), [['review']]);
+  releaseRun(again);
+});
+
 test('workflow engine: invalid results, role timeouts and blocked roles stop the run as BLOCKED', async (t) => {
   const cases = [
     [{ 'coder:impl': [{ summary: '' }] }, 'invalid-result'],

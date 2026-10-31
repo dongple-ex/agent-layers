@@ -1,14 +1,19 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { setQuiet } from '../src/util/log.js';
-import { cmdPlan, cmdRun } from '../src/workflow/run.js';
-import { readRun } from '../src/workflow/store.js';
+import { findLeftovers, TREE_KILL_SUPPORTED } from '../src/workflow/process.js';
+import { cmdCancel, cmdPlan, cmdRun } from '../src/workflow/run.js';
+import { acquireRun, commitRun, readRun, releaseRun, requestCancel } from '../src/workflow/store.js';
 
+const CANCEL_STATUS = TREE_KILL_SUPPORTED ? 'CANCELLED' : 'INTERRUPTED';
+const CANCEL_EXIT = TREE_KILL_SUPPORTED ? 130 : 3;
+const CLEAN = () => ({ confirmed: true, leftovers: [] });
 const BIN = fileURLToPath(new URL('../bin/agent-layers.js', import.meta.url));
 const FAKE_AI = fileURLToPath(new URL('./fixtures/workflow/fake-ai.mjs', import.meta.url));
 const CONFIG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-run-config-'));
@@ -132,6 +137,44 @@ async function waitUntil(done) {
   throw new Error('the expected state did not arrive in 30 seconds');
 }
 
+function startRun(s, runId) {
+  const child = spawn(process.execPath, [BIN, 'workflow', 'run', runId, '--path', s.repo, '--yes', '--json', '--home', s.home], { stdio: 'ignore' });
+  const exited = new Promise((resolve) => {
+    child.once('exit', resolve);
+  });
+  return { child, exited };
+}
+
+function lastEventLine(s, runId) {
+  return fs.readFileSync(path.join(s.ctx.paths.stateDir, 'workflows', runId, 'events.jsonl'), 'utf8').trimEnd().split('\n').at(-1);
+}
+
+async function waitForProcess(s, runId, callCount, file) {
+  await waitUntil(() => s.calls().length === callCount && lastEventLine(s, runId).includes('"process.started"') && (!file || fs.existsSync(path.join(s.calls().at(-1).cwd, file))));
+}
+
+async function killManager(s, runId, callCount = 2, file = null) {
+  const { child, exited } = startRun(s, runId);
+  await waitForProcess(s, runId, callCount, file);
+  child.kill('SIGKILL');
+  await exited;
+  return s.calls().at(-1).pid;
+}
+
+function endProcess(pid) {
+  try {
+    process.kill(TREE_KILL_SUPPORTED ? -pid : pid, 'SIGKILL');
+  } catch (err) {
+    if (err.code !== 'ESRCH') {
+      throw err;
+    }
+  }
+}
+
+function resume(s, runId, checkProcesses = CLEAN) {
+  return cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, resume: true, retryDelayMs: 0, checkProcesses });
+}
+
 test('workflow run: plan, then run, ends SUCCEEDED with the change only in the worktree', (t) => {
   const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } });
   const out = planCli(s);
@@ -158,6 +201,7 @@ test('workflow run: plan, then run, ends SUCCEEDED with the change only in the w
   assert.equal(fs.existsSync(path.join(s.repo, 'src', 'new.txt')), false);
   assert.equal(git(s.repo, 'status', '--porcelain'), '');
   assert.deepEqual(rep.sourceChanges, []);
+  assert.equal(rep.sourceChangedSinceStart, false);
   assert.equal(worktreeCount(s.repo), 2);
   assert.ok(artifact(rep, 'result-patch-').lines.includes('+new'));
   assert.deepEqual(artifact(rep, 'checks-').results[0].stdout, ['all good', '']);
@@ -306,6 +350,7 @@ test('workflow run: a failing CLI is retried, then BLOCKED, and resume continues
   assert.equal(done.state.status, 'SUCCEEDED');
   assert.deepEqual(done.issues, []);
   assert.equal(s.calls().find((c) => c.request.stepId === 'review').cwd, firstWorktree);
+  assert.equal(s.calls().filter((c) => c.request.role === 'coder').at(-1).request.feedback, null);
   assert.equal(done.events.filter((e) => e.type === 'workspace.created').length, 1);
   assert.equal(done.events.filter((e) => e.type === 'run.outcome').length, 2);
   assert.deepEqual(JSON.parse(cli(s, ['report', runId, '--json']).stdout).sourceChanges, ['uncommitted:src/oops.txt']);
@@ -321,35 +366,78 @@ test('workflow run: a call past stepTimeoutSeconds is BLOCKED and resume does no
   assert.equal(s.calls().length, 2);
 });
 
-test('workflow run: cancelling during a call ends the child, keeps the record and exits 130', async (t) => {
+test('workflow run: cancelling during a call ends the child and keeps the record; only a confirmed end is CANCELLED', async (t) => {
   const s = setup(t, { 'coder:impl': { write: { 'src/partial.txt': 'x\n' }, sleepMs: 60000 } });
   const runId = planned(s);
   const controller = new AbortController();
   const running = cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, signal: controller.signal });
   await waitUntil(() => s.calls().length === 2);
   controller.abort();
-  assert.equal(await running, 130);
+  assert.equal(await running, CANCEL_EXIT);
   const done = readRun(s.ctx, runId);
-  assert.equal(done.state.status, 'CANCELLED');
-  assert.equal(done.state.steps.impl.status, 'CANCELLED');
+  assert.equal(done.state.status, CANCEL_STATUS);
+  assert.equal(done.state.steps.impl.status, CANCEL_STATUS);
   assert.equal(done.state.owner, null);
   assert.deepEqual(done.issues, []);
   assert.throws(() => process.kill(s.calls()[1].pid, 0));
   const outcome = done.events.filter((e) => e.type === 'run.outcome').at(-1);
   assert.ok(JSON.parse(fs.readFileSync(path.join(done.dir, 'artifacts', outcome.data.patch), 'utf8')).lines.includes('+x'));
-  await assert.rejects(cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, resume: true }), /already ended as CANCELLED/);
-  await assert.rejects(cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM }), /is CANCELLED/);
+  await assert.rejects(cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM }), new RegExp(`is ${CANCEL_STATUS}`));
+  if (TREE_KILL_SUPPORTED) {
+    await assert.rejects(cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, resume: true }), /already ended as CANCELLED/);
+  } else {
+    assert.match(done.events.find((e) => e.type === 'run.interrupted').data.error, /only the direct child is ended/);
+    assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, resume: true }), 3);
+    assert.equal(state(s, runId).stopReason, 'process-unconfirmed');
+    assert.equal(s.calls().length, 2);
+  }
 });
 
-test('workflow run: cancelling during a check ends the run as CANCELLED', async (t) => {
+test('workflow run: a cancel before any process starts ends as CANCELLED on every system', async (t) => {
+  const s = setup(t);
+  const runId = planned(s);
+  const controller = new AbortController();
+  controller.abort();
+  assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, signal: controller.signal }), 130);
+  const done = readRun(s.ctx, runId);
+  assert.equal(done.state.status, 'CANCELLED');
+  assert.deepEqual(done.events.filter((e) => e.type === 'process.ended').map((e) => [e.data.pid, e.data.confirmed]), [[null, true]]);
+  assert.equal(s.calls().length, 1);
+  const r = cli(s, ['cancel', runId]);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /already ended as CANCELLED/);
+});
+
+test('workflow run: each process is recorded by number and result only, and the source once as a digest', (t) => {
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } });
+  const runId = planned(s);
+  const r = runCli(s, runId);
+  assert.equal(r.code, 0, r.stderr);
+  const { events } = readRun(s.ctx, runId);
+  const ofType = (type) => events.filter((e) => e.type === type).map((e) => e.data);
+  assert.equal(ofType('process.starting').length, 5);
+  assert.equal(ofType('process.ended').length, 5);
+  const started = ofType('process.started');
+  assert.equal(started.length, 5);
+  assert.deepEqual(Object.keys(started[0]).sort(), ['attempt', 'pgid', 'pid', 'role', 'startTime', 'stepId']);
+  assert.deepEqual(Object.keys(started[1]).sort(), ['checkId', 'pgid', 'pid', 'startTime', 'stepId']);
+  assert.equal(started[0].pid, s.calls()[1].pid);
+  assert.deepEqual(ofType('process.ended').map((d) => [d.confirmed, d.remaining]), Array(5).fill([TREE_KILL_SUPPORTED, 0]));
+  assert.equal(ofType('source.baseline').length, 1);
+  assert.equal(typeof ofType('source.baseline')[0].digest, 'string');
+  assert.deepEqual(ofType('call.baseline').map((d) => d.role), ['reviewer', 'auditor']);
+  assert.equal(ofType('run.outcome')[0].sourceChangedSinceStart, false);
+});
+
+test('workflow run: cancelling during a check ends the run with the same rule', async (t) => {
   const s = setup(t, {}, { policy: { checks: [{ id: 'unit', command: process.execPath, args: ['-e', 'setTimeout(() => {}, 60000)'], timeout: 120 }] } });
   const runId = planned(s);
   const controller = new AbortController();
   const running = cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, signal: controller.signal });
   await waitUntil(() => s.calls().length === 2 && fs.readFileSync(path.join(s.ctx.paths.stateDir, 'workflows', runId, 'events.jsonl'), 'utf8').includes('"step.verifying"'));
   controller.abort();
-  assert.equal(await running, 130);
-  assert.equal(state(s, runId).status, 'CANCELLED');
+  assert.equal(await running, CANCEL_EXIT);
+  assert.equal(state(s, runId).status, CANCEL_STATUS);
 });
 
 test('workflow run: SIGINT and SIGTERM cancel what is running and their listeners are removed', { skip: process.listenerCount('SIGINT') + process.listenerCount('SIGTERM') > 0 }, async (t) => {
@@ -358,8 +446,8 @@ test('workflow run: SIGINT and SIGTERM cancel what is running and their listener
   const running = cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM });
   await waitUntil(() => s.calls().length === 2);
   process.emit('SIGINT');
-  assert.equal(await running, 130);
-  assert.equal(state(s, runId).status, 'CANCELLED');
+  assert.equal(await running, CANCEL_EXIT);
+  assert.equal(state(s, runId).status, CANCEL_STATUS);
 
   const p = setup(t, { planner: { sleepMs: 60000 } });
   const planning = cmdPlan(p.ctx, p.flags, { confirm: CONFIRM });
@@ -381,6 +469,259 @@ test('workflow run: a real SIGINT to the command ends the run as CANCELLED with 
   assert.equal(await exited, 130);
   assert.equal(state(s, runId).status, 'CANCELLED');
   assert.throws(() => process.kill(s.calls()[1].pid, 0));
+});
+
+test('workflow cancel: a request from another process stops the run, and both commands end the same way', async (t) => {
+  const s = setup(t, { 'coder:impl': { write: { 'src/partial.txt': 'x\n' }, sleepMs: 60000 } });
+  const runId = planned(s);
+  const { exited } = startRun(s, runId);
+  await waitForProcess(s, runId, 2, 'src/partial.txt');
+  const r = cli(s, ['cancel', runId, '--json']);
+  assert.equal(r.code, CANCEL_EXIT, r.stderr);
+  const view = JSON.parse(r.stdout);
+  assert.equal(view.status, CANCEL_STATUS);
+  assert.equal(await exited, CANCEL_EXIT);
+  const done = readRun(s.ctx, runId);
+  assert.equal(done.state.status, CANCEL_STATUS);
+  assert.equal(done.state.owner, null);
+  assert.deepEqual(done.issues, []);
+  assert.equal(done.events.filter((e) => e.type === 'cancel.requested').length, 1);
+  assert.equal(done.events.filter((e) => e.type === 'run.outcome').length, 1);
+  assert.throws(() => process.kill(s.calls()[1].pid, 0));
+  assert.equal(s.calls().length, 2);
+  if (TREE_KILL_SUPPORTED) {
+    assert.match(view.message, /was cancelled/);
+    const again = cli(s, ['cancel', runId]);
+    assert.equal(again.code, 2);
+    assert.match(again.stderr, /already ended as CANCELLED/);
+  } else {
+    assert.match(view.message, /only the direct child is ended/);
+    const again = cli(s, ['cancel', runId, '--json']);
+    assert.equal(again.code, 3);
+    assert.match(JSON.parse(again.stdout).message, /nothing is running/);
+  }
+});
+
+test('workflow cancel: a request made to an earlier owner does not cancel a later run', async (t) => {
+  const s = setup(t, { 'coder:impl': { sleepMs: 1200 } });
+  const runId = planned(s);
+  const earlier = acquireRun(s.ctx, runId);
+  assert.equal(requestCancel(s.ctx, runId, earlier.owner), true);
+  releaseRun(earlier);
+  assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM }), 0);
+  const done = readRun(s.ctx, runId);
+  assert.equal(done.state.status, 'SUCCEEDED');
+  assert.equal(done.events.some((e) => e.type === 'cancel.requested'), false);
+});
+
+test('workflow cancel: an unreadable lock is refused, an owner that does not answer times out, and a run that ended first is named', async (t) => {
+  const s = setup(t);
+  const runId = planned(s);
+  const { dir } = readRun(s.ctx, runId);
+  const lock = path.join(dir, 'lock');
+  fs.writeFileSync(lock, '{}');
+  const unreadable = cli(s, ['cancel', runId]);
+  assert.equal(unreadable.code, 3);
+  assert.match(unreadable.stderr, /unreadable/);
+  assert.equal(fs.readdirSync(dir).some((n) => n.startsWith('cancel-')), false);
+
+  const owner = { runId, ownerId: crypto.randomUUID(), pid: process.pid, hostname: `${os.hostname()}-other`, processStart: null, acquiredAt: 'x' };
+  fs.writeFileSync(lock, JSON.stringify(owner));
+  assert.equal(await cmdCancel(s.ctx, s.flags, runId, { waitMs: 100 }), 3);
+  assert.ok(fs.existsSync(path.join(dir, `cancel-${owner.ownerId}.json`)));
+  assert.equal(state(s, runId).status, 'PLANNED');
+  fs.rmSync(lock);
+
+  assert.equal(runCli(s, runId).code, 0);
+  fs.writeFileSync(lock, JSON.stringify({ ...owner, ownerId: crypto.randomUUID() }));
+  const waiting = cmdCancel(s.ctx, s.flags, runId);
+  fs.rmSync(lock);
+  assert.equal(await waiting, 2);
+  assert.equal(state(s, runId).status, 'SUCCEEDED');
+});
+
+test('workflow status and cancel: a killed manager is shown as gone, and cancel never calls the run cancelled', async (t) => {
+  const s = setup(t, { 'coder:impl': { sleepMs: 60000 } });
+  const runId = planned(s);
+  const pid = await killManager(s, runId);
+  try {
+    const view = JSON.parse(cli(s, ['status', runId, '--json']).stdout);
+    assert.equal(view.status, 'RUNNING');
+    assert.equal(view.owner, 'gone');
+    assert.match(cli(s, ['status', runId]).stdout, /the process that ran this is gone/);
+    assert.equal(state(s, runId).status, 'RUNNING');
+
+    const r = cli(s, ['cancel', runId, '--json']);
+    assert.equal(r.code, 3, r.stderr);
+    const result = JSON.parse(r.stdout);
+    assert.equal(result.status, 'INTERRUPTED');
+    assert.equal(result.processesConfirmed, TREE_KILL_SUPPORTED);
+    assert.deepEqual(result.leftovers, TREE_KILL_SUPPORTED ? [pid] : []);
+    const stored = readRun(s.ctx, runId);
+    assert.equal(stored.state.status, 'INTERRUPTED');
+    assert.equal(stored.state.owner, null);
+    assert.equal(stored.events.some((e) => e.type === 'run.cancelled'), false);
+    assert.equal(JSON.parse(cli(s, ['status', runId, '--json']).stdout).owner, 'none');
+
+    const again = cli(s, ['cancel', runId, '--json']);
+    assert.equal(again.code, 3);
+    assert.match(JSON.parse(again.stdout).message, /nothing is running/);
+  } finally {
+    endProcess(pid);
+  }
+});
+
+test('workflow resume: once the processes are confirmed gone, the step runs again with what it left and the counts so far', async (t) => {
+  const s = setup(t, { 'coder:impl': [{ write: { 'src/partial.txt': 'x\n' }, sleepMs: 60000 }, { write: { 'src/new.txt': 'new\n' } }] });
+  const runId = planned(s);
+  endProcess(await killManager(s, runId, 2, 'src/partial.txt'));
+  const seen = [];
+  assert.equal(await resume(s, runId, (records) => {
+    seen.push(...records.map((r) => r.pid));
+    return CLEAN();
+  }), 0);
+  const done = readRun(s.ctx, runId);
+  assert.equal(done.state.status, 'SUCCEEDED');
+  assert.deepEqual(done.issues, []);
+  assert.deepEqual(seen, [s.calls()[1].pid]);
+  assert.equal(done.state.steps.impl.attempts, 2);
+  assert.equal(done.state.budget.agentCalls, 5);
+  assert.deepEqual(s.keys(), ['planner:plan:1', 'coder:impl:1', 'coder:impl:2', 'reviewer:review:1', 'auditor:audit:1']);
+  assert.deepEqual(s.calls()[2].request.feedback, { interrupted: true, changedFiles: ['src/partial.txt'] });
+  assert.equal(s.calls()[2].cwd, s.calls()[1].cwd);
+  const resumed = done.events.find((e) => e.type === 'run.resumed');
+  assert.deepEqual(resumed.data.steps, ['impl']);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(done.dir, 'artifacts', resumed.data.recovery), 'utf8')).changedFiles, ['src/partial.txt']);
+  assert.equal(JSON.parse(cli(s, ['report', runId, '--json']).stdout).sourceChangedSinceStart, false);
+});
+
+test('workflow resume: a process still alive blocks the run without a call until it has ended', async (t) => {
+  const s = setup(t, { 'coder:impl': [{ sleepMs: 60000 }, {}] });
+  const runId = planned(s);
+  endProcess(await killManager(s, runId));
+  for (let i = 0; i < 2; i += 1) {
+    assert.equal(await resume(s, runId, () => ({ confirmed: true, leftovers: [{ pid: 4321 }] })), 3);
+    const blocked = state(s, runId);
+    assert.equal(blocked.status, 'BLOCKED');
+    assert.equal(blocked.stopReason, 'process-left');
+    assert.equal(blocked.steps.impl.status, 'BLOCKED');
+    assert.match(blocked.steps.impl.lastError, /pid 4321/);
+    assert.equal(blocked.budget.agentCalls, 2);
+    assert.equal(s.calls().length, 2);
+  }
+  assert.equal(await resume(s, runId), 0);
+  const done = state(s, runId);
+  assert.equal(done.status, 'SUCCEEDED');
+  assert.equal(done.budget.agentCalls, 5);
+});
+
+test('workflow resume: without a way to confirm the processes the run stays BLOCKED and asks for a new plan', async (t) => {
+  const s = setup(t, { 'coder:impl': { sleepMs: 60000 } });
+  const runId = planned(s);
+  endProcess(await killManager(s, runId));
+  for (let i = 0; i < 2; i += 1) {
+    assert.equal(await resume(s, runId, () => ({ confirmed: false, leftovers: [] })), 3);
+    const blocked = state(s, runId);
+    assert.equal(blocked.status, 'BLOCKED');
+    assert.equal(blocked.stopReason, 'process-unconfirmed');
+    assert.match(blocked.steps.impl.lastError, /make a new plan/);
+    assert.equal(s.calls().length, 2);
+  }
+});
+
+test('workflow resume: a run whose records do not name its processes does not continue', async (t) => {
+  const missing = [[], [['source.baseline', { digest: 'x' }], ['process.starting', { role: 'coder', stepId: 'impl', attempt: 1 }]]];
+  for (const events of missing) {
+    const s = setup(t);
+    const runId = planned(s);
+    const handle = acquireRun(s.ctx, runId);
+    for (const [type, data] of events) {
+      commitRun(handle, type, data);
+    }
+    commitRun(handle, 'run.started', {}, (n) => {
+      n.status = 'RUNNING';
+    });
+    fs.rmSync(handle.runLock);
+    fs.rmSync(handle.wsLock);
+    assert.equal(await resume(s, runId), 3);
+    const blocked = state(s, runId);
+    assert.equal(blocked.status, 'BLOCKED');
+    assert.equal(blocked.stopReason, 'process-unconfirmed');
+    assert.equal(s.calls().length, 1);
+  }
+});
+
+test('workflow resume: files left outside the write paths or changed by a cut-off reviewer end the run as FAILED', async (t) => {
+  const cases = [
+    ['coder', { 'coder:impl': { write: { 'docs/x.txt': 'x\n' }, sleepMs: 60000 } }, 2, 'docs/x.txt', [['docs/x.txt', 'outside-write-paths']]],
+    ['reviewer', { reviewer: { write: { 'src/r.txt': 'x\n' }, sleepMs: 60000 } }, 3, 'src/r.txt', [[undefined, 'read-only-role-changed-files']]],
+  ];
+  for (const [name, scenario, callCount, file, expected] of cases) {
+    const s = setup(t, scenario);
+    const runId = planned(s);
+    endProcess(await killManager(s, runId, callCount, file));
+    assert.equal(await resume(s, runId), 1, name);
+    const done = state(s, runId);
+    assert.equal(done.status, 'FAILED', name);
+    assert.equal(done.stopReason, 'policy-violation', name);
+    assert.equal(s.calls().length, callCount, name);
+    const rep = JSON.parse(cli(s, ['report', runId, '--json']).stdout);
+    assert.deepEqual(artifact(rep, 'violations-').violations.map((v) => [v.path, v.reason]), expected, name);
+  }
+});
+
+test('workflow resume: a reviewer cut off without changing anything runs again', async (t) => {
+  const s = setup(t, { reviewer: [{ sleepMs: 60000 }, {}] });
+  const runId = planned(s);
+  endProcess(await killManager(s, runId, 3));
+  assert.equal(await resume(s, runId), 0);
+  assert.deepEqual(s.keys(), ['planner:plan:1', 'coder:impl:1', 'reviewer:review:1', 'reviewer:review:2', 'auditor:audit:1']);
+});
+
+test('workflow resume: a commit to the source while the run was stopped is only warned about', async (t) => {
+  const s = setup(t, { 'coder:impl': [{ sleepMs: 60000 }, {}] });
+  const runId = planned(s);
+  endProcess(await killManager(s, runId));
+  fs.writeFileSync(path.join(s.repo, 'src', 'later.txt'), 'later\n');
+  git(s.repo, 'add', '-A');
+  git(s.repo, 'commit', '-qm', 'later');
+  assert.equal(await resume(s, runId), 0);
+  const rep = JSON.parse(cli(s, ['report', runId, '--json']).stdout);
+  assert.equal(rep.status, 'SUCCEEDED');
+  assert.deepEqual(rep.sourceChanges, []);
+  assert.equal(rep.sourceChangedSinceStart, true);
+  assert.match(cli(s, ['report', runId]).stdout, /the source repository changed since the run started/);
+  assert.equal(fs.existsSync(path.join(rep.worktree, 'src', 'later.txt')), false);
+});
+
+test('workflow resume: with the real process check a killed manager continues on Linux only after its child has ended', async (t) => {
+  const s = setup(t, { 'coder:impl': [{ write: { 'src/partial.txt': 'x\n' }, sleepMs: 60000 }, {}] });
+  const runId = planned(s);
+  const pid = await killManager(s, runId, 2, 'src/partial.txt');
+  const resumeCli = () => cli(s, ['resume', runId, '--path', s.repo, '--yes', '--json']);
+  try {
+    const first = resumeCli();
+    assert.equal(first.code, 3, first.stderr);
+    const rep = JSON.parse(first.stdout);
+    assert.equal(rep.status, 'BLOCKED');
+    assert.equal(s.calls().length, 2);
+    if (!TREE_KILL_SUPPORTED) {
+      assert.equal(rep.stopReason, 'process-unconfirmed');
+      assert.match(first.stderr, /make a new plan/);
+      return;
+    }
+    assert.equal(rep.stopReason, 'process-left');
+    assert.ok(first.stderr.includes(`pid ${pid}`), first.stderr);
+    endProcess(pid);
+    await waitUntil(() => findLeftovers([{ pid, pgid: pid, startTime: null }]).length === 0);
+    const second = resumeCli();
+    assert.equal(second.code, 0, second.stderr);
+    assert.equal(JSON.parse(second.stdout).status, 'SUCCEEDED');
+    assert.deepEqual(s.keys().slice(1, 3), ['coder:impl:1', 'coder:impl:2']);
+    assert.deepEqual(s.calls()[2].request.feedback.changedFiles, ['src/partial.txt']);
+  } finally {
+    endProcess(pid);
+  }
 });
 
 test('workflow plan: cancelling during the planner creates no run and removes the temporary worktree', async (t) => {

@@ -799,6 +799,48 @@ function assertHeld(handle) {
   }
 }
 
+function cancelRequestFile(dir, ownerId) {
+  return path.join(dir, `cancel-${ownerId}.json`);
+}
+
+export function readRunOwner(ctx, runId) {
+  const dir = runDir(ctx, runId);
+  assertRealDir(dir);
+  const current = readLock(path.join(dir, 'lock'));
+  if (current === null) {
+    return { status: 'none', owner: null };
+  }
+  if (current.unreadable) {
+    return { status: 'unreadable', owner: null };
+  }
+  if (lockIsStale(current.owner)) {
+    return { status: 'gone', owner: current.owner };
+  }
+  return { status: current.owner.hostname === os.hostname() ? 'alive' : 'elsewhere', owner: current.owner };
+}
+
+export function requestCancel(ctx, runId, owner) {
+  if (!RUN_ID_RE.test(owner.ownerId)) {
+    throw storeError('E_WORKFLOW_LOCKED', `the lock of run ${runId} names an owner id that cannot be used; make sure no workflow is running, then remove it by hand`);
+  }
+  const dir = runDir(ctx, runId);
+  assertRealDir(dir);
+  try {
+    writeFileSynced(cancelRequestFile(dir, owner.ownerId), stringifyJson({ requestedAt: new Date().toISOString(), pid: process.pid }), 'wx');
+    return true;
+  } catch (err) {
+    if (err.code === 'EEXIST') {
+      return false;
+    }
+    throw err;
+  }
+}
+
+export function cancelRequested(handle) {
+  assertHeld(handle);
+  return fs.existsSync(cancelRequestFile(handle.dir, handle.owner.ownerId));
+}
+
 export function commitRun(handle, type, data = {}, mutate = null) {
   assertHeld(handle);
   if (handle.broken) {

@@ -4,12 +4,12 @@ import path from 'node:path';
 import { parseJsonc } from '../formats/jsonc.js';
 import { sha256 } from '../util/fsx.js';
 import { error, info, printable, warn } from '../util/log.js';
-import { runWorkflow } from './engine.js';
-import { TREE_KILL_SUPPORTED } from './process.js';
+import { runWorkflow, wasInterrupted } from './engine.js';
+import { findLeftovers, TREE_KILL_SUPPORTED } from './process.js';
 import { commandVersion, createProvider, providerProblem } from './provider.js';
 import { formatReport, reportView } from './report.js';
-import { normalizePolicy, validatePlan } from './schema.js';
-import { acquireRun, commitRun, createRun, policySecretIssues, readArtifact, readRun, releaseRun, sanitizeEventData, writeArtifact } from './store.js';
+import { hashJson, normalizePolicy, validatePlan } from './schema.js';
+import { acquireRun, cancelRequested, commitRun, createRun, policySecretIssues, readArtifact, readRun, readRunOwner, releaseRun, requestCancel, sanitizeEventData, writeArtifact } from './store.js';
 import { checkCommandProblem, runChecks } from './verify.js';
 import { checkChanges, compareFingerprints, createWorktree, describeWorktree, inspectRepository, removeWorktree, resultPatch, sourceFingerprint, worktreePath } from './workspace.js';
 
@@ -21,7 +21,17 @@ const EXIT_CANCELLED = 130;
 const MAX_DIFF_CHARS = 512 * 1024;
 const MAX_LOG_CHARS = 64 * 1024;
 const MAX_LISTED = 20;
+const MAX_CHANGED_FILES = 200;
 const STDERR_LINES_SHOWN = 5;
+const CANCEL_POLL_MS = 500;
+const CANCEL_WAIT_MS = 30000;
+const CANCEL_WAIT_POLL_MS = 100;
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
 
 function invalid(message, issues = []) {
   const lines = issues.map((i) => `\n  - ${i.where}: ${i.msg}`).join('');
@@ -102,6 +112,7 @@ function abortOnSignals(outer) {
   }
   return {
     signal: controller.signal,
+    cancel: abort,
     dispose() {
       process.off('SIGINT', abort);
       process.off('SIGTERM', abort);
@@ -110,6 +121,46 @@ function abortOnSignals(outer) {
       }
     },
   };
+}
+
+function watchCancelRequest(handle, cancel) {
+  const timer = setInterval(() => {
+    if (!cancelRequested(handle)) {
+      return;
+    }
+    clearInterval(timer);
+    try {
+      commitRun(handle, 'cancel.requested');
+    } catch (err) {
+      warn(`the cancel request could not be recorded: ${err.message}`);
+    }
+    cancel();
+  }, CANCEL_POLL_MS);
+  timer.unref();
+  return () => clearInterval(timer);
+}
+
+function processTracker(handle) {
+  return {
+    starting(what) {
+      commitRun(handle, 'process.starting', what);
+    },
+    started(what, { pid, pgid, startTime }) {
+      commitRun(handle, 'process.started', { ...what, pid, pgid, startTime });
+    },
+    ended(what, result) {
+      commitRun(handle, 'process.ended', {
+        ...what,
+        pid: result && result.owner ? result.owner.pid : null,
+        confirmed: !result || !result.started || result.tree.confirmed,
+        remaining: result ? result.tree.remaining.length : 0,
+      });
+    },
+  };
+}
+
+function checkRealProcesses(records) {
+  return TREE_KILL_SUPPORTED ? { confirmed: true, leftovers: findLeftovers(records) } : { confirmed: false, leftovers: [] };
 }
 
 function warnFailure(kind, request, result) {
@@ -201,8 +252,12 @@ export async function cmdPlan(ctx, flags, { confirm, signal = null, retryDelayMs
   try {
     planned = await planInTemporaryWorktree(ctx, repo, policy, goal, { signal: abort.signal, retryDelayMs });
   } catch (err) {
-    if (err.cancelled) {
-      progress(flags, 'planning was cancelled');
+    if (err.cancelRequested) {
+      if (err.cancelled) {
+        progress(flags, 'planning was cancelled');
+      } else {
+        warn(err.message);
+      }
       return EXIT_CANCELLED;
     }
     if (err.transport || err.timeout) {
@@ -280,10 +335,20 @@ function openWorkspace(ctx, handle, run, repo) {
   return worktree;
 }
 
-function scopeViolations(worktree, writePaths, protectedPaths) {
+function scopeCheck(worktree, writePaths, protectedPaths) {
   const { changes, violations } = checkChanges(worktree.path, { baseCommit: worktree.baseCommit, gitFileHash: worktree.gitFileHash, writePaths, protectedPaths });
   const ignored = new Set(changes.filter((c) => c.ignored).map((c) => c.path));
-  return violations.filter((v) => !(v.reason === 'outside-write-paths' && ignored.has(v.path)));
+  return {
+    changed: changes.filter((c) => !c.ignored).map((c) => c.path),
+    violations: violations.filter((v) => !(v.reason === 'outside-write-paths' && ignored.has(v.path))),
+  };
+}
+
+function writePathsUpTo(run, stepId) {
+  const stepById = new Map(run.plan.steps.map((s) => [s.id, s]));
+  const work = run.state.order.filter((id) => stepById.has(id));
+  const at = work.indexOf(stepId);
+  return [...new Set((at < 0 ? work : work.slice(0, at + 1)).flatMap((id) => stepById.get(id).writePaths))];
 }
 
 function violationError(handle, req, violations) {
@@ -292,13 +357,68 @@ function violationError(handle, req, violations) {
   return Object.assign(new Error(`the ${req.role} call broke the policy: ${listed}; see artifacts/${artifact.name}`), { stop: { status: 'FAILED', reason: 'policy-violation' } });
 }
 
+function unsettledProcesses(events) {
+  const open = new Map();
+  let unrecorded = false;
+  for (const { type, data } of events) {
+    if (type === 'process.starting') {
+      unrecorded = true;
+    } else if (type === 'process.started') {
+      unrecorded = false;
+      open.set(data.pid, data);
+    } else if (type === 'process.ended') {
+      unrecorded = false;
+      if (data.confirmed) {
+        open.delete(data.pid);
+      }
+    } else if (type === 'run.resumed' && data.recovery) {
+      open.clear();
+    }
+  }
+  return { unrecorded, open: [...open.values()] };
+}
+
+function readOnlyCallChanged(events, worktree) {
+  const from = events.findLastIndex((e) => e.type === 'call.started');
+  if (from < 0 || !READ_ONLY_ROLES.includes(events[from].data.role)) {
+    return false;
+  }
+  const after = events.slice(from + 1);
+  const before = after.find((e) => e.type === 'call.baseline');
+  if (!before || after.some((e) => e.type === 'call.finished' || e.type === 'call.failed')) {
+    return false;
+  }
+  return sha256(resultPatch(worktree.path, worktree.baseCommit)) !== before.data.patchSha256;
+}
+
+function inspectInterruption(handle, run, worktree, checkProcesses) {
+  const blocked = (reason, message) => ({ passed: false, status: 'BLOCKED', reason, message });
+  const { unrecorded, open } = unsettledProcesses(run.events);
+  if (unrecorded || !run.events.some((e) => e.type === 'source.baseline')) {
+    return blocked('process-unconfirmed', 'the records of this run do not show which processes it started, so their end cannot be confirmed; make a new plan');
+  }
+  const found = open.length > 0 ? checkProcesses(open) : { confirmed: true, leftovers: [] };
+  if (!found.confirmed) {
+    return blocked('process-unconfirmed', 'this system cannot confirm that the processes of the interrupted run have ended; make a new plan');
+  }
+  if (found.leftovers.length > 0) {
+    return blocked('process-left', `processes of the interrupted run are still alive (pid ${found.leftovers.map((p) => p.pid).join(', ')}); end them, then run workflow resume again`);
+  }
+  const lastCall = run.events.findLast((e) => e.type === 'call.started');
+  const req = lastCall ? lastCall.data : { role: 'last', stepId: null, attempt: null };
+  const lastStep = [...run.state.order].reverse().find((id) => run.state.steps[id].attempts > 0);
+  const { changed, violations } = scopeCheck(worktree, writePathsUpTo(run, lastStep), run.policy.protectedPaths);
+  const broken = readOnlyCallChanged(run.events, worktree) ? [...violations, { reason: 'read-only-role-changed-files' }] : violations;
+  if (broken.length > 0) {
+    const { message, stop } = violationError(handle, req, broken);
+    return { passed: false, ...stop, message };
+  }
+  const changedFiles = changed.slice(0, MAX_CHANGED_FILES);
+  const artifact = writeArtifact(handle, `recovery-${handle.state.lastSeq}`, { processes: open.map(({ pid, pgid, startTime }) => ({ pid, pgid, startTime })), changedFiles });
+  return { passed: true, artifact: artifact.name, changedFiles };
+}
+
 function guardedProvider({ provider, worktree, run, handle, logs, flags }) {
-  const stepById = new Map(run.plan.steps.map((s) => [s.id, s]));
-  const work = run.state.order.filter((id) => stepById.has(id));
-  const writePathsUpTo = (stepId) => {
-    const at = work.indexOf(stepId);
-    return [...new Set((at < 0 ? work : work.slice(0, at + 1)).flatMap((id) => stepById.get(id).writePaths))];
-  };
   const shared = { baseCommit: worktree.baseCommit, protectedPaths: run.policy.protectedPaths };
   const checks = run.policy.checks.map(({ id, command, args }) => ({ id, command, args }));
 
@@ -311,9 +431,10 @@ function guardedProvider({ provider, worktree, run, handle, logs, flags }) {
         throw violationError(handle, req, [{ reason: 'read-only-role-changed-files' }]);
       }
     };
+    commitRun(handle, 'call.baseline', { role: req.role, stepId: req.stepId, attempt: req.attempt, patchSha256: sha256(before) });
     let result;
     try {
-      result = await provider.call({ ...req, ...shared, allowedWritePaths: writePathsUpTo(req.stepId), diff: diff.slice(0, MAX_DIFF_CHARS), diffTruncated: diff.length > MAX_DIFF_CHARS });
+      result = await provider.call({ ...req, ...shared, allowedWritePaths: writePathsUpTo(run, req.stepId), diff: diff.slice(0, MAX_DIFF_CHARS), diffTruncated: diff.length > MAX_DIFF_CHARS });
     } catch (err) {
       if (err.transport) {
         stopIfChanged();
@@ -327,7 +448,7 @@ function guardedProvider({ provider, worktree, run, handle, logs, flags }) {
   async function callCoder(req) {
     const checkLogs = req.feedback && req.feedback.failures ? [...logs.values()] : [];
     const result = await provider.call({ ...req, ...shared, checks, checkLogs });
-    const violations = scopeViolations(worktree, writePathsUpTo(req.stepId), run.policy.protectedPaths);
+    const { violations } = scopeCheck(worktree, writePathsUpTo(run, req.stepId), run.policy.protectedPaths);
     if (violations.length > 0) {
       throw violationError(handle, req, violations);
     }
@@ -342,11 +463,11 @@ function guardedProvider({ provider, worktree, run, handle, logs, flags }) {
   };
 }
 
-function createVerifier({ handle, worktree, run, logs, signal, flags }) {
+function createVerifier({ handle, worktree, run, logs, signal, flags, track }) {
   return {
     async run({ stepId, checkIds }) {
       progress(flags, `checks for ${stepId}: ${checkIds.join(', ')}`);
-      const results = await runChecks({ checks: run.policy.checks, checkIds, worktree: worktree.path, signal });
+      const results = await runChecks({ checks: run.policy.checks, checkIds, worktree: worktree.path, signal, track, stepId });
       writeArtifact(handle, `checks-${handle.state.lastSeq}-${stepId.replaceAll('.', '_')}`, { stepId, results });
       logs.clear();
       for (const r of results) {
@@ -379,17 +500,34 @@ function recordDiagnostic(handle) {
   };
 }
 
-function recordOutcome(handle, worktree, baseline, repo) {
+function startDigestOf(handle, run, fingerprint) {
+  const stored = run.events.find((e) => e.type === 'source.baseline');
+  if (stored) {
+    return stored.data.digest;
+  }
+  if (run.state.status !== 'PLANNED') {
+    return null;
+  }
+  const digest = hashJson(fingerprint);
+  commitRun(handle, 'source.baseline', { digest });
+  return digest;
+}
+
+function recordOutcome(handle, worktree, baseline, startDigest, repo) {
   const patch = resultPatch(worktree.path, worktree.baseCommit);
   const artifact = writeArtifact(handle, `result-patch-${handle.state.lastSeq}`, { baseCommit: worktree.baseCommit, lines: patch.toString('utf8').split('\n') });
-  const sourceChanges = compareFingerprints(baseline, sourceFingerprint(repo.root, { ownWorktree: worktree.name }));
-  commitRun(handle, 'run.outcome', { patch: artifact.name, patchBytes: patch.length, patchSha256: sha256(patch), worktreeBytes: describeWorktree(worktree.path).bytes, sourceChanges });
+  const current = sourceFingerprint(repo.root, { ownWorktree: worktree.name });
+  const sourceChanges = compareFingerprints(baseline, current);
+  const sourceChangedSinceStart = startDigest === null ? null : hashJson(current) !== startDigest;
+  commitRun(handle, 'run.outcome', { patch: artifact.name, patchBytes: patch.length, patchSha256: sha256(patch), worktreeBytes: describeWorktree(worktree.path).bytes, sourceChanges, sourceChangedSinceStart });
   if (sourceChanges.length > 0) {
     warn(`the source repository changed during this run: ${sourceChanges.slice(0, MAX_LISTED).join(', ')}`);
+  } else if (sourceChangedSinceStart) {
+    warn('the source repository changed since this run started');
   }
 }
 
-export async function cmdRun(ctx, flags, runId, { confirm, resume = false, signal = null, retryDelayMs } = {}) {
+export async function cmdRun(ctx, flags, runId, { confirm, resume = false, signal = null, retryDelayMs, checkProcesses = checkRealProcesses } = {}) {
   const stored = readRun(ctx, runId);
   const repo = repository(flags);
   assertRunnable(stored, repo, resume);
@@ -399,10 +537,12 @@ export async function cmdRun(ctx, flags, runId, { confirm, resume = false, signa
   }
   const handle = acquireRun(ctx, runId);
   const abort = abortOnSignals(signal);
+  const stopWatching = watchCancelRequest(handle, abort.cancel);
   let failure = null;
   let started = false;
   let worktree = null;
   let baseline = null;
+  let startDigest = null;
   try {
     const run = readRun(ctx, runId);
     if (run.issues.length > 0) {
@@ -410,22 +550,30 @@ export async function cmdRun(ctx, flags, runId, { confirm, resume = false, signa
     }
     worktree = openWorkspace(ctx, handle, run, repo);
     baseline = sourceFingerprint(repo.root, { ownWorktree: worktree.name });
+    startDigest = startDigestOf(handle, run, baseline);
+    const recovery = resume && wasInterrupted(run.state) ? inspectInterruption(handle, run, worktree, checkProcesses) : null;
+    if (recovery && !recovery.passed) {
+      warn(recovery.message);
+    }
     const logs = new Map();
-    const provider = createProvider({ policy: run.policy, cwd: worktree.path, signal: abort.signal, retryDelayMs, onDiagnostic: recordDiagnostic(handle) });
+    const track = processTracker(handle);
+    const provider = createProvider({ policy: run.policy, cwd: worktree.path, signal: abort.signal, retryDelayMs, onDiagnostic: recordDiagnostic(handle), track });
     started = true;
     await runWorkflow(handle, {
       provider: guardedProvider({ provider, worktree, run, handle, logs, flags }),
-      verifier: createVerifier({ handle, worktree, run, logs, signal: abort.signal, flags }),
+      verifier: createVerifier({ handle, worktree, run, logs, signal: abort.signal, flags, track }),
       resume,
+      recovery,
     });
   } catch (err) {
     failure = err;
   } finally {
+    stopWatching();
     abort.dispose();
   }
   if (baseline !== null) {
     try {
-      recordOutcome(handle, worktree, baseline, repo);
+      recordOutcome(handle, worktree, baseline, startDigest, repo);
     } catch (err) {
       warn(`the run outcome could not be recorded: ${err.message}`);
     }
@@ -441,4 +589,98 @@ export async function cmdRun(ctx, flags, runId, { confirm, resume = false, signa
   const view = reportView(readRun(ctx, runId));
   info(flags.json ? JSON.stringify(view, null, 2) : formatReport(view));
   return Object.prototype.hasOwnProperty.call(EXIT_BY_STATUS, status) ? EXIT_BY_STATUS[status] : EXIT_WAITING;
+}
+
+function showCancel(flags, runId, status, message, extra = {}) {
+  info(flags.json ? JSON.stringify({ runId, status, message, ...extra }, null, 2) : message);
+}
+
+async function waitForOwner(ctx, runId, owner, waitMs) {
+  const until = Date.now() + waitMs;
+  for (;;) {
+    const now = readRunOwner(ctx, runId);
+    if (now.status === 'gone' || now.owner === null || now.owner.ownerId !== owner.ownerId) {
+      return now.status;
+    }
+    if (Date.now() >= until) {
+      return 'timeout';
+    }
+    await delay(CANCEL_WAIT_POLL_MS);
+  }
+}
+
+function cancelOutcome(ctx, flags, runId) {
+  const { state, events } = readRun(ctx, runId);
+  const { status } = state;
+  if (status === 'CANCELLED') {
+    showCancel(flags, runId, status, `run ${runId} was cancelled`);
+    return EXIT_CANCELLED;
+  }
+  if (status === 'SUCCEEDED' || status === 'FAILED') {
+    showCancel(flags, runId, status, `run ${runId} ended as ${status} before the cancel took effect`);
+    return 2;
+  }
+  if (status === 'INTERRUPTED') {
+    const stopped = events.findLast((e) => e.type === 'run.interrupted');
+    showCancel(flags, runId, status, `run ${runId} stopped as INTERRUPTED${stopped ? `: ${stopped.data.error}` : ''}`);
+    return EXIT_WAITING;
+  }
+  showCancel(flags, runId, status, `run ${runId} is ${status}`);
+  return EXIT_WAITING;
+}
+
+function recoverAbandoned(ctx, flags, runId, checkProcesses) {
+  const handle = acquireRun(ctx, runId);
+  let status;
+  let found = { confirmed: true, leftovers: [] };
+  try {
+    const { open } = unsettledProcesses(readRun(ctx, runId).events);
+    if (open.length > 0) {
+      found = checkProcesses(open);
+    }
+    status = handle.state.status;
+  } finally {
+    releaseRun(handle);
+  }
+  const left = found.leftovers.map((p) => p.pid);
+  let next = 'use workflow resume, which checks what it left';
+  if (left.length > 0) {
+    next = `these processes are still alive and are not ended by this command: pid ${left.join(', ')}. End them, then use workflow resume`;
+  } else if (!found.confirmed) {
+    next = 'this system cannot confirm that its processes have ended';
+  }
+  showCancel(flags, runId, status, `the process that ran ${runId} is gone, so the run is ${status}; ${next}`, { leftovers: left, processesConfirmed: found.confirmed });
+  return EXIT_WAITING;
+}
+
+export async function cmdCancel(ctx, flags, runId, { waitMs = CANCEL_WAIT_MS, checkProcesses = checkRealProcesses } = {}) {
+  readRun(ctx, runId);
+  const first = readRunOwner(ctx, runId);
+  if (first.status === 'unreadable') {
+    throw Object.assign(new Error(`the lock of run ${runId} is unreadable; make sure no workflow is running, then remove it by hand`), { code: 'E_WORKFLOW_LOCKED' });
+  }
+  if (first.status === 'alive' || first.status === 'elsewhere') {
+    requestCancel(ctx, runId, first.owner);
+    progress(flags, `asked pid ${first.owner.pid} on ${first.owner.hostname} to cancel run ${runId}`);
+    const waited = await waitForOwner(ctx, runId, first.owner, waitMs);
+    if (waited === 'timeout') {
+      showCancel(flags, runId, readRun(ctx, runId).state.status, `pid ${first.owner.pid} has not ended run ${runId} after ${Math.round(waitMs / 1000)}s; the request stays in place, so check workflow status`);
+      return EXIT_WAITING;
+    }
+    if (waited !== 'gone' || readRun(ctx, runId).state.status !== 'RUNNING') {
+      return cancelOutcome(ctx, flags, runId);
+    }
+  }
+  const { status } = readRun(ctx, runId).state;
+  if (status === 'RUNNING') {
+    return recoverAbandoned(ctx, flags, runId, checkProcesses);
+  }
+  if (status === 'PLANNED') {
+    throw invalid(`run ${runId} has not started, so there is nothing to cancel`);
+  }
+  if (ENDED_STATUSES.includes(status)) {
+    throw invalid(`run ${runId} already ended as ${status}`);
+  }
+  showCancel(flags, runId, status, `run ${runId} is ${status} and nothing is running; use workflow resume or make a new plan`);
+  return EXIT_WAITING;
 }
