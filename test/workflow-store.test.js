@@ -395,7 +395,7 @@ test('workflow store: text with a secret-looking assignment is replaced whole in
 });
 
 test('workflow store: secret detection stays linear on long input', () => {
-  const inputs = ['x='.repeat(128000) + '0', 'a'.repeat(256000), 'a '.repeat(128000), 'a:'.repeat(128000)];
+  const inputs = ['x='.repeat(128000) + '0', 'a'.repeat(256000), 'a '.repeat(128000), 'a:'.repeat(128000), 'bearer ab '.repeat(25000), `bearer ${'.'.repeat(19)} `.repeat(9000)];
   for (const text of inputs) {
     const start = performance.now();
     assert.equal(findSecretAssignment(text), null);
@@ -828,6 +828,17 @@ test('workflow store: authorization headers and bearer tokens count as secrets, 
   }
   for (const text of ['Bearer authentication is required', 'the bearer of the news', 'authorizationCount: 3', 'Use Bearer authentication.', 'the bearer returned.']) {
     assert.equal(findSecretAssignment(text), null, text);
+  }
+});
+
+test('workflow store: a bearer token without digits counts as a secret by its shape or its quotes, plain words do not', () => {
+  for (const text of ['curl -H "Bearer abc.def.ghi"', "auth('bearer abcdefghij')", 'sent Bearer abcdefgh= to the api', 'sent Bearer AbCdEfGhIjKlMnOpQrSt to the api']) {
+    assert.equal(findSecretAssignment(text), 'Bearer', text);
+    assert.equal(sanitizeEventData({ summary: text }).summary, REDACTED_TEXT, text);
+  }
+  for (const text of ['Bearer access_token is returned', 'Bearer authentication/authorization is required', 'Use "Bearer" authentication.', 'Bearer well-known scheme.']) {
+    assert.equal(findSecretAssignment(text), null, text);
+    assert.equal(sanitizeEventData({ summary: text }).summary, text);
   }
 });
 

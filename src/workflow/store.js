@@ -18,7 +18,9 @@ const FILE_MODE = 0o600;
 const EVENT_TYPE_RE = /^[a-z][a-z0-9.-]*$/;
 const COMMIT_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 const SECRET_WORDS = new Set(['password', 'passwd', 'pwd', 'secret', 'token', 'credential', 'credentials', 'apikey', 'authorization']);
-const BEARER_TEXT_RE = /(?<![A-Za-z0-9_-])bearer\s+(?=[A-Za-z._~+/-]*[0-9])[A-Za-z0-9._~+/-]{8,}/i;
+const BEARER_TEXT_RE = /(?<![A-Za-z0-9_-])bearer\s+([A-Za-z0-9._~+/=-]{8,})/gi;
+const BEARER_VALUE_RE = /[0-9~+=]|[^.]\.[^.]|^[A-Za-z]{20,}$/;
+const BEARER_QUOTES = ['"', "'", '`'];
 const SECRET_PAIRS = [['api', 'key'], ['private', 'key'], ['access', 'key']];
 const INTERRUPTIBLE_STEPS = ['RUNNING', 'VERIFYING'];
 const NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
@@ -197,8 +199,18 @@ function isSecretField(key, numeric) {
   return !(numeric && QUANTITY_WORDS.has(words[words.length - 1]));
 }
 
+function hasBearerToken(text) {
+  for (const m of text.matchAll(BEARER_TEXT_RE)) {
+    const quote = text[m.index - 1];
+    if (BEARER_VALUE_RE.test(m[1]) || (BEARER_QUOTES.includes(quote) && text[m.index + m[0].length] === quote)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function findSecretAssignment(text) {
-  if (BEARER_TEXT_RE.test(text)) {
+  if (hasBearerToken(text)) {
     return 'Bearer';
   }
   const re = new RegExp(SECRET_KEY_TEXT_RE.source, 'g');
