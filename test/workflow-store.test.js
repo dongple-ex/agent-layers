@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { hashJson, PROGRAM_PLAN_FIELDS } from '../src/workflow/schema.js';
 import {
   createRun, readRun, acquireRun, commitRun, releaseRun, runDir, workflowsDir, isSecretKey, sanitizeEventData,
-  findSecretAssignment, REDACTED_TEXT,
+  findSecretAssignment, policySecretIssues, REDACTED_TEXT,
   chargeAgentCall, addActiveSeconds, addRepairAttempt, recordFailure, clearFailure, remainingBudget, writeArtifact, readArtifact,
 } from '../src/workflow/store.js';
 
@@ -19,7 +19,7 @@ const IS_LINUX = process.platform === 'linux';
 
 const POLICY = {
   schemaVersion: 1,
-  provider: { id: 'codex', model: 'test-model', reasoningEffort: 'high' },
+  provider: { command: 'fake-ai', args: [] },
   allowedWritePaths: ['src', 'test'],
   checks: [{ id: 'unit', command: 'npm', args: ['test'], timeout: 600 }],
   requiredChecks: ['unit'],
@@ -56,6 +56,18 @@ function newRun(ctx, extra = {}) {
 function events(dir) {
   return fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 }
+
+test('workflow store: a secret in the provider arguments is an issue, and a run is not created with one', (t) => {
+  const issuesOf = (args, roleArgs = {}) => policySecretIssues({ provider: { args, roleArgs } }).map((i) => i.where);
+  assert.deepEqual(issuesOf(['exec', '--sandbox', 'read-only', '-', '--max-tokens', '100', '--token-limit', '5', '-c', 'model=x']), []);
+  assert.deepEqual(issuesOf(['--token', 'x', '--api-key=x', '--apiKey', 'x', '--access-key', 'x']), ['provider.args[0]', 'provider.args[2]', 'provider.args[3]', 'provider.args[5]']);
+  assert.deepEqual(issuesOf([], { reviewer: ['-c', 'password=SYN_POLICY'], coder: ['Bearer SYNTHETIC-1234'] }), ['provider.roleArgs.reviewer[1]', 'provider.roleArgs.coder[0]']);
+  const { ctx } = tempCtx(t);
+  assert.throws(
+    () => newRun(ctx, { policy: { ...POLICY, provider: { command: 'fake-ai', args: ['--token=SYN_POLICY'] } } }),
+    (err) => err.code === 'E_WORKFLOW_INVALID' && /holds a secret/.test(err.message) && !/SYN_POLICY/.test(err.message),
+  );
+});
 
 function readState(dir) {
   return JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));

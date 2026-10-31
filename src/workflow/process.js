@@ -73,7 +73,7 @@ function processKey(p) {
   return `${p.pid}:${p.startTime}`;
 }
 
-//20261031 TODO A double-forked process that left its session before a poll saw it is not found; settle this in W4b after the Linux run
+//20261031 TODO A double-forked process that left its session before a poll saw it is not found; this is a stated non-guarantee, revisit only if a real run leaves such a process
 export function createTracker(root, readTable = readProcessTable) {
   const tracked = new Map([[processKey(root), { pid: root.pid, startTime: root.startTime, pgid: root.pid }]]);
   const groups = new Set([root.pid]);

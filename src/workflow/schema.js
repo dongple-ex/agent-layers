@@ -26,7 +26,9 @@ const POSITIVE_LIMITS = ['maxSteps', 'maxAgentCalls', 'stepTimeoutSeconds', 'run
 const RETRY_LIMITS = ['maxRepairAttempts', 'maxTransportRetries', 'maxPlanRepairs'];
 const STEP_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const POLICY_KEYS = ['schemaVersion', 'provider', 'limits', 'allowedWritePaths', 'protectedPaths', 'checks', 'requiredChecks', 'requiredRoles', 'exceptions'];
-const PROVIDER_KEYS = ['id', 'model', 'reasoningEffort', 'executable'];
+const PROVIDER_KEYS = ['command', 'args', 'roleArgs', 'env'];
+const PROVIDER_ROLES = ['planner', 'coder', 'reviewer', 'auditor'];
+const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 //20261030 TODO Field name "inputs" and optional cwd/inputs are provisional; CONTRACT 4 does not name them
 const CHECK_KEYS = ['id', 'command', 'args', 'cwd', 'timeout', 'inputs'];
 const STEP_KEYS = ['id', 'role', 'dependsOn', 'instruction', 'writePaths', 'checkIds', 'acceptance'];
@@ -53,6 +55,14 @@ function nonEmptyString(v) {
 
 function stringList(v) {
   return Array.isArray(v) && v.every((s) => nonEmptyString(s));
+}
+
+function isArgList(v) {
+  return Array.isArray(v) && v.every((a) => typeof a === 'string' && !a.includes('\0'));
+}
+
+function executableIssue(v) {
+  return nonEmptyString(v) && !/[\0\r\n]/.test(v) ? null : 'must be an executable name or path';
 }
 
 export function relativePathIssue(p) {
@@ -129,10 +139,10 @@ function checkDefinition(check, where, add) {
   if (typeof check.id !== 'string' || !STEP_ID_RE.test(check.id)) {
     add(`${where}.id`, 'must match [A-Za-z0-9][A-Za-z0-9._-]* (max 64)');
   }
-  if (!nonEmptyString(check.command) || /[\0\r\n]/.test(check.command)) {
-    add(`${where}.command`, 'must be an executable name or path');
+  if (executableIssue(check.command)) {
+    add(`${where}.command`, executableIssue(check.command));
   }
-  if (!Array.isArray(check.args) || !check.args.every((a) => typeof a === 'string' && !a.includes('\0'))) {
+  if (!isArgList(check.args)) {
     add(`${where}.args`, 'must be an array of strings');
   }
   if (!Number.isSafeInteger(check.timeout) || check.timeout <= 0) {
@@ -171,22 +181,29 @@ export function normalizePolicy(raw) {
     for (const k of unknownKeys(raw.provider, PROVIDER_KEYS)) {
       add(`provider.${k}`, 'unknown field');
     }
-    if (raw.provider.id !== 'codex') {
-      add('provider.id', 'must be "codex" in this version');
+    if (executableIssue(raw.provider.command)) {
+      add('provider.command', executableIssue(raw.provider.command));
     }
-    for (const k of ['model', 'reasoningEffort']) {
-      if (!nonEmptyString(raw.provider[k])) {
-        add(`provider.${k}`, 'must be a non-empty string');
+    if (!isArgList(raw.provider.args)) {
+      add('provider.args', 'must be an array of strings');
+    }
+    const roleArgs = own(raw.provider, 'roleArgs') ? raw.provider.roleArgs : {};
+    if (!isObject(roleArgs)) {
+      add('provider.roleArgs', 'must be an object');
+    } else {
+      for (const k of Object.keys(roleArgs)) {
+        if (!PROVIDER_ROLES.includes(k)) {
+          add(`provider.roleArgs.${k}`, `must be one of ${PROVIDER_ROLES.join(', ')}`);
+        } else if (!isArgList(roleArgs[k])) {
+          add(`provider.roleArgs.${k}`, 'must be an array of strings');
+        }
       }
     }
-    if (own(raw.provider, 'executable') && !nonEmptyString(raw.provider.executable)) {
-      add('provider.executable', 'must be a non-empty string');
+    const env = own(raw.provider, 'env') ? raw.provider.env : [];
+    if (!Array.isArray(env) || !env.every((name) => typeof name === 'string' && ENV_NAME_RE.test(name))) {
+      add('provider.env', 'must be an array of environment variable names');
     }
-    for (const k of PROVIDER_KEYS) {
-      if (own(raw.provider, k)) {
-        provider[k] = raw.provider[k];
-      }
-    }
+    Object.assign(provider, { command: raw.provider.command, args: raw.provider.args, roleArgs, env });
   }
 
   const limits = { ...DEFAULT_LIMITS };

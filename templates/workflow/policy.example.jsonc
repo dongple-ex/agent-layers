@@ -1,0 +1,29 @@
+// Keep this file outside the repository it works on: a new file there counts as an uncommitted change.
+{
+  "schemaVersion": 1,
+  "provider": {
+    // The command gets its instructions on stdin and must print its final message on stdout.
+    // The flags below belong to the CLI and can change with it, so check them with its --help.
+    "command": "codex",
+    "args": ["exec", "--sandbox", "workspace-write", "-"],
+    "roleArgs": {
+      "planner": ["exec", "--sandbox", "read-only", "-"],
+      "reviewer": ["exec", "--sandbox", "read-only", "-"],
+      "auditor": ["exec", "--sandbox", "read-only", "-"]
+    },
+    // Names of environment variables to pass on, on top of PATH, the home folders and the temp folders.
+    // Values never go in this file.
+    "env": []
+    // Claude Code: "command": "claude", "args": ["-p", "--permission-mode", "acceptEdits"],
+    // and ["-p", "--permission-mode", "plan"] for the planner, reviewer and auditor.
+    // On Windows a .cmd file cannot start without a shell, so name the program it starts:
+    // "command": "node", and the path of the package's bin script as the first item of each args list.
+  },
+  "allowedWritePaths": ["src", "test"],
+  "protectedPaths": ["package.json"],
+  "checks": [
+    // On Windows, "npm" is a .cmd file too; use "node" with the test runner there.
+    { "id": "unit", "command": "npm", "args": ["test"], "timeout": 600 }
+  ],
+  "requiredChecks": ["unit"]
+}

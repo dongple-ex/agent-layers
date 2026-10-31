@@ -6,7 +6,7 @@ import { normalizePolicy, validatePlan, validateRoleResult, relativePathIssue, p
 function rawPolicy(extra = {}) {
   return {
     schemaVersion: 1,
-    provider: { id: 'codex', model: 'test-model', reasoningEffort: 'high' },
+    provider: { command: 'fake-ai', args: [] },
     allowedWritePaths: ['src', 'test/'],
     protectedPaths: ['test/fixtures'],
     checks: [{ id: 'unit', command: 'npm', args: ['test'], timeout: 600 }],
@@ -61,20 +61,54 @@ test('workflow policy: maxSteps + 3 must not exceed maxAgentCalls', () => {
 test('workflow policy: limit values, unknown fields and the provider are checked', () => {
   const { issues } = normalizePolicy(rawPolicy({
     extra: true,
-    provider: { id: 'other', model: '', reasoningEffort: 'high', url: 'x' },
+    provider: { command: '', args: 'x', url: 'x' },
     limits: { maxConcurrent: 2, maxSteps: 0, maxRepairAttempts: -1, maxPlanRepairs: 0, stepTimeoutSeconds: 1.5, bogus: 1 },
   }));
   assert.deepEqual(wheres(issues), [
     'extra',
     'provider.url',
-    'provider.id',
-    'provider.model',
+    'provider.command',
+    'provider.args',
     'limits.maxConcurrent',
     'limits.maxSteps',
     'limits.maxRepairAttempts',
     'limits.stepTimeoutSeconds',
     'limits.bogus',
   ]);
+});
+
+test('workflow policy: the provider is a command with args, role args and environment variable names', () => {
+  const provider = { command: 'ai', args: ['run'], roleArgs: { planner: ['plan'], reviewer: [] }, env: ['AI_HOME'] };
+  const policy = policyOf({ provider });
+  assert.deepEqual(policy.provider, provider);
+  assert.deepEqual(policyOf({ provider: { command: 'ai', args: [] } }).provider, { command: 'ai', args: [], roleArgs: {}, env: [] });
+  const again = normalizePolicy(policy);
+  assert.deepEqual(again.issues, []);
+  assert.equal(hashJson(again.policy), hashJson(policy));
+});
+
+test('workflow policy: old provider fields and malformed command, role args and env are refused', () => {
+  for (const key of ['id', 'model', 'reasoningEffort', 'executable']) {
+    assert.deepEqual(wheres(normalizePolicy(rawPolicy({ provider: { command: 'ai', args: [], [key]: 'x' } })).issues), [`provider.${key}`], key);
+  }
+  const cases = [
+    [undefined, 'provider'],
+    [{ args: [] }, 'provider.command'],
+    [{ command: 'a\nb', args: [] }, 'provider.command'],
+    [{ command: 'ai' }, 'provider.args'],
+    [{ command: 'ai', args: [1] }, 'provider.args'],
+    [{ command: 'ai', args: ['a\0b'] }, 'provider.args'],
+    [{ command: 'ai', args: [], roleArgs: [] }, 'provider.roleArgs'],
+    [{ command: 'ai', args: [], roleArgs: { tester: [] } }, 'provider.roleArgs.tester'],
+    [{ command: 'ai', args: [], roleArgs: { coder: 'x' } }, 'provider.roleArgs.coder'],
+    [{ command: 'ai', args: [], env: 'X' }, 'provider.env'],
+    [{ command: 'ai', args: [], env: ['A=1'] }, 'provider.env'],
+  ];
+  for (const [provider, where] of cases) {
+    const { policy, issues } = normalizePolicy(rawPolicy({ provider }));
+    assert.equal(policy, null, where);
+    assert.deepEqual(wheres(issues), [where], JSON.stringify(provider));
+  }
 });
 
 test('workflow policy: __proto__ in JSONC is an unknown field and does not reach the limits', () => {

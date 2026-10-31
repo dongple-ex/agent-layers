@@ -113,7 +113,17 @@ test('workflow cli: exit codes follow the contract and diagnostics go to stderr'
     [['workflow', 'status', run.runId, 'extra'], 2, /usage/],
     [['workflow'], 2, /missing workflow command/],
     [['workflow', 'explode', run.runId], 2, /unknown workflow command "explode"/],
-    ...['plan', 'run', 'resume', 'cancel'].map((sub) => [['workflow', sub, run.runId], 2, new RegExp(`workflow ${sub} is not available yet`)]),
+    [['workflow', 'cancel', run.runId], 2, /workflow cancel is not available yet.*Ctrl\+C/],
+    [['workflow', 'plan'], 2, /missing --goal-file/],
+    [['workflow', 'plan', '--goal-file', 'g'], 2, /missing --config/],
+    [['workflow', 'plan', run.runId, '--goal-file', 'g', '--config', 'c'], 2, /takes no run id/],
+    [['workflow', 'plan', '--goal-file', 'g', '--config', 'c', '--bogus'], 2, /unknown option --bogus/],
+    ...['run', 'resume'].flatMap((sub) => [
+      [['workflow', sub], 2, /one run id is needed/],
+      [['workflow', sub, run.runId, 'extra'], 2, /one run id is needed/],
+      [['workflow', sub, run.runId, '--goal-file', 'g'], 2, /unknown option --goal-file/],
+      [['workflow', sub, 'not-a-uuid', '--yes'], 2, /run id/i],
+    ]),
   ];
   for (const [args, code, pattern] of cases) {
     const r = cli(home, ...args);
@@ -148,7 +158,11 @@ test('workflow cli: help lists the workflow commands and existing commands keep 
   const help = cli(home, 'help');
   assert.equal(help.code, 0);
   assert.match(help.stdout, /workflow status <run-id> \[--json\]/);
-  assert.match(help.stdout, /plan, run, resume and cancel are not available yet/);
+  assert.match(help.stdout, /workflow plan --goal-file <file> --config <file>/);
+  assert.match(help.stdout, /workflow run <run-id>/);
+  assert.match(help.stdout, /workflow resume <run-id>/);
+  assert.match(help.stdout, /stop a run with Ctrl\+C/);
+  assert.doesNotMatch(help.stdout, /not available yet/);
   const unknown = cli(home, 'no-such-command');
   assert.equal(unknown.code, 2);
 });

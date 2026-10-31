@@ -118,6 +118,10 @@ export function createWorktree(ctx, runId, { root, baseCommit }) {
   };
 }
 
+export function removeWorktree(root, dir) {
+  git(root, ['worktree', 'remove', '--force', dir]);
+}
+
 function skipGitEntry(name, ownWorktree) {
   return name === 'index' || OBJECT_STORAGE_RE.test(name) || name.endsWith('.lock') || name === `worktrees/${ownWorktree}`;
 }

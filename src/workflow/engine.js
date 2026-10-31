@@ -78,15 +78,16 @@ function interruptOnError(rt, err) {
     return err;
   }
   const seconds = rt.inflight === null ? 0 : elapsedSeconds(rt, rt.inflight);
+  const status = err && err.cancelled ? 'CANCELLED' : 'INTERRUPTED';
   try {
-    commit(rt, 'run.interrupted', { error: clean(err && err.message ? err.message : err) }, (n) => {
+    commit(rt, `run.${status.toLowerCase()}`, { error: clean(err && err.message ? err.message : err) }, (n) => {
       addActiveSeconds(n, seconds);
       if (n.status === 'RUNNING') {
-        n.status = 'INTERRUPTED';
+        n.status = status;
       }
       for (const id of n.order) {
         if (ACTIVE_STEP_STATUSES.includes(n.steps[id].status)) {
-          n.steps[id].status = 'INTERRUPTED';
+          n.steps[id].status = status;
         }
       }
     });
@@ -247,10 +248,17 @@ async function callRole(rt, req) {
     try {
       result = await rt.provider.call(structuredClone(req));
     } catch (err) {
-      if (!err || (!err.transport && !err.timeout)) {
+      if (!err || (!err.transport && !err.timeout && !err.stop)) {
         throw err;
       }
       const seconds = elapsedSeconds(rt, started);
+      if (err.stop) {
+        commit(rt, 'call.failed', { ...tag, kind: 'stopped', reason: err.stop.reason }, (n) => {
+          addActiveSeconds(n, seconds);
+        });
+        rt.inflight = null;
+        return stopStep(rt, req.statusId, err.stop.status, err.stop.reason, err.message);
+      }
       if (err.transport) {
         const code = String(err.code || 'unknown');
         let same = false;

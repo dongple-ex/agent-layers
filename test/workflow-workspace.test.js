@@ -6,7 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import {
-  inspectRepository, workspaceKey, worktreePath, createWorktree, sourceFingerprint, compareFingerprints,
+  inspectRepository, workspaceKey, worktreePath, createWorktree, removeWorktree, sourceFingerprint, compareFingerprints,
   listChanges, checkChanges, pathInsideWorktree, resultPatch, describeWorktree,
 } from '../src/workflow/workspace.js';
 
@@ -61,6 +61,14 @@ function check(s, { writePaths = ['src'], protectedPaths = [] } = {}) {
 function reasons(result) {
   return Object.fromEntries(result.violations.map((v) => [v.path, v.reason]));
 }
+
+test('workflow workspace: removeWorktree removes a worktree that has changes and its registration', (t) => {
+  const s = worktreeOf(t);
+  put(s.w.path, 'src/new.js', 'new\n');
+  removeWorktree(s.root, s.w.path);
+  assert.equal(fs.existsSync(s.w.path), false);
+  assert.doesNotMatch(git(s.root, 'worktree', 'list', '--porcelain'), new RegExp(s.runId));
+});
 
 function tryLink(target, file) {
   fs.mkdirSync(path.dirname(file), { recursive: true });

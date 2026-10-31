@@ -1,5 +1,14 @@
 import { remainingBudget } from './store.js';
 
+const NOT_GUARANTEED = [
+  'isolation: sandboxing is left to the AI CLI and the policy, and checks run with your permissions',
+  'write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted',
+  'processes: one that left its session is not found when a run ends',
+  'AI CLI settings: changes a CLI makes to its own global settings are not cleaned up',
+  'model and usage: not recorded; only calls and active time are counted',
+  'result patch: a record with secret-looking lines masked; take the change from the worktree',
+];
+
 export function statusView(run) {
   const { state, policy } = run;
   const limits = policy.limits;
@@ -49,12 +58,20 @@ export function reportView(run) {
     path: `artifacts/${e.data.artifact}`,
     sha256: e.data.sha256,
   }));
+  const workspace = run.events.find((e) => e.type === 'workspace.created');
+  const outcomes = run.events.filter((e) => e.type === 'run.outcome');
+  const outcome = outcomes.at(-1);
   return {
     ...view,
     runDir: run.dir,
     checks,
     artifacts,
     remaining: view.steps.filter((s) => s.status !== 'SUCCEEDED').map((s) => s.id),
+    worktree: workspace ? workspace.data.path : null,
+    treeKillSupported: workspace ? workspace.data.treeKillSupported : null,
+    resultPatch: outcome ? { path: `artifacts/${outcome.data.patch}`, bytes: outcome.data.patchBytes, sha256: outcome.data.patchSha256 } : null,
+    sourceChanges: [...new Set(outcomes.flatMap((e) => e.data.sourceChanges))],
+    notGuaranteed: workspace ? NOT_GUARANTEED : [],
   };
 }
 
@@ -92,5 +109,20 @@ export function formatReport(view) {
     lines.push(`  ${a.path} ${a.role} ${a.stepId} attempt ${a.attempt}: ${a.valid ? a.status : 'invalid result'}`);
   }
   lines.push(`remaining steps: ${view.remaining.length > 0 ? view.remaining.join(', ') : 'none'}`);
+  if (view.worktree) {
+    lines.push(`worktree: ${view.worktree}`);
+  }
+  if (view.resultPatch) {
+    lines.push(`result patch: ${view.resultPatch.path} (${view.resultPatch.bytes} bytes, sha256 ${view.resultPatch.sha256})`);
+  }
+  if (view.sourceChanges.length > 0) {
+    lines.push(`warning: the source repository changed during the run: ${view.sourceChanges.join(', ')}`);
+  }
+  if (view.treeKillSupported === false) {
+    lines.push('warning: on this OS only the direct child is ended, so its descendants may keep running');
+  }
+  if (view.notGuaranteed.length > 0) {
+    lines.push('not guaranteed:', ...view.notGuaranteed.map((n) => `  ${n}`));
+  }
   return lines.join('\n');
 }

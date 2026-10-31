@@ -241,6 +241,20 @@ export function sanitizeEventData(value, depth = 0) {
   return value;
 }
 
+export function policySecretIssues(policy) {
+  const { args, roleArgs } = policy.provider;
+  const issues = [];
+  for (const [where, list] of [['provider.args', args], ...Object.entries(roleArgs).map(([role, v]) => [`provider.roleArgs.${role}`, v])]) {
+    list.forEach((arg, i) => {
+      const flag = /^--?([A-Za-z][A-Za-z0-9_-]*)/.exec(arg);
+      if ((flag && isSecretField(flag[1], true)) || findSecretAssignment(arg) !== null) {
+        issues.push({ where: `${where}[${i}]`, msg: 'must not hold a secret; name the variable in provider.env instead' });
+      }
+    });
+  }
+  return issues;
+}
+
 function childScope(scope, key) {
   if (scope === 'root') {
     return key === 'steps' ? 'ids' : key === 'budget' ? 'budget' : 'plain';
@@ -514,6 +528,10 @@ export function createRun(ctx, { plan, policy: rawPolicy, usedAgentCalls, planRe
   const { policy, issues: policyIssues } = normalizePolicy(rawPolicy);
   if (!policy) {
     throw storeError('E_WORKFLOW_INVALID', 'workflow policy is invalid', { issues: policyIssues });
+  }
+  const secretIssues = policySecretIssues(policy);
+  if (secretIssues.length > 0) {
+    throw storeError('E_WORKFLOW_INVALID', 'workflow policy holds a secret', { issues: secretIssues });
   }
   const planIssues = validatePlan(plan, policy, { usedAgentCalls });
   if (planIssues.length > 0) {

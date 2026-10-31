@@ -53,6 +53,51 @@ function stepChanges(run, id) {
   return changes;
 }
 
+test('workflow engine: a stop request from the provider ends the run with its status and reason, without a retry', async (t) => {
+  const { run, handle } = setup(t);
+  const provider = {
+    calls: [],
+    async call(req) {
+      this.calls.push(req);
+      throw Object.assign(new Error('changed a file out of scope'), { stop: { status: 'FAILED', reason: 'policy-violation' } });
+    },
+  };
+  const state = await runWorkflow(handle, { provider, verifier: fakeVerifier() });
+  assert.equal(state.status, 'FAILED');
+  assert.equal(state.stopReason, 'policy-violation');
+  assert.equal(state.steps.impl.status, 'FAILED');
+  assert.equal(state.steps.impl.reason, 'policy-violation');
+  assert.match(state.steps.impl.lastError, /changed a file out of scope/);
+  assert.equal(provider.calls.length, 1);
+  assert.equal(state.budget.agentCalls, 2);
+  assert.deepEqual(events(run).find((e) => e.type === 'call.failed').data, { role: 'coder', stepId: 'impl', attempt: 1, retry: 0, kind: 'stopped', reason: 'policy-violation' });
+});
+
+test('workflow engine: a cancelled call ends the run as CANCELLED, one with processes left is INTERRUPTED', async (t) => {
+  for (const [cancelled, status] of [[true, 'CANCELLED'], [false, 'INTERRUPTED']]) {
+    const { run, handle } = setup(t);
+    const provider = {
+      async call() {
+        throw Object.assign(new Error('the coder call was cancelled'), { cancelled });
+      },
+    };
+    await assert.rejects(runWorkflow(handle, { provider, verifier: fakeVerifier() }), /was cancelled/);
+    assert.equal(handle.state.status, status);
+    assert.equal(handle.state.steps.impl.status, status);
+    assert.equal(events(run).at(-1).type, `run.${status.toLowerCase()}`);
+  }
+  const { handle } = setup(t);
+  const provider = {
+    async call() {
+      throw Object.assign(new Error('the coder call was cancelled'), { cancelled: true });
+    },
+  };
+  await assert.rejects(runWorkflow(handle, { provider, verifier: fakeVerifier() }), /was cancelled/);
+  const later = fakeProvider();
+  assert.equal((await runWorkflow(handle, { provider: later, verifier: fakeVerifier(), resume: true })).status, 'CANCELLED');
+  assert.equal(later.calls.length, 0);
+});
+
 test('workflow engine: a clean run goes coder by coder, then review and audit, and succeeds', async (t) => {
   const { run, handle } = setup(t);
   const provider = fakeProvider({ 'coder:impl': [{ summary: 'impl-summary-marker' }] });

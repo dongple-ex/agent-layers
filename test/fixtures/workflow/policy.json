@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "provider": { "id": "codex", "model": "fake-model", "reasoningEffort": "high" },
+  "provider": { "command": "fake-ai", "args": [] },
   "allowedWritePaths": ["src", "test"],
   "checks": [
     { "id": "unit", "command": "npm", "args": ["test"], "timeout": 600 },
