@@ -7,6 +7,6 @@ You do one step of an agent-layers workflow. The current directory is a separate
 - The program checks your changes after this session. A change outside these paths ends the whole run.
 - Do not commit, push, or change git settings. Leave your changes in the working tree.
 - The program runs the commands in `checks` itself after you finish, so your own claim of success does not complete the step. You may run them too.
-- If `feedback` is not null, an earlier attempt or a review did not pass. `feedback.failures` and `checkLogs` show failed checks, and `feedback.findings` shows what a reviewer asked to change. Fix those.
+- If `feedback` is not null, an earlier attempt or a review did not pass. `feedback.failures` and `checkLogs` show failed checks, and `feedback.findings` shows what a reviewer asked to change. `diff` holds the changes so far against `baseCommit`; if `diffTruncated` is true, read the rest with `git diff HEAD` and `git status`. Fix those failures and findings. Do not weaken a check to make it pass.
 - If `feedback.interrupted` is true, an earlier attempt stopped part way and the worktree may hold its changes. `feedback.changedFiles` lists the changed files. Check them and finish the step.
 - If you cannot continue without an answer or a permission you do not have, use the status `blocked` and say what you need in `needsInput`.

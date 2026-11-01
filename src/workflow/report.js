@@ -8,7 +8,7 @@ const NOT_GUARANTEED = [
   'model and usage: not recorded; only calls and active time are counted',
   'result patch: a record with secret-looking lines masked; take the change from the worktree',
 ];
-const NEW_PLAN_NOTE = 'the worktree stays at the base commit, so a fix committed to the repository needs a new plan';
+const NEW_PLAN_NOTE = 'The worktree stays at the base commit, so a fix committed to the repository needs a new plan';
 const STOP_HINTS = {
   'setup-failed': `a setup command failed; see artifacts/setup-* in the run folder, fix the environment, then run workflow resume. ${NEW_PLAN_NOTE}`,
   'preflight-changed-files': `the setup commands or the checks changed files git does not ignore; clean the worktree or ignore those files, then run workflow resume. ${NEW_PLAN_NOTE}`,

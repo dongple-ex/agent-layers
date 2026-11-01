@@ -430,13 +430,29 @@ function inspectInterruption(handle, run, worktree, checkProcesses) {
   return { passed: true, artifact: artifact.name, changedFiles };
 }
 
+function diffFields(patch) {
+  const diff = patch.toString('utf8');
+  return { diff: diff.slice(0, MAX_DIFF_CHARS), diffTruncated: diff.length > MAX_DIFF_CHARS };
+}
+
 function guardedProvider({ provider, worktree, run, handle, logs, flags }) {
   const shared = { baseCommit: worktree.baseCommit, protectedPaths: run.policy.protectedPaths };
   const checks = run.policy.checks.map(({ id, command, args }) => ({ id, command, args }));
 
+  function latestCheckResults() {
+    const latest = new Map();
+    for (const { type, data } of readRun(handle.ctx, handle.runId).events) {
+      if (type === 'checks.finished') {
+        for (const { id, exitCode } of data.results) {
+          latest.set(id, { id, exitCode, stepId: data.stepId });
+        }
+      }
+    }
+    return [...latest.values()];
+  }
+
   async function callReadOnly(req) {
     const before = resultPatch(worktree.path, worktree.baseCommit);
-    const diff = before.toString('utf8');
     const changed = () => sha256(resultPatch(worktree.path, worktree.baseCommit)) !== sha256(before);
     const stopIfChanged = () => {
       if (changed()) {
@@ -446,7 +462,7 @@ function guardedProvider({ provider, worktree, run, handle, logs, flags }) {
     commitRun(handle, 'call.baseline', { role: req.role, stepId: req.stepId, attempt: req.attempt, patchSha256: sha256(before) });
     let result;
     try {
-      result = await provider.call({ ...req, ...shared, allowedWritePaths: writePathsUpTo(run, req.stepId), diff: diff.slice(0, MAX_DIFF_CHARS), diffTruncated: diff.length > MAX_DIFF_CHARS });
+      result = await provider.call({ ...req, ...shared, checks, checkResults: latestCheckResults(), allowedWritePaths: writePathsUpTo(run, req.stepId), ...diffFields(before) });
     } catch (err) {
       if (err.transport) {
         stopIfChanged();
@@ -459,7 +475,8 @@ function guardedProvider({ provider, worktree, run, handle, logs, flags }) {
 
   async function callCoder(req) {
     const checkLogs = req.feedback && req.feedback.failures ? [...logs.values()] : [];
-    const result = await provider.call({ ...req, ...shared, checks, checkLogs });
+    const soFar = req.feedback ? diffFields(resultPatch(worktree.path, worktree.baseCommit)) : {};
+    const result = await provider.call({ ...req, ...shared, checks, checkLogs, ...soFar });
     const { violations } = scopeCheck(worktree, run, writePathsUpTo(run, req.stepId));
     if (violations.length > 0) {
       throw violationError(handle, req, violations);

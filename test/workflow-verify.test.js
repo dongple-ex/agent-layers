@@ -141,6 +141,7 @@ test('workflow verify: failedTestPattern names the failures of a failing check f
   assert.deepEqual((await run(lines, { failedTestPattern: pattern })).failedTests, []);
   assert.deepEqual((await run(`${lines} process.exit(1);`, {})).failedTests, []);
   assert.deepEqual((await run('process.exit(1);', { failedTestPattern: '(optional)?' })).failedTests, []);
+  assert.deepEqual((await run('console.error("not ok - on-stderr"); process.exit(1);', { failedTestPattern: pattern })).failedTests, ['on-stderr']);
   const many = await run('for (let i = 0; i < 300; i += 1) { console.log(`not ok - t${String(i).padStart(3, "0")}`); } process.exit(1);', { failedTestPattern: pattern });
   assert.equal(many.failedTests.length, 200);
   assert.equal(many.failedTests[0], 't000');

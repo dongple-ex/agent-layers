@@ -21,9 +21,17 @@
   },
   "allowedWritePaths": ["src", "test"],
   "protectedPaths": ["package.json"],
+  // Optional: commands that run once in the worktree before the first check, with the same environment as the checks.
+  // A setup command must leave tracked files alone, and git must ignore what it creates, so prefer "npm ci" to "npm install".
+  // "setup": [{ "id": "install", "command": "npm", "args": ["ci"], "timeout": 600 }],
   "checks": [
+    // Every check the plan uses runs once at the base commit before any AI call.
+    // "baseline": "pass" is the default. Use "fail" for a check that must fail there, such as a new acceptance test.
+    // "inputs": existing files under these paths cannot be changed or deleted during the run, so the AI CLI cannot weaken the check.
+    // New files are allowed. Leave it out if the goal needs to change those files.
+    // "failedTestPattern": optional regular expression with one capture group that finds failing test names in the log.
     // On Windows, "npm" is a .cmd file too; use "node" with the test runner there.
-    { "id": "unit", "command": "npm", "args": ["test"], "timeout": 600 }
+    { "id": "unit", "command": "npm", "args": ["test"], "timeout": 600, "inputs": ["test"] }
   ],
   "requiredChecks": ["unit"]
 }

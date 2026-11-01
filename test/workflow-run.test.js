@@ -8,6 +8,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { setQuiet } from '../src/util/log.js';
 import { findLeftovers, TREE_KILL_SUPPORTED } from '../src/workflow/process.js';
+import { formatReport, reportView } from '../src/workflow/report.js';
 import { cmdCancel, cmdPlan, cmdRun } from '../src/workflow/run.js';
 import { hashJson } from '../src/workflow/schema.js';
 import { acquireRun, commitRun, readRun, releaseRun, requestCancel } from '../src/workflow/store.js';
@@ -937,6 +938,7 @@ test('workflow plan: a command that cannot start is refused with exit code 2 bef
     [{ provider: () => ({ command: 'agent-layers-no-such-program', args: [] }) }, /agent-layers-no-such-program was not found/],
     [{ provider: () => ({ command: 'bin/ai', args: [] }) }, /must be a program name or an absolute path/],
     [{ policy: { checks: [{ id: 'unit', command: 'agent-layers-no-such-check', args: [], timeout: 60 }] } }, /check "unit": agent-layers-no-such-check was not found/],
+    [{ policy: { setup: [{ id: 'install', command: 'agent-layers-no-such-tool', args: [], timeout: 60 }] } }, /setup command "install": agent-layers-no-such-tool was not found/],
   ];
   for (const [options, pattern] of cases) {
     const s = setup(t, {}, options);
@@ -970,6 +972,21 @@ test('workflow resume: a coder resumed after a failed check gets the failures an
   assert.equal(last.checkLogs[0].id, 'unit');
   assert.ok(last.checkLogs[0].stderr.includes('check found src/broken'));
   assert.equal(readRun(s.ctx, runId).events.filter((e) => e.type === 'checks.baseline').length, 1);
+});
+
+test('workflow resume: a resumed coder gets the newest failures and only the logs of the checks that failed', async (t) => {
+  const failing = 'const fs = require("fs"); if (fs.existsSync("src/broken")) { console.error(`not ok - ${fs.readFileSync("src/broken", "utf8").trim()}`); process.exit(1); }';
+  const s = setup(t, {
+    'coder:impl': [{ write: { 'src/broken': 'first\n' } }, { write: { 'src/broken': 'second\n' } }, { exit: 1 }, { exit: 1 }, { exit: 1 }, { remove: ['src/broken'], write: { 'src/new.txt': 'new\n' } }],
+  }, { plan: { ...PLAN, steps: [{ ...STEP, checkIds: ['other', 'unit'] }] }, policy: { checks: [nodeCheck('', { id: 'other' }), nodeCheck(failing, { failedTestPattern: 'not ok - (\\S+)' })] } });
+  const runId = planned(s);
+  assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, retryDelayMs: 0 }), 3);
+  assert.equal(state(s, runId).stopReason, 'transport');
+  assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, resume: true, retryDelayMs: 0 }), 0);
+  const last = s.calls().filter((c) => c.request.role === 'coder').at(-1).request;
+  assert.deepEqual(last.feedback.failures, [{ id: 'unit', exitCode: 1, failedTests: ['second'] }]);
+  assert.deepEqual(last.checkLogs.map((l) => l.id), ['unit']);
+  assert.ok(last.checkLogs[0].stderr.includes('not ok - second'));
 });
 
 test('workflow run: a check that leaves a file outside the write paths ends the run as FAILED', (t) => {
@@ -1078,7 +1095,11 @@ test('workflow run: a check expected to fail at the base commit stops the run wh
     assert.equal(rep.stopReason, 'baseline-unexpected', name);
     assert.equal(rep.baseline[0].exitCode, exitCode, name);
     assert.equal(rep.baseline[0].matched, false, name);
+    assert.equal(rep.baseline[0].timedOut, name === 'times out', name);
     assert.deepEqual(s.keys(), ['planner:plan:1'], name);
+    if (name === 'times out') {
+      assert.match(cli(s, ['report', rep.runId]).stdout, /unit: exit 124 \(timed out\), expected to fail, NOT as expected/);
+    }
   }
 });
 
@@ -1143,6 +1164,25 @@ test('workflow resume: a stopped preparation runs again once the environment is 
   const { state: done, events } = readRun(s.ctx, runId);
   assert.equal(done.status, 'SUCCEEDED');
   assert.deepEqual(events.filter((e) => e.type === 'checks.baseline').map((e) => e.data.results[0].matched), [false, false, true]);
+});
+
+test('workflow report: after a resume the report shows the latest setup and baseline results', async (t) => {
+  const markerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-run-marker-'));
+  t.after(() => fs.rmSync(markerDir, { recursive: true, force: true }));
+  const needs = (name) => `if (!require("fs").existsSync(${JSON.stringify(path.join(markerDir, name))})) { process.exit(1); }`;
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, { policy: { setup: [nodeCheck(needs('setup'), { id: 'install' })], checks: [nodeCheck(needs('check'))] } });
+  const runId = planned(s);
+  assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM }), 3);
+  assert.equal(state(s, runId).stopReason, 'setup-failed');
+  assert.deepEqual(reportView(readRun(s.ctx, runId)).setup, [{ id: 'install', exitCode: 1, timedOut: false }]);
+  fs.writeFileSync(path.join(markerDir, 'setup'), 'x\n');
+  assert.equal(await resume(s, runId), 3);
+  assert.equal(state(s, runId).stopReason, 'baseline-failed');
+  assert.deepEqual(reportView(readRun(s.ctx, runId)).setup, [{ id: 'install', exitCode: 0, timedOut: false }]);
+  assert.deepEqual(reportView(readRun(s.ctx, runId)).baseline.map((b) => b.matched), [false]);
+  fs.writeFileSync(path.join(markerDir, 'check'), 'x\n');
+  assert.equal(await resume(s, runId), 0);
+  assert.deepEqual(reportView(readRun(s.ctx, runId)).baseline.map((b) => b.matched), [true]);
 });
 
 test('workflow run: cancelling during a baseline check ends the run with the same rule, before any coder call', async (t) => {
@@ -1288,6 +1328,32 @@ test('workflow run: a record planned before baseline checks existed needs a new 
   }
 });
 
+test('workflow run: a stored policy edited after the plan is refused by run and resume before anything runs', async (t) => {
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } }, auditor: { exit: 1 } });
+  const notStarted = planned(s);
+  const blocked = planned(s);
+  assert.equal(await cmdRun(s.ctx, s.flags, blocked, { confirm: CONFIRM, retryDelayMs: 0 }), 3);
+  const called = s.calls().length;
+  const lastLines = {};
+  for (const runId of [notStarted, blocked]) {
+    const file = path.join(runDirOf(s, runId), 'policy.json');
+    const policy = JSON.parse(fs.readFileSync(file, 'utf8'));
+    policy.checks[0].args = ['-e', 'process.exit(0)'];
+    fs.writeFileSync(file, JSON.stringify(policy));
+    lastLines[runId] = lastEventLine(s, runId);
+  }
+  const started = runCli(s, notStarted);
+  assert.equal(started.code, 3, started.stderr);
+  assert.match(started.stderr, /cannot be recovered automatically: policy\.json does not match the policyHash/);
+  const resumed = cli(s, ['resume', blocked, '--path', s.repo, '--yes']);
+  assert.equal(resumed.code, 3, resumed.stderr);
+  assert.match(resumed.stderr, /cannot be recovered automatically: policy\.json does not match the policyHash/);
+  assert.equal(s.calls().length, called);
+  for (const runId of [notStarted, blocked]) {
+    assert.equal(lastEventLine(s, runId), lastLines[runId]);
+  }
+});
+
 test('workflow run: a required check that fails after the work steps is repaired with every write path before the reviews', (t) => {
   const s = setup(t, {
     'coder:impl': { write: { 'src/broken': 'x\n', 'src/new.txt': 'new\n' } },
@@ -1315,6 +1381,27 @@ test('workflow run: failing test names appear in the report', (t) => {
   assert.equal(rep.stopReason, 'repair-limit');
   assert.deepEqual(rep.checks[0].failedTests, ['alpha']);
   assert.match(cli(s, ['report', runId]).stdout, /unit \(required\): failed \(exit 1\); failing tests: alpha/);
+
+  const twelve = 'for (let i = 0; i < 12; i += 1) { console.log(`not ok - t${String(i).padStart(2, "0")}`); } process.exit(1);';
+  const many = setup(t, {}, { policy: { checks: [nodeCheck(twelve, { failedTestPattern: 'not ok - (\\S+)' })] } });
+  const manyRun = runCli(many, planned(many));
+  assert.equal(manyRun.code, 3, manyRun.stderr);
+  const manyReport = JSON.parse(manyRun.stdout);
+  assert.equal(manyReport.baseline[0].failedTests.length, 12);
+  const text = cli(many, ['report', manyReport.runId]).stdout;
+  assert.match(text, /failing tests: t00, t01, t02, t03, t04, t05, t06, t07, t08, t09 and 2 more\n/);
+});
+
+test('workflow run: a diff too long for a request is cut and marked, for a repair coder and for the reviews', (t) => {
+  const size = 512 * 1024;
+  const s = setup(t, { 'coder:impl': [{ write: { 'src/big.txt': `${'x'.repeat(size)}\n`, 'src/broken': 'x\n' } }, { remove: ['src/broken'] }] });
+  const r = runCli(s, planned(s));
+  assert.equal(r.code, 0, r.stderr);
+  const [, , repair, reviewer, auditor] = s.calls().map((c) => c.request);
+  for (const req of [repair, reviewer, auditor]) {
+    assert.equal(req.diff.length, size);
+    assert.equal(req.diffTruncated, true);
+  }
 });
 
 test('workflow run: a coder that only says it finished does not finish the run, and the check comes from the stored policy', (t) => {
@@ -1330,6 +1417,50 @@ test('workflow run: a coder that only says it finished does not finish the run, 
   assert.deepEqual(rep.checks.map((c) => [c.id, c.result, c.exitCode]), [['unit', 'failed', 1]]);
 });
 
+test('workflow run: the reviews get the checks and their latest results, and a repair coder gets the diff so far', (t) => {
+  const s = setup(t, { 'coder:impl': [{ write: { 'src/broken': 'x\n' } }, { remove: ['src/broken'], write: { 'src/new.txt': 'new\n' } }] });
+  const runId = planned(s);
+  const r = runCli(s, runId);
+  assert.equal(r.code, 0, r.stderr);
+  const [, first, repair, reviewer, auditor] = s.calls().map((c) => c.request);
+  assert.equal(first.diff, undefined);
+  assert.equal(first.diffTruncated, undefined);
+  assert.match(repair.diff, /src\/broken/);
+  assert.equal(repair.diffTruncated, false);
+  const checksFinished = readRun(s.ctx, runId).events.filter((e) => e.type === 'checks.finished');
+  const last = checksFinished.at(-1).data;
+  for (const req of [reviewer, auditor]) {
+    assert.deepEqual(req.checks, [{ id: 'unit', command: process.execPath, args: ['-e', CHECK_SCRIPT] }]);
+    assert.deepEqual(req.checkResults, [{ id: 'unit', exitCode: last.results[0].exitCode, stepId: last.stepId }]);
+    assert.equal(req.checkResults[0].stepId, 'review');
+    assert.equal(Object.hasOwn(req, 'checkLogs'), false);
+  }
+});
+
+test('workflow run: a check that only a work step runs keeps its own step in the results the reviews get', (t) => {
+  const lint = { id: 'lint', command: process.execPath, args: ['-e', ''], timeout: 60 };
+  const unused = { id: 'unused', command: process.execPath, args: ['-e', ''], timeout: 60 };
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, {
+    plan: { ...PLAN, steps: [{ ...STEP, checkIds: ['lint'] }] },
+    policy: { checks: [nodeCheck(CHECK_SCRIPT), lint, unused] },
+  });
+  const r = runCli(s, planned(s));
+  assert.equal(r.code, 0, r.stderr);
+  const reviewer = s.calls().find((c) => c.request.role === 'reviewer').request;
+  assert.deepEqual(reviewer.checks.map((c) => c.id), ['unit', 'lint', 'unused']);
+  assert.deepEqual(reviewer.checkResults, [{ id: 'lint', exitCode: 0, stepId: 'impl' }, { id: 'unit', exitCode: 0, stepId: 'review' }]);
+});
+
+test('workflow role guides: the reviews are told the checks already ran, and a repair coder is told about the diff', () => {
+  const guide = (role) => fs.readFileSync(new URL(`../templates/workflow/roles/${role}.md`, import.meta.url), 'utf8');
+  for (const role of ['reviewer', 'auditor']) {
+    assert.match(guide(role), /already run the commands in `checks`/);
+    assert.match(guide(role), /`checkResults`/);
+  }
+  assert.match(guide('auditor'), /Say what you could not confirm/);
+  assert.match(guide('coder'), /`diff` holds the changes so far/);
+});
+
 test('workflow run: the full commands are shown before the approval question, and without approval nothing runs', (t) => {
   const s = setup(t, {}, { policy: { setup: [nodeCheck(writeScript('generated/setup-ran.txt'), { id: 'install', cwd: 'src' })], checks: [nodeCheck(CHECK_SCRIPT, { baseline: 'pass' })] } });
   const runId = planned(s);
@@ -1342,4 +1473,40 @@ test('workflow run: the full commands are shown before the approval question, an
   assert.equal(worktreeCount(s.repo), 1);
   assert.deepEqual(readRun(s.ctx, runId).events.map((e) => e.type), ['run.created']);
   assert.deepEqual(s.keys(), ['planner:plan:1']);
+});
+
+test('workflow resume: the notice about the preparation is shown only until the preparation has finished', async (t) => {
+  const notice = /before any AI call, the setup commands run once/;
+  const done = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } }, auditor: { exit: 1 } });
+  const doneId = planned(done);
+  assert.equal(await cmdRun(done.ctx, done.flags, doneId, { confirm: CONFIRM, retryDelayMs: 0 }), 3);
+  const afterPreparation = cli(done, ['resume', doneId, '--path', done.repo]);
+  assert.equal(afterPreparation.code, 3, afterPreparation.stderr);
+  assert.match(afterPreparation.stderr, /check unit, expected to pass at the base commit: /);
+  assert.doesNotMatch(afterPreparation.stderr, notice);
+  const stopped = setup(t, {}, { policy: { checks: [nodeCheck('process.exit(1);')] } });
+  const stoppedId = planned(stopped);
+  assert.equal(await cmdRun(stopped.ctx, stopped.flags, stoppedId, { confirm: CONFIRM }), 3);
+  const beforeFinish = cli(stopped, ['resume', stoppedId, '--path', stopped.repo]);
+  assert.equal(beforeFinish.code, 3, beforeFinish.stderr);
+  assert.match(beforeFinish.stderr, notice);
+});
+
+test('workflow report: result hashes that differ or are missing are not shown as matching', (t) => {
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } });
+  const runId = planned(s);
+  assert.equal(runCli(s, runId).code, 0);
+  const run = readRun(s.ctx, runId);
+  assert.equal(reportView(run).verdict.matched, true);
+  for (const type of ['checks.sealed', 'call.baseline', 'run.outcome']) {
+    const events = run.events.map((e) => (e.type === type ? { ...e, data: { ...e.data, patchSha256: 'other' } } : e));
+    const view = reportView({ ...run, events });
+    assert.equal(view.verdict.matched, false, type);
+    assert.match(formatReport(view), /result hashes DIFFER: /, type);
+  }
+  const noSeal = reportView({ ...run, events: run.events.filter((e) => e.type !== 'checks.sealed') });
+  assert.equal(noSeal.verdict.sealed, null);
+  assert.equal(noSeal.verdict.matched, false);
+  const noHash = reportView({ ...run, events: run.events.filter((e) => !['checks.sealed', 'call.baseline', 'run.outcome'].includes(e.type)) });
+  assert.equal(noHash.verdict.matched, false);
 });

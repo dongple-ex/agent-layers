@@ -430,9 +430,19 @@ test('workflow engine: a failing required check after the work steps is repaired
   const { handle } = setup(t);
   const provider = fakeProvider();
   const verifier = fakeVerifier({ unit: [{}, {}, { exitCode: 1, failedTests: ['integration'] }] });
-  const state = await runWorkflow(handle, { provider, verifier });
+  const errorsDuringFix = [];
+  const watching = {
+    call(req) {
+      if (req.stepId === 'review-fix') {
+        errorsDuringFix.push(handle.state.steps.review.lastError);
+      }
+      return provider.call(req);
+    },
+  };
+  const state = await runWorkflow(handle, { provider: watching, verifier });
   assert.equal(state.status, 'SUCCEEDED');
   assert.deepEqual(callKeys(provider), ['coder:impl:1', 'coder:tests:1', 'coder:review-fix:1', 'reviewer:review:1', 'auditor:audit:1']);
+  assert.deepEqual(errorsDuringFix, ['check unit exited 1 (1 failing tests)']);
   assert.deepEqual(provider.calls[2].feedback, { failures: [{ id: 'unit', exitCode: 1, failedTests: ['integration'] }] });
   assert.deepEqual(provider.calls[2].writePaths, [...new Set(PLAN.steps.flatMap((s) => s.writePaths))]);
   assert.equal(state.budget.repairAttempts['review-fix'], 1);
@@ -821,6 +831,9 @@ test('workflow engine: files changed before any call stop the run, whichever way
     const [recorded] = ofType(run, 'checks.baseline');
     assert.deepEqual(recorded.changed, seal.changed || []);
     assert.deepEqual(recorded.violations, seal.violations || []);
+    const resumed = fakeVerifier();
+    assert.equal((await runWorkflow(handle, { provider, verifier: resumed, resume: true })).status, 'SUCCEEDED');
+    assert.deepEqual(resumed.baselineRuns, [['unit']]);
     releaseRun(handle);
   }
 });
@@ -884,13 +897,15 @@ test('workflow engine: the time of the preparation counts toward runTimeoutSecon
   const ok = [{ id: 'install', exitCode: 0, timedOut: false }];
   const inSetup = setup(t, { policy });
   const clock1 = fakeClock();
-  const slowSetup = { ...fakeVerifier(), async setup() { clock1.advance(101); return ok; } };
+  const plainSetup = fakeVerifier();
+  const slowSetup = { ...plainSetup, async setup() { clock1.advance(101); return ok; } };
   const provider1 = fakeProvider();
   const s1 = await runWorkflow(inSetup.handle, { provider: provider1, verifier: slowSetup, clock: clock1.now });
   assert.equal(s1.status, 'FAILED');
   assert.equal(s1.stopReason, 'runTimeoutSeconds');
   assert.equal(s1.budget.activeSeconds, 101);
   assert.deepEqual(provider1.calls, []);
+  assert.deepEqual(plainSetup.baselineRuns, []);
   releaseRun(inSetup.handle);
 
   const inBaseline = setup(t, { policy });
@@ -904,6 +919,28 @@ test('workflow engine: the time of the preparation counts toward runTimeoutSecon
   assert.equal(s2.budget.activeSeconds, 120);
   assert.deepEqual(provider2.calls, []);
   releaseRun(inBaseline.handle);
+
+  const failingLate = setup(t, { policy });
+  const clock3 = fakeClock();
+  const failing = fakeVerifier({}, { baseline: { unit: [{ exitCode: 1 }] } });
+  const slowFailure = { ...failing, async baseline(req) { clock3.advance(101); return failing.baseline(req); }, async setup() { return ok; } };
+  const s3 = await runWorkflow(failingLate.handle, { provider: fakeProvider(), verifier: slowFailure, clock: clock3.now });
+  assert.equal(s3.status, 'FAILED');
+  assert.equal(s3.stopReason, 'runTimeoutSeconds');
+  releaseRun(failingLate.handle);
+
+  const atTheLimit = setup(t, { policy });
+  const clock4 = fakeClock();
+  const failingAtLimit = fakeVerifier({}, { baseline: { unit: [{ exitCode: 1 }] } });
+  const exact = { ...failingAtLimit, async baseline(req) { clock4.advance(100); return failingAtLimit.baseline(req); }, async setup() { return ok; } };
+  assert.equal((await runWorkflow(atTheLimit.handle, { provider: fakeProvider(), verifier: exact, clock: clock4.now })).stopReason, 'baseline-failed');
+  const resumed = fakeVerifier();
+  const s4 = await runWorkflow(atTheLimit.handle, { provider: fakeProvider(), verifier: resumed, clock: clock4.now, resume: true });
+  assert.equal(s4.status, 'FAILED');
+  assert.equal(s4.stopReason, 'runTimeoutSeconds');
+  assert.deepEqual(resumed.setupRuns, []);
+  assert.deepEqual(resumed.baselineRuns, []);
+  releaseRun(atTheLimit.handle);
 });
 
 test('workflow engine: every verifier method is required before the run starts', async (t) => {
@@ -941,6 +978,7 @@ test('workflow engine: a required check repair stops at the repair limit and at 
   assert.equal(s3.status, 'FAILED');
   assert.equal(s3.stopReason, 'same-failure');
   assert.deepEqual(callKeys(repeat), ['coder:impl:1', 'coder:tests:1', 'coder:review-fix:1', 'coder:review-fix:2']);
+  assert.deepEqual(repeat.calls[3].feedback, { failures: [{ id: 'unit', exitCode: 1, failedTests: [] }] });
   releaseRun(same.handle);
 
   const named = setup(t, { policy: withLimits({ maxRepairAttempts: 5 }) });
