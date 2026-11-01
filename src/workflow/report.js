@@ -1,13 +1,21 @@
 import { remainingBudget } from './store.js';
 
 const NOT_GUARANTEED = [
-  'isolation: sandboxing is left to the AI CLI and the policy, and checks run with your permissions',
+  'isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions',
   'write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted',
   'processes: one that left its session is not found when a run ends, is cancelled or is resumed',
   'AI CLI settings: changes a CLI makes to its own global settings are not cleaned up',
   'model and usage: not recorded; only calls and active time are counted',
   'result patch: a record with secret-looking lines masked; take the change from the worktree',
 ];
+const NEW_PLAN_NOTE = 'the worktree stays at the base commit, so a fix committed to the repository needs a new plan';
+const STOP_HINTS = {
+  'setup-failed': `a setup command failed; see artifacts/setup-* in the run folder, fix the environment, then run workflow resume. ${NEW_PLAN_NOTE}`,
+  'preflight-changed-files': `the setup commands or the checks changed files git does not ignore; clean the worktree or ignore those files, then run workflow resume. ${NEW_PLAN_NOTE}`,
+  'baseline-failed': `a check failed at the base commit; see artifacts/baseline-* in the run folder. Fix the environment and run workflow resume, or mark the check "baseline": "fail" in a new plan if it should fail there. ${NEW_PLAN_NOTE}`,
+  'baseline-unexpected': `a check marked "baseline": "fail" did not fail by itself at the base commit; see artifacts/baseline-* in the run folder, fix the check or the environment, then run workflow resume. ${NEW_PLAN_NOTE}`,
+};
+const MAX_FAILED_TESTS_SHOWN = 10;
 
 export function statusView(run) {
   const { state, policy } = run;
@@ -31,6 +39,19 @@ export function statusView(run) {
     },
     issues: [...run.issues],
   };
+}
+
+function verdictHashes(events, outcome) {
+  const hashOf = (event) => (event ? event.data.patchSha256 : null);
+  const reviewed = (role) => hashOf(events.findLast((e) => e.type === 'call.baseline' && e.data.role === role));
+  const hashes = {
+    sealed: hashOf(events.findLast((e) => e.type === 'checks.sealed' || e.type === 'steps.rechecked')),
+    reviewer: reviewed('reviewer'),
+    auditor: reviewed('auditor'),
+    final: hashOf(outcome),
+  };
+  const values = Object.values(hashes);
+  return { ...hashes, matched: values.every((h) => h !== null && h === values[0]) };
 }
 
 export function reportView(run) {
@@ -62,10 +83,18 @@ export function reportView(run) {
   const workspace = run.events.find((e) => e.type === 'workspace.created');
   const outcomes = run.events.filter((e) => e.type === 'run.outcome');
   const outcome = outcomes.at(-1);
+  const setup = run.events.findLast((e) => e.type === 'setup.finished');
+  const baseline = run.events.findLast((e) => e.type === 'checks.baseline');
   return {
     ...view,
     runDir: run.dir,
+    stopHint: Object.prototype.hasOwnProperty.call(STOP_HINTS, view.stopReason) ? STOP_HINTS[view.stopReason] : null,
+    setup: setup ? setup.data.results : [],
+    baseline: baseline ? baseline.data.results : [],
+    baselineChanges: baseline ? { changed: baseline.data.changed, violations: baseline.data.violations } : { changed: [], violations: [] },
     checks,
+    unguardedChecks: run.policy.checks.filter((c) => c.inputs.length === 0).map((c) => c.id),
+    verdict: verdictHashes(run.events, outcome),
     artifacts,
     remaining: view.steps.filter((s) => s.status !== 'SUCCEEDED').map((s) => s.id),
     worktree: workspace ? workspace.data.path : null,
@@ -104,10 +133,47 @@ export function formatStatus(view) {
   return lines.join('\n');
 }
 
+function failedTestsText(names) {
+  if (names.length === 0) {
+    return '';
+  }
+  const more = names.length > MAX_FAILED_TESTS_SHOWN ? ` and ${names.length - MAX_FAILED_TESTS_SHOWN} more` : '';
+  return `; failing tests: ${names.slice(0, MAX_FAILED_TESTS_SHOWN).join(', ')}${more}`;
+}
+
+function preflightLines(view) {
+  const lines = [];
+  if (view.setup.length > 0) {
+    lines.push('setup:', ...view.setup.map((r) => `  ${r.id}: exit ${r.exitCode}${r.timedOut ? ' (timed out)' : ''}`));
+  }
+  if (view.baseline.length > 0) {
+    lines.push('baseline checks at the base commit:');
+    for (const r of view.baseline) {
+      lines.push(`  ${r.id}: exit ${r.exitCode}${r.timedOut ? ' (timed out)' : ''}, expected to ${r.expected}, ${r.matched ? 'as expected' : 'NOT as expected'}${failedTestsText(r.failedTests)}`);
+    }
+  }
+  const { changed, violations } = view.baselineChanges;
+  if (changed.length > 0 || violations.length > 0) {
+    lines.push(`changed before any AI call: ${[...new Set([...changed, ...violations.map((v) => v.path || v.reason)])].join(', ')}`);
+  }
+  return lines;
+}
+
 export function formatReport(view) {
-  const lines = [formatStatus(view), 'checks:'];
+  const lines = [formatStatus(view)];
+  if (view.stopHint) {
+    lines.push(`next: ${view.stopHint}`);
+  }
+  lines.push(...preflightLines(view), 'checks:');
   for (const c of view.checks) {
-    lines.push(`  ${c.id}${c.required ? ' (required)' : ''}: ${c.result}${c.result === 'failed' ? ` (exit ${c.exitCode})` : ''}`);
+    lines.push(`  ${c.id}${c.required ? ' (required)' : ''}: ${c.result}${c.result === 'failed' ? ` (exit ${c.exitCode})${failedTestsText(c.failedTests)}` : ''}`);
+  }
+  if (view.unguardedChecks.length > 0) {
+    lines.push(`checks without inputs, whose test files the AI CLI may edit: ${view.unguardedChecks.join(', ')}`);
+  }
+  if (view.status === 'SUCCEEDED') {
+    const { sealed, reviewer, auditor, final, matched } = view.verdict;
+    lines.push(`result hashes ${matched ? 'all match' : 'DIFFER'}: checks ${sealed}, reviewer ${reviewer}, auditor ${auditor}, final ${final}`);
   }
   lines.push(`artifacts: ${view.artifacts.length} in ${view.runDir}`);
   for (const a of view.artifacts) {

@@ -25,12 +25,13 @@ export const RUN_STATUSES = ['PLANNED', 'RUNNING', 'BLOCKED', 'SUCCEEDED', 'FAIL
 const POSITIVE_LIMITS = ['maxSteps', 'maxAgentCalls', 'stepTimeoutSeconds', 'runTimeoutSeconds'];
 const RETRY_LIMITS = ['maxRepairAttempts', 'maxTransportRetries', 'maxPlanRepairs'];
 const STEP_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const POLICY_KEYS = ['schemaVersion', 'provider', 'limits', 'allowedWritePaths', 'protectedPaths', 'checks', 'requiredChecks', 'requiredRoles', 'exceptions'];
+const POLICY_KEYS = ['schemaVersion', 'provider', 'limits', 'allowedWritePaths', 'protectedPaths', 'setup', 'checks', 'requiredChecks', 'requiredRoles', 'exceptions'];
 const PROVIDER_KEYS = ['command', 'args', 'roleArgs', 'env'];
 const PROVIDER_ROLES = ['planner', 'coder', 'reviewer', 'auditor'];
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
-//20261030 TODO Field name "inputs" and optional cwd/inputs are provisional; CONTRACT 4 does not name them
-const CHECK_KEYS = ['id', 'command', 'args', 'cwd', 'timeout', 'inputs'];
+const SETUP_KEYS = ['id', 'command', 'args', 'cwd', 'timeout'];
+const CHECK_KEYS = [...SETUP_KEYS, 'inputs', 'baseline', 'failedTestPattern'];
+const BASELINE_EXPECTATIONS = ['pass', 'fail'];
 const STEP_KEYS = ['id', 'role', 'dependsOn', 'instruction', 'writePaths', 'checkIds', 'acceptance'];
 const RESULT_KEYS = ['schemaVersion', 'stepId', 'attempt', 'status', 'summary', 'artifacts', 'findings', 'needsInput'];
 const ARTIFACT_KEYS = ['path', 'purpose'];
@@ -128,37 +129,65 @@ function limitIssue(key, value) {
   return Number.isSafeInteger(value) && value >= 0 ? null : 'must be an integer of 0 or more';
 }
 
-function checkDefinition(check, where, add) {
-  if (!isObject(check)) {
+function commandDefinition(item, where, add, keys) {
+  if (!isObject(item)) {
     add(where, 'must be an object');
     return null;
   }
-  for (const k of unknownKeys(check, CHECK_KEYS)) {
+  for (const k of unknownKeys(item, keys)) {
     add(`${where}.${k}`, 'unknown field');
   }
-  if (typeof check.id !== 'string' || !STEP_ID_RE.test(check.id)) {
+  if (typeof item.id !== 'string' || !STEP_ID_RE.test(item.id)) {
     add(`${where}.id`, 'must match [A-Za-z0-9][A-Za-z0-9._-]* (max 64)');
   }
-  if (executableIssue(check.command)) {
-    add(`${where}.command`, executableIssue(check.command));
+  if (executableIssue(item.command)) {
+    add(`${where}.command`, executableIssue(item.command));
   }
-  if (!isArgList(check.args)) {
+  if (!isArgList(item.args)) {
     add(`${where}.args`, 'must be an array of strings');
   }
-  if (!Number.isSafeInteger(check.timeout) || check.timeout <= 0) {
+  if (!Number.isSafeInteger(item.timeout) || item.timeout <= 0) {
     add(`${where}.timeout`, 'must be a positive integer (seconds)');
   }
   let cwd = '.';
-  if (own(check, 'cwd')) {
-    const issue = relativePathIssue(check.cwd);
+  if (own(item, 'cwd')) {
+    const issue = relativePathIssue(item.cwd);
     if (issue) {
       add(`${where}.cwd`, issue);
     } else {
-      cwd = normalizeRelativePath(check.cwd);
+      cwd = normalizeRelativePath(item.cwd);
     }
   }
+  return { id: item.id, command: item.command, args: Array.isArray(item.args) ? [...item.args] : [], cwd, timeout: item.timeout };
+}
+
+function failedTestPatternIssue(pattern) {
+  if (typeof pattern !== 'string' || pattern === '') {
+    return 'must be a regular expression with one capture group';
+  }
+  try {
+    new RegExp(pattern);
+  } catch (err) {
+    return `is not a valid regular expression: ${err.message}`;
+  }
+  return new RegExp(`(?:${pattern})|`).exec('').length === 2 ? null : 'must have exactly one capture group';
+}
+
+function checkDefinition(check, where, add) {
+  const def = commandDefinition(check, where, add, CHECK_KEYS);
+  if (!def) {
+    return null;
+  }
   const inputs = own(check, 'inputs') ? pathList(check.inputs, `${where}.inputs`, add, { allowEmpty: true }) : [];
-  return { id: check.id, command: check.command, args: Array.isArray(check.args) ? [...check.args] : [], cwd, timeout: check.timeout, inputs };
+  const baseline = own(check, 'baseline') ? check.baseline : 'pass';
+  if (!BASELINE_EXPECTATIONS.includes(baseline)) {
+    add(`${where}.baseline`, `must be one of ${BASELINE_EXPECTATIONS.join(', ')}`);
+  }
+  const failedTestPattern = own(check, 'failedTestPattern') ? check.failedTestPattern : null;
+  if (failedTestPattern !== null && failedTestPatternIssue(failedTestPattern)) {
+    add(`${where}.failedTestPattern`, failedTestPatternIssue(failedTestPattern));
+  }
+  return { ...def, inputs, baseline, failedTestPattern };
 }
 
 export function normalizePolicy(raw) {
@@ -231,6 +260,22 @@ export function normalizePolicy(raw) {
   for (const p of RUNTIME_PROTECTED_PATHS) {
     if (!protectedPaths.includes(p)) {
       protectedPaths.push(p);
+    }
+  }
+
+  const setup = [];
+  if (own(raw, 'setup')) {
+    if (!Array.isArray(raw.setup)) {
+      add('setup', 'must be an array');
+    } else {
+      raw.setup.forEach((item, i) => {
+        const def = commandDefinition(item, `setup[${i}]`, add, SETUP_KEYS);
+        if (def && setup.some((x) => x.id === def.id)) {
+          add(`setup[${i}].id`, `duplicate setup id "${def.id}"`);
+        } else if (def) {
+          setup.push(def);
+        }
+      });
     }
   }
 
@@ -336,7 +381,7 @@ export function normalizePolicy(raw) {
     return { policy: null, issues };
   }
   return {
-    policy: { schemaVersion: SCHEMA_VERSION, provider, limits, allowedWritePaths, protectedPaths, checks, requiredChecks, requiredRoles, exceptions },
+    policy: { schemaVersion: SCHEMA_VERSION, provider, limits, allowedWritePaths, protectedPaths, setup, checks, requiredChecks, requiredRoles, exceptions },
     issues,
   };
 }

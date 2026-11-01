@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { TREE_KILL_SUPPORTED } from '../src/workflow/process.js';
 import { REDACTED_TEXT } from '../src/workflow/store.js';
-import { cancelError, checkCommandProblem, childEnv, commandProblem, EXIT_TIMED_OUT, isRelativeCommand, runChecks, runTracked } from '../src/workflow/verify.js';
+import { cancelError, checkCommandProblem, childEnv, commandProblem, EXIT_NOT_STARTED, EXIT_TIMED_OUT, isRelativeCommand, runChecks, runSetup, runTracked } from '../src/workflow/verify.js';
 
 function tempDir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-layers-wf-verify-'));
@@ -130,6 +130,64 @@ test('workflow verify: a check that cannot start is a start error, and only the 
   assert.equal(r.exitCode, 0);
 });
 
+test('workflow verify: failedTestPattern names the failures of a failing check from its cleaned log', async (t) => {
+  const dir = tempDir(t);
+  const pattern = 'not ok - (\\S+)';
+  const lines = 'console.log("not ok - beta"); console.log("not ok - alpha and not ok - gamma"); console.error("not ok - beta"); console.log("not ok - token=SYN_NAME");';
+  const run = async (script, extra) => (await runChecks({ checks: [nodeCheck('c', script, extra)], checkIds: ['c'], worktree: dir }))[0];
+  const failing = await run(`${lines} process.exit(1);`, { failedTestPattern: pattern });
+  assert.deepEqual(failing.failedTests, ['alpha', 'beta', 'gamma']);
+  assert.ok(failing.stdout.includes(REDACTED_TEXT));
+  assert.deepEqual((await run(lines, { failedTestPattern: pattern })).failedTests, []);
+  assert.deepEqual((await run(`${lines} process.exit(1);`, {})).failedTests, []);
+  assert.deepEqual((await run('process.exit(1);', { failedTestPattern: '(optional)?' })).failedTests, []);
+  const many = await run('for (let i = 0; i < 300; i += 1) { console.log(`not ok - t${String(i).padStart(3, "0")}`); } process.exit(1);', { failedTestPattern: pattern });
+  assert.equal(many.failedTests.length, 200);
+  assert.equal(many.failedTests[0], 't000');
+});
+
+test('workflow verify: only a check that ended by itself counts as completed, and a start failure is a result only when asked', async (t) => {
+  const dir = tempDir(t);
+  const checks = [nodeCheck('fail', 'process.exit(3)'), nodeCheck('slow', 'setTimeout(() => {}, 60000)', { timeout: 1 }), { ...nodeCheck('none', ''), command: 'agent-layers-no-such-program' }];
+  const results = await runChecks({ checks, checkIds: ['fail', 'slow', 'none'], worktree: dir, startFailureIsResult: true });
+  assert.deepEqual(results.map((r) => [r.id, r.exitCode, r.timedOut, r.completed]), [['fail', 3, false, true], ['slow', EXIT_TIMED_OUT, true, false], ['none', EXIT_NOT_STARTED, false, false]]);
+  assert.match(results[2].stderr.join('\n'), /agent-layers-no-such-program/);
+  assert.equal(results[2].stdout.length, 0);
+});
+
+test('workflow verify: setup runs in order, stops at the first failure and is not tracked as a check', async (t) => {
+  const dir = tempDir(t);
+  fs.mkdirSync(path.join(dir, 'sub'));
+  const write = (name) => `require("fs").writeFileSync(${JSON.stringify(name)}, "x")`;
+  const seen = [];
+  const track = {
+    starting(what) {
+      seen.push(what);
+    },
+    started() {},
+    ended() {},
+  };
+  const setup = [
+    nodeCheck('first', write('first.txt'), { cwd: 'sub' }),
+    nodeCheck('none', '', { command: 'agent-layers-no-such-program' }),
+    nodeCheck('later', write('later.txt')),
+  ];
+  const results = await runSetup({ setup, worktree: dir, track });
+  assert.deepEqual(results.map((r) => [r.id, r.exitCode]), [['first', 0], ['none', EXIT_NOT_STARTED]]);
+  assert.equal(fs.existsSync(path.join(dir, 'sub', 'first.txt')), true);
+  assert.equal(fs.existsSync(path.join(dir, 'later.txt')), false);
+  assert.deepEqual(seen.map((w) => [w.stepId, w.setupId]), [[null, 'first'], [null, 'none']]);
+});
+
+test('workflow verify: a cancelled setup command is reported by its name', async (t) => {
+  const dir = tempDir(t);
+  const controller = new AbortController();
+  const running = runSetup({ setup: [nodeCheck('slow', 'require("fs").writeFileSync("started", "x"); setTimeout(() => {}, 60000);')], worktree: dir, signal: controller.signal });
+  await waitFor(path.join(dir, 'started'));
+  controller.abort();
+  await assert.rejects(running, (err) => /setup command "slow" was cancelled/.test(err.message) && err.cancelRequested === true && err.cancelled === TREE_KILL_SUPPORTED);
+});
+
 test('workflow verify: command problems name a missing program and skip paths relative to the worktree', () => {
   const env = childEnv();
   assert.equal(commandProblem(process.execPath, env), null);
@@ -139,6 +197,7 @@ test('workflow verify: command problems name a missing program and skip paths re
   assert.equal(isRelativeCommand(process.execPath), false);
   assert.equal(checkCommandProblem([nodeCheck('ok', ''), { id: 'local', command: './gradlew' }], env), null);
   assert.match(checkCommandProblem([nodeCheck('ok', ''), { id: 'gone', command: 'agent-layers-no-such-program' }], env), /check "gone": agent-layers-no-such-program was not found/);
+  assert.match(checkCommandProblem([{ id: 'gone', command: 'agent-layers-no-such-program' }], env, 'setup command'), /setup command "gone": agent-layers-no-such-program was not found/);
 });
 
 test('workflow verify: a batch file is named as a problem on Windows', { skip: process.platform !== 'win32' }, (t) => {

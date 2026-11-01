@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { setQuiet } from '../src/util/log.js';
 import { findLeftovers, TREE_KILL_SUPPORTED } from '../src/workflow/process.js';
 import { cmdCancel, cmdPlan, cmdRun } from '../src/workflow/run.js';
+import { hashJson } from '../src/workflow/schema.js';
 import { acquireRun, commitRun, readRun, releaseRun, requestCancel } from '../src/workflow/store.js';
 
 const CANCEL_STATUS = TREE_KILL_SUPPORTED ? 'CANCELLED' : 'INTERRUPTED';
@@ -415,14 +416,15 @@ test('workflow run: each process is recorded by number and result only, and the 
   assert.equal(r.code, 0, r.stderr);
   const { events } = readRun(s.ctx, runId);
   const ofType = (type) => events.filter((e) => e.type === type).map((e) => e.data);
-  assert.equal(ofType('process.starting').length, 5);
-  assert.equal(ofType('process.ended').length, 5);
+  assert.equal(ofType('process.starting').length, 6);
+  assert.equal(ofType('process.ended').length, 6);
   const started = ofType('process.started');
-  assert.equal(started.length, 5);
-  assert.deepEqual(Object.keys(started[0]).sort(), ['attempt', 'pgid', 'pid', 'role', 'startTime', 'stepId']);
-  assert.deepEqual(Object.keys(started[1]).sort(), ['checkId', 'pgid', 'pid', 'startTime', 'stepId']);
-  assert.equal(started[0].pid, s.calls()[1].pid);
-  assert.deepEqual(ofType('process.ended').map((d) => [d.confirmed, d.remaining]), Array(5).fill([TREE_KILL_SUPPORTED, 0]));
+  assert.equal(started.length, 6);
+  assert.deepEqual(Object.keys(started[0]).sort(), ['checkId', 'pgid', 'pid', 'startTime', 'stepId']);
+  assert.deepEqual(Object.keys(started[1]).sort(), ['attempt', 'pgid', 'pid', 'role', 'startTime', 'stepId']);
+  assert.deepEqual(Object.keys(started[2]).sort(), ['checkId', 'pgid', 'pid', 'startTime', 'stepId']);
+  assert.equal(started[1].pid, s.calls()[1].pid);
+  assert.deepEqual(ofType('process.ended').map((d) => [d.confirmed, d.remaining]), Array(6).fill([TREE_KILL_SUPPORTED, 0]));
   assert.equal(ofType('source.baseline').length, 1);
   assert.equal(typeof ofType('source.baseline')[0].digest, 'string');
   assert.deepEqual(ofType('call.baseline').map((d) => d.role), ['reviewer', 'auditor']);
@@ -430,7 +432,8 @@ test('workflow run: each process is recorded by number and result only, and the 
 });
 
 test('workflow run: cancelling during a check ends the run with the same rule', async (t) => {
-  const s = setup(t, {}, { policy: { checks: [{ id: 'unit', command: process.execPath, args: ['-e', 'setTimeout(() => {}, 60000)'], timeout: 120 }] } });
+  const waitAfterCoder = 'if (require("fs").existsSync("src/new.txt")) { setTimeout(() => {}, 60000); }';
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, { policy: { checks: [{ id: 'unit', command: process.execPath, args: ['-e', waitAfterCoder], timeout: 120 }] } });
   const runId = planned(s);
   const controller = new AbortController();
   const running = cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, signal: controller.signal });
@@ -583,7 +586,8 @@ test('workflow resume: once the processes are confirmed gone, the step runs agai
   const done = readRun(s.ctx, runId);
   assert.equal(done.state.status, 'SUCCEEDED');
   assert.deepEqual(done.issues, []);
-  assert.deepEqual(seen, [s.calls()[1].pid]);
+  const baselineStarted = done.events.find((e) => e.type === 'process.started' && e.data.checkId);
+  assert.deepEqual(seen, TREE_KILL_SUPPORTED ? [s.calls()[1].pid] : [baselineStarted.data.pid, s.calls()[1].pid]);
   assert.equal(done.state.steps.impl.attempts, 2);
   assert.equal(done.state.budget.agentCalls, 5);
   assert.deepEqual(s.keys(), ['planner:plan:1', 'coder:impl:1', 'coder:impl:2', 'reviewer:review:1', 'auditor:audit:1']);
@@ -951,4 +955,391 @@ test('workflow plan: an npm batch file is refused on Windows with what to write 
   const r = cli(s, ['plan', '--path', s.repo, '--goal-file', s.goalFile, '--config', s.policyFile, '--yes'], { PATH: `${bin}${path.delimiter}${process.env.PATH}` });
   assert.equal(r.code, 2, r.stderr);
   assert.match(r.stderr, /is a batch file, which needs a shell/);
+});
+
+test('workflow resume: a coder resumed after a failed check gets the failures and the log again', async (t) => {
+  const s = setup(t, {
+    'coder:impl': [{ write: { 'src/broken': 'x\n' } }, { exit: 1 }, { exit: 1 }, { exit: 1 }, { remove: ['src/broken'], write: { 'src/new.txt': 'new\n' } }],
+  });
+  const runId = planned(s);
+  assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, retryDelayMs: 0 }), 3);
+  assert.equal(state(s, runId).stopReason, 'transport');
+  assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, resume: true, retryDelayMs: 0 }), 0);
+  const last = s.calls().filter((c) => c.request.role === 'coder').at(-1).request;
+  assert.deepEqual(last.feedback.failures, [{ id: 'unit', exitCode: 1, failedTests: [] }]);
+  assert.equal(last.checkLogs[0].id, 'unit');
+  assert.ok(last.checkLogs[0].stderr.includes('check found src/broken'));
+  assert.equal(readRun(s.ctx, runId).events.filter((e) => e.type === 'checks.baseline').length, 1);
+});
+
+test('workflow run: a check that leaves a file outside the write paths ends the run as FAILED', (t) => {
+  const script = 'const fs = require("fs"); if (fs.existsSync("src/new.txt")) { fs.writeFileSync("outside.txt", "x\\n"); }';
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, { policy: { checks: [{ id: 'unit', command: process.execPath, args: ['-e', script], timeout: 60 }] } });
+  const r = runCli(s, planned(s));
+  const rep = JSON.parse(r.stdout);
+  assert.equal(rep.status, 'FAILED');
+  assert.equal(rep.stopReason, 'policy-violation');
+  assert.equal(r.code, 1);
+  assert.equal(s.keys().includes('reviewer:review:1'), false);
+});
+
+test('workflow resume: a change made after the review runs the checks and the review again', async (t) => {
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } }, auditor: [{ exit: 1 }, { exit: 1 }, { exit: 1 }, {}] });
+  const runId = planned(s);
+  assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, retryDelayMs: 0 }), 3);
+  const worktree = s.calls().find((c) => c.request.role === 'coder').cwd;
+  fs.writeFileSync(path.join(worktree, 'src', 'new.txt'), 'changed after the review\n');
+  assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, resume: true, retryDelayMs: 0 }), 0);
+  const reviews = s.calls().filter((c) => c.request.role === 'reviewer');
+  assert.equal(reviews.length, 2);
+  assert.match(reviews[1].request.diff, /changed after the review/);
+  const { state: done, events } = readRun(s.ctx, runId);
+  assert.equal(done.status, 'SUCCEEDED');
+  const outcome = events.findLast((e) => e.type === 'run.outcome');
+  assert.equal(events.findLast((e) => e.type === 'run.succeeded').data.patchSha256, outcome.data.patchSha256);
+  assert.equal(events.filter((e) => e.type === 'checks.baseline').length, 1);
+  assert.deepEqual(events.filter((e) => e.type === 'seal.broken').map((e) => e.data.stepId), ['audit']);
+});
+
+function nodeCheck(script, extra = {}) {
+  return { id: 'unit', command: process.execPath, args: ['-e', script], timeout: 60, ...extra };
+}
+
+function writeScript(file) {
+  return `const fs = require("fs"); fs.mkdirSync(require("path").dirname(${JSON.stringify(file)}), { recursive: true }); fs.writeFileSync(${JSON.stringify(file)}, "x\\n");`;
+}
+
+function runDirOf(s, runId) {
+  return path.join(s.ctx.paths.stateDir, 'workflows', runId);
+}
+
+function withoutSetup(s, runId) {
+  const dir = runDirOf(s, runId);
+  const policy = JSON.parse(fs.readFileSync(path.join(dir, 'policy.json'), 'utf8'));
+  delete policy.setup;
+  fs.writeFileSync(path.join(dir, 'policy.json'), JSON.stringify(policy));
+  const plan = JSON.parse(fs.readFileSync(path.join(dir, 'plan.json'), 'utf8'));
+  fs.writeFileSync(path.join(dir, 'plan.json'), JSON.stringify({ ...plan, policyHash: hashJson(policy) }));
+}
+
+test('workflow run: a check that fails at the base commit stops before any coder call and the report shows it', (t) => {
+  const failing = 'console.log("not ok - first"); process.exit(1);';
+  const s = setup(t, {}, { policy: { checks: [nodeCheck(failing, { failedTestPattern: 'not ok - (\\S+)' })] } });
+  const runId = planned(s);
+  const r = runCli(s, runId);
+  assert.equal(r.code, 3, r.stderr);
+  const rep = JSON.parse(r.stdout);
+  assert.equal(rep.status, 'BLOCKED');
+  assert.equal(rep.stopReason, 'baseline-failed');
+  assert.deepEqual(s.keys(), ['planner:plan:1']);
+  assert.deepEqual(rep.baseline, [{ id: 'unit', exitCode: 1, failedTests: ['first'], timedOut: false, expected: 'pass', matched: false }]);
+  assert.deepEqual(rep.checks.map((c) => [c.id, c.result]), [['unit', 'not-run']]);
+  assert.deepEqual(artifact(rep, 'baseline-').results[0].stdout, ['not ok - first', '']);
+  const text = cli(s, ['report', runId]);
+  assert.equal(text.code, 0, text.stderr);
+  assert.match(text.stdout, /next: a check failed at the base commit; see artifacts\/baseline-\*/);
+  assert.match(text.stdout, /needs a new plan/);
+  assert.match(text.stdout, /baseline checks at the base commit:\n {2}unit: exit 1, expected to pass, NOT as expected; failing tests: first/);
+});
+
+test('workflow run: a check expected to fail at the base commit is passed by the change, with one hash from the checks to the end', (t) => {
+  const accept = 'if (!require("fs").existsSync("src/new.txt")) { console.error("the new file is missing"); process.exit(1); }';
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, { policy: { checks: [nodeCheck(accept, { baseline: 'fail' })] } });
+  const runId = planned(s);
+  const r = runCli(s, runId);
+  assert.equal(r.code, 0, r.stderr);
+  const rep = JSON.parse(r.stdout);
+  assert.equal(rep.status, 'SUCCEEDED');
+  assert.deepEqual(rep.baseline, [{ id: 'unit', exitCode: 1, failedTests: [], timedOut: false, expected: 'fail', matched: true }]);
+  assert.deepEqual(rep.checks.map((c) => [c.id, c.result]), [['unit', 'passed']]);
+  assert.deepEqual(artifact(rep, 'baseline-').results[0].stderr, ['the new file is missing', '']);
+  const { sealed, reviewer, auditor, final, matched } = rep.verdict;
+  assert.equal(matched, true);
+  assert.equal(sealed, rep.resultPatch.sha256);
+  assert.deepEqual([reviewer, auditor, final], [sealed, sealed, sealed]);
+  assert.equal(readRun(s.ctx, runId).events.findLast((e) => e.type === 'run.succeeded').data.patchSha256, sealed);
+  assert.deepEqual(rep.unguardedChecks, ['unit']);
+  const text = cli(s, ['report', runId]).stdout;
+  assert.match(text, /unit: exit 1, expected to fail, as expected/);
+  assert.match(text, /result hashes all match: checks /);
+  assert.match(text, /checks without inputs, whose test files the AI CLI may edit: unit/);
+});
+
+test('workflow run: a check expected to fail at the base commit stops the run when it passes, times out or cannot start', (t) => {
+  for (const [name, check, exitCode] of [
+    ['passes', nodeCheck('', { baseline: 'fail' }), 0],
+    ['times out', nodeCheck('setTimeout(() => {}, 60000);', { baseline: 'fail', timeout: 1 }), 124],
+    ['cannot start', { id: 'unit', command: './agent-layers-no-such-check', args: [], timeout: 60, baseline: 'fail' }, 127],
+  ]) {
+    const s = setup(t, {}, { policy: { checks: [check] } });
+    const r = runCli(s, planned(s));
+    assert.equal(r.code, 3, `${name}: ${r.stderr}`);
+    const rep = JSON.parse(r.stdout);
+    assert.equal(rep.stopReason, 'baseline-unexpected', name);
+    assert.equal(rep.baseline[0].exitCode, exitCode, name);
+    assert.equal(rep.baseline[0].matched, false, name);
+    assert.deepEqual(s.keys(), ['planner:plan:1'], name);
+  }
+});
+
+test('workflow run: setup runs once in the worktree, may leave ignored files, and stops the run when it fails or leaves other changes', (t) => {
+  const passing = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, { policy: { setup: [nodeCheck(writeScript('generated/out.txt'), { id: 'gen' })] } });
+  const r1 = runCli(passing, planned(passing));
+  assert.equal(r1.code, 0, r1.stderr);
+  const rep1 = JSON.parse(r1.stdout);
+  assert.deepEqual(rep1.setup, [{ id: 'gen', exitCode: 0, timedOut: false }]);
+  assert.equal(fs.existsSync(path.join(rep1.worktree, 'generated', 'out.txt')), true);
+  assert.equal(artifact(rep1, 'setup-').results[0].id, 'gen');
+  assert.deepEqual(readRun(passing.ctx, rep1.runId).events.filter((e) => e.type === 'process.started' && e.data.setupId).length, 1);
+
+  const changing = setup(t, {}, { policy: { setup: [nodeCheck(writeScript('made-by-setup.txt'), { id: 'gen' })] } });
+  const r2 = runCli(changing, planned(changing));
+  assert.equal(r2.code, 3, r2.stderr);
+  const rep2 = JSON.parse(r2.stdout);
+  assert.equal(rep2.stopReason, 'preflight-changed-files');
+  assert.deepEqual(rep2.baselineChanges.changed, ['made-by-setup.txt']);
+  assert.deepEqual(changing.keys(), ['planner:plan:1']);
+  assert.match(cli(changing, ['report', rep2.runId]).stdout, /changed before any AI call: made-by-setup\.txt/);
+
+  for (const [name, item, exitCode] of [
+    ['fails', nodeCheck('process.exit(4);', { id: 'gen' }), 4],
+    ['cannot start', { id: 'gen', command: './agent-layers-no-such-tool', args: [], timeout: 60 }, 127],
+  ]) {
+    const failing = setup(t, {}, { policy: { setup: [item, nodeCheck(writeScript('generated/later.txt'), { id: 'later' })] } });
+    const r3 = runCli(failing, planned(failing));
+    assert.equal(r3.code, 3, `${name}: ${r3.stderr}`);
+    const rep3 = JSON.parse(r3.stdout);
+    assert.equal(rep3.stopReason, 'setup-failed', name);
+    assert.deepEqual(rep3.setup, [{ id: 'gen', exitCode, timedOut: false }], name);
+    assert.deepEqual(rep3.baseline, [], name);
+    assert.deepEqual(failing.keys(), ['planner:plan:1'], name);
+    assert.equal(fs.existsSync(path.join(rep3.worktree, 'generated', 'later.txt')), false, name);
+  }
+});
+
+test('workflow run: a check that changes files at the base commit stops the run before any coder call', (t) => {
+  const s = setup(t, {}, { policy: { checks: [nodeCheck(writeScript('src/coverage.txt'))] } });
+  const r = runCli(s, planned(s));
+  assert.equal(r.code, 3, r.stderr);
+  const rep = JSON.parse(r.stdout);
+  assert.equal(rep.stopReason, 'preflight-changed-files');
+  assert.deepEqual(rep.baselineChanges.changed, ['src/coverage.txt']);
+  assert.deepEqual(s.keys(), ['planner:plan:1']);
+});
+
+test('workflow resume: a stopped preparation runs again once the environment is fixed', async (t) => {
+  const markerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-run-marker-'));
+  t.after(() => fs.rmSync(markerDir, { recursive: true, force: true }));
+  const marker = path.join(markerDir, 'fixed');
+  const script = `if (!require("fs").existsSync(${JSON.stringify(marker)})) { process.exit(1); }`;
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, { policy: { checks: [nodeCheck(script)] } });
+  const runId = planned(s);
+  assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM }), 3);
+  assert.equal(state(s, runId).stopReason, 'baseline-failed');
+  assert.equal(await resume(s, runId), 3);
+  assert.equal(state(s, runId).stopReason, 'baseline-failed');
+  fs.writeFileSync(marker, 'x\n');
+  assert.equal(await resume(s, runId), 0);
+  const { state: done, events } = readRun(s.ctx, runId);
+  assert.equal(done.status, 'SUCCEEDED');
+  assert.deepEqual(events.filter((e) => e.type === 'checks.baseline').map((e) => e.data.results[0].matched), [false, false, true]);
+});
+
+test('workflow run: cancelling during a baseline check ends the run with the same rule, before any coder call', async (t) => {
+  const s = setup(t, {}, { policy: { checks: [nodeCheck('setTimeout(() => {}, 60000);', { timeout: 120 })] } });
+  const runId = planned(s);
+  const controller = new AbortController();
+  const running = cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, signal: controller.signal });
+  await waitUntil(() => lastEventLine(s, runId).includes('"process.started"'));
+  controller.abort();
+  assert.equal(await running, CANCEL_EXIT);
+  assert.equal(state(s, runId).status, CANCEL_STATUS);
+  assert.deepEqual(s.keys(), ['planner:plan:1']);
+});
+
+test('workflow resume: a run killed during a baseline check prepares again from the start and keeps the check result', async (t) => {
+  const markerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-run-marker-'));
+  t.after(() => fs.rmSync(markerDir, { recursive: true, force: true }));
+  const marker = path.join(markerDir, 'first');
+  const script = `const fs = require("fs"); if (!fs.existsSync(${JSON.stringify(marker)})) { fs.writeFileSync(${JSON.stringify(marker)}, "x"); fs.writeFileSync("left-by-baseline.txt", "x"); setTimeout(() => {}, 60000); }`;
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, { policy: { checks: [nodeCheck(script, { timeout: 120 })] } });
+  const runId = planned(s);
+  const { child, exited } = startRun(s, runId);
+  await waitUntil(() => fs.existsSync(marker) && lastEventLine(s, runId).includes('"process.started"'));
+  child.kill('SIGKILL');
+  await exited;
+  const stopped = readRun(s.ctx, runId);
+  const worktree = stopped.events.find((e) => e.type === 'workspace.created').data.path;
+  endProcess(stopped.events.findLast((e) => e.type === 'process.started').data.pid);
+  await waitUntil(() => {
+    try {
+      fs.rmSync(path.join(worktree, 'left-by-baseline.txt'), { force: true });
+      return true;
+    } catch (err) {
+      return false;
+    }
+  });
+  assert.equal(await resume(s, runId), 0);
+  const { state: done, events } = readRun(s.ctx, runId);
+  assert.equal(done.status, 'SUCCEEDED');
+  assert.equal(events.filter((e) => e.type === 'checks.baseline').length, 1);
+  assert.deepEqual(s.keys(), ['planner:plan:1', 'coder:impl:1', 'reviewer:review:1', 'auditor:audit:1']);
+});
+
+test('workflow resume: what a killed baseline check left stops the run as a preparation problem, not as a policy violation', async (t) => {
+  const markerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-run-marker-'));
+  t.after(() => fs.rmSync(markerDir, { recursive: true, force: true }));
+  const marker = path.join(markerDir, 'first');
+  const script = `const fs = require("fs"); if (!fs.existsSync(${JSON.stringify(marker)})) { fs.writeFileSync("left-by-baseline.txt", "x"); fs.writeFileSync(${JSON.stringify(marker)}, "x"); setTimeout(() => {}, 60000); }`;
+  const s = setup(t, {}, { policy: { checks: [nodeCheck(script, { timeout: 120 })] } });
+  const runId = planned(s);
+  const { child, exited } = startRun(s, runId);
+  await waitUntil(() => fs.existsSync(marker) && lastEventLine(s, runId).includes('"process.started"'));
+  child.kill('SIGKILL');
+  await exited;
+  endProcess(readRun(s.ctx, runId).events.findLast((e) => e.type === 'process.started').data.pid);
+  assert.equal(await resume(s, runId), 3);
+  const blocked = state(s, runId);
+  assert.equal(blocked.status, 'BLOCKED');
+  assert.equal(blocked.stopReason, 'preflight-changed-files');
+  assert.deepEqual(s.keys(), ['planner:plan:1']);
+});
+
+test('workflow run: a coder that changes or deletes an existing check input fails the run, and a new file next to it does not', (t) => {
+  for (const action of [{ write: { 'src/a.txt': 'changed\n' } }, { remove: ['src/a.txt'] }]) {
+    const s = setup(t, { 'coder:impl': action }, { policy: { checks: [nodeCheck(CHECK_SCRIPT, { inputs: ['src/a.txt'] })] } });
+    const r = runCli(s, planned(s));
+    assert.equal(r.code, 1, r.stderr);
+    const rep = JSON.parse(r.stdout);
+    assert.equal(rep.stopReason, 'policy-violation');
+    assert.match(rep.steps[0].lastError, /src\/a\.txt \(check-input-changed\)/);
+    assert.deepEqual(rep.unguardedChecks, []);
+    assert.equal(s.keys().includes('reviewer:review:1'), false);
+  }
+  const s = setup(t, { 'coder:impl': { write: { 'src/b.txt': 'new\n' } } }, { policy: { checks: [nodeCheck(CHECK_SCRIPT, { inputs: ['src'] })] } });
+  const r = runCli(s, planned(s));
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).status, 'SUCCEEDED');
+});
+
+test('workflow run: a check that changes a check input is found at the seal', (t) => {
+  const script = 'const fs = require("fs"); if (fs.existsSync("src/new.txt")) { fs.writeFileSync("src/a.txt", "changed by the check\\n"); }';
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, { policy: { checks: [nodeCheck(script, { inputs: ['src/a.txt'] })] } });
+  const r = runCli(s, planned(s));
+  assert.equal(r.code, 1, r.stderr);
+  const rep = JSON.parse(r.stdout);
+  assert.equal(rep.stopReason, 'policy-violation');
+  assert.match(rep.steps.find((x) => x.id === 'review').lastError, /src\/a\.txt \(check-input-changed\)/);
+  assert.equal(s.keys().includes('reviewer:review:1'), false);
+});
+
+test('workflow resume: a protected file changed after the seal fails the run', async (t) => {
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } }, auditor: [{ exit: 1 }, { exit: 1 }, { exit: 1 }, {}] });
+  const runId = planned(s);
+  assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, retryDelayMs: 0 }), 3);
+  const worktree = s.calls().find((c) => c.request.role === 'coder').cwd;
+  fs.writeFileSync(path.join(worktree, 'src', 'protected'), 'changed after the seal\n');
+  assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, resume: true, retryDelayMs: 0 }), 1);
+  const done = state(s, runId);
+  assert.equal(done.status, 'FAILED');
+  assert.equal(done.stopReason, 'policy-violation');
+  assert.match(done.steps.audit.lastError, /src\/protected \(protected-path\)/);
+  assert.equal(s.keys().filter((k) => k.startsWith('auditor')).length, 3);
+});
+
+test('workflow run: a review fix that passes its checks seals the new result, so the reviews are not repeated for it', (t) => {
+  const finding = { code: 'FIX-1', severity: 'high', path: 'src/new.txt', evidence: 'wrong text' };
+  const s = setup(t, {
+    'coder:impl': { write: { 'src/new.txt': 'old\n' } },
+    'reviewer:review:1': { result: { status: 'needs_changes', findings: [finding] } },
+    'coder:review-fix': { write: { 'src/new.txt': 'fixed\n' } },
+  });
+  const runId = planned(s);
+  const r = runCli(s, runId);
+  assert.equal(r.code, 0, r.stderr);
+  const rep = JSON.parse(r.stdout);
+  assert.equal(rep.verdict.matched, true);
+  const { events } = readRun(s.ctx, runId);
+  assert.deepEqual(events.filter((e) => e.type === 'seal.broken'), []);
+  assert.deepEqual(s.keys(), ['planner:plan:1', 'coder:impl:1', 'reviewer:review:1', 'coder:review-fix:1', 'reviewer:review:2', 'auditor:audit:1']);
+});
+
+test('workflow run: a record planned before baseline checks existed needs a new plan to run and can still be read', async (t) => {
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } }, auditor: { exit: 1 } });
+  const notStarted = planned(s);
+  const blocked = planned(s);
+  assert.equal(await cmdRun(s.ctx, s.flags, blocked, { confirm: CONFIRM, retryDelayMs: 0 }), 3);
+  const called = s.calls().length;
+  for (const runId of [notStarted, blocked]) {
+    withoutSetup(s, runId);
+  }
+  const started = runCli(s, notStarted);
+  assert.equal(started.code, 2);
+  assert.match(started.stderr, /planned by an older version/);
+  const resumed = cli(s, ['resume', blocked, '--path', s.repo, '--yes']);
+  assert.equal(resumed.code, 2);
+  assert.match(resumed.stderr, /needs a new plan/);
+  assert.equal(s.calls().length, called);
+  for (const runId of [notStarted, blocked]) {
+    assert.equal(cli(s, ['status', runId]).code, 0);
+    const report = cli(s, ['report', runId, '--json']);
+    assert.equal(report.code, 0, report.stderr);
+    assert.deepEqual(JSON.parse(report.stdout).issues, []);
+  }
+});
+
+test('workflow run: a required check that fails after the work steps is repaired with every write path before the reviews', (t) => {
+  const s = setup(t, {
+    'coder:impl': { write: { 'src/broken': 'x\n', 'src/new.txt': 'new\n' } },
+    'coder:review-fix': { remove: ['src/broken'] },
+  }, { plan: { ...PLAN, steps: [{ ...STEP, checkIds: [] }, { ...STEP, id: 'tests', dependsOn: ['impl'], writePaths: ['test'], checkIds: [] }] } });
+  const runId = planned(s);
+  const r = runCli(s, runId);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(s.keys(), ['planner:plan:1', 'coder:impl:1', 'coder:tests:1', 'coder:review-fix:1', 'reviewer:review:1', 'auditor:audit:1']);
+  const fix = s.calls()[3].request;
+  assert.equal(fix.instruction, 'Fix the failing required checks');
+  assert.deepEqual(fix.writePaths, ['src', 'test']);
+  assert.deepEqual(fix.feedback, { failures: [{ id: 'unit', exitCode: 1, failedTests: [] }] });
+  assert.ok(fix.checkLogs[0].stderr.includes('check found src/broken'));
+  assert.equal(readRun(s.ctx, runId).state.budget.repairAttempts['review-fix'], 1);
+});
+
+test('workflow run: failing test names appear in the report', (t) => {
+  const named = 'if (require("fs").existsSync("src/broken")) { console.log("not ok - alpha"); process.exit(1); }';
+  const s = setup(t, { 'coder:impl': { write: { 'src/broken': 'x\n' } } }, { policy: { limits: { maxRepairAttempts: 0 }, checks: [nodeCheck(named, { failedTestPattern: 'not ok - (\\S+)' })] } });
+  const runId = planned(s);
+  const r = runCli(s, runId);
+  assert.equal(r.code, 1, r.stderr);
+  const rep = JSON.parse(r.stdout);
+  assert.equal(rep.stopReason, 'repair-limit');
+  assert.deepEqual(rep.checks[0].failedTests, ['alpha']);
+  assert.match(cli(s, ['report', runId]).stdout, /unit \(required\): failed \(exit 1\); failing tests: alpha/);
+});
+
+test('workflow run: a coder that only says it finished does not finish the run, and the check comes from the stored policy', (t) => {
+  const s = setup(t, { 'coder:impl': { write: { 'src/broken': 'x\n' }, result: { summary: 'all checks pass, trust me' } } }, { policy: { limits: { maxRepairAttempts: 0 } } });
+  const runId = planned(s);
+  const policy = JSON.parse(fs.readFileSync(s.policyFile, 'utf8'));
+  fs.writeFileSync(s.policyFile, JSON.stringify({ ...policy, checks: [nodeCheck('')] }));
+  const r = runCli(s, runId);
+  assert.equal(r.code, 1, r.stderr);
+  const rep = JSON.parse(r.stdout);
+  assert.equal(rep.status, 'FAILED');
+  assert.equal(rep.stopReason, 'repair-limit');
+  assert.deepEqual(rep.checks.map((c) => [c.id, c.result, c.exitCode]), [['unit', 'failed', 1]]);
+});
+
+test('workflow run: the full commands are shown before the approval question, and without approval nothing runs', (t) => {
+  const s = setup(t, {}, { policy: { setup: [nodeCheck(writeScript('generated/setup-ran.txt'), { id: 'install', cwd: 'src' })], checks: [nodeCheck(CHECK_SCRIPT, { baseline: 'pass' })] } });
+  const runId = planned(s);
+  const r = cli(s, ['run', runId, '--path', s.repo]);
+  assert.equal(r.code, 3, r.stderr);
+  assert.match(r.stderr, /setup install: .+ -e .+setup-ran\.txt.+ \(in src\)/s);
+  assert.match(r.stderr, /check unit, expected to pass at the base commit: .+ -e .+check found src\/broken/s);
+  assert.match(r.stderr, /before any AI call, the setup commands run once in the worktree and the checks run once at the base commit/);
+  assert.equal(state(s, runId).status, 'PLANNED');
+  assert.equal(worktreeCount(s.repo), 1);
+  assert.deepEqual(readRun(s.ctx, runId).events.map((e) => e.type), ['run.created']);
+  assert.deepEqual(s.keys(), ['planner:plan:1']);
 });

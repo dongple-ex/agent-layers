@@ -69,6 +69,17 @@ test('workflow store: a secret in the provider arguments is an issue, and a run 
   );
 });
 
+test('workflow store: a secret in a setup argument is an issue, and a run is not created with one', (t) => {
+  const provider = { args: [], roleArgs: {} };
+  const issues = policySecretIssues({ provider, setup: [{ id: 'install', args: ['ci'] }, { id: 'login', args: ['--token', 'x', 'password=SYN_SETUP'] }] });
+  assert.deepEqual(issues, [{ where: 'setup[1].args[0]', msg: 'must not hold a secret' }, { where: 'setup[1].args[2]', msg: 'must not hold a secret' }]);
+  const { ctx } = tempCtx(t);
+  assert.throws(
+    () => newRun(ctx, { policy: { ...POLICY, setup: [{ id: 'login', command: 'npm', args: ['password=SYN_SETUP'], timeout: 60 }] } }),
+    (err) => err.code === 'E_WORKFLOW_INVALID' && /holds a secret/.test(err.message) && !/SYN_SETUP/.test(err.message),
+  );
+});
+
 function readState(dir) {
   return JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf8'));
 }

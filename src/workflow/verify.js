@@ -7,6 +7,9 @@ const BASE_ENV = ['PATH', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDA
 
 export const EXIT_TIMED_OUT = 124;
 export const EXIT_KILLED = 137;
+export const EXIT_NOT_STARTED = 127;
+
+const MAX_FAILED_TESTS = 200;
 
 export function childEnv(extra = [], source = process.env) {
   const env = {};
@@ -33,11 +36,11 @@ export function commandProblem(command, env) {
   return null;
 }
 
-export function checkCommandProblem(checks, env = childEnv()) {
+export function checkCommandProblem(checks, env = childEnv(), label = 'check') {
   for (const check of checks) {
     const problem = isRelativeCommand(check.command) ? null : commandProblem(check.command, env);
     if (problem) {
-      return `check "${check.id}": ${problem}`;
+      return `${label} "${check.id}": ${problem}`;
     }
   }
   return null;
@@ -78,19 +81,59 @@ function logLines(output) {
   return sanitizeEventData(output.tail.split('\n'));
 }
 
-export async function runChecks({ checks, checkIds, worktree, signal = null, env = childEnv(), track = null, stepId = null }) {
+function failedTestNames(pattern, lines) {
+  const names = new Set();
+  const re = new RegExp(pattern, 'g');
+  for (const line of lines) {
+    for (const m of line.matchAll(re)) {
+      if (m[1]) {
+        names.add(m[1]);
+      }
+    }
+  }
+  return [...names].sort().slice(0, MAX_FAILED_TESTS);
+}
+
+async function runCommand(item, label, what, { worktree, signal, env, track, startFailureIsResult }) {
+  let r;
+  try {
+    r = await runTracked(track, what, { file: item.command, args: item.args, cwd: path.join(worktree, item.cwd), env, signal, timeoutMs: item.timeout * 1000 });
+  } catch (err) {
+    if (!startFailureIsResult || err.code !== 'E_WORKFLOW_SPAWN') {
+      throw err;
+    }
+    return { id: item.id, exitCode: EXIT_NOT_STARTED, timedOut: false, completed: false, stdout: [], stderr: sanitizeEventData([err.message]), failedTests: [] };
+  }
+  if (r.cancelled) {
+    throw cancelError(label, r);
+  }
+  const exitCode = r.timedOut ? EXIT_TIMED_OUT : r.exitCode === null ? EXIT_KILLED : r.exitCode;
+  const stdout = logLines(r.stdout);
+  const stderr = logLines(r.stderr);
+  const failedTests = item.failedTestPattern && exitCode !== 0 ? failedTestNames(item.failedTestPattern, [...stdout, ...stderr]) : [];
+  return { id: item.id, exitCode, timedOut: r.timedOut, completed: !r.timedOut && r.exitCode !== null, stdout, stderr, failedTests };
+}
+
+export async function runChecks({ checks, checkIds, worktree, signal = null, env = childEnv(), track = null, stepId = null, startFailureIsResult = false }) {
   const results = [];
   for (const id of checkIds) {
     const check = checks.find((c) => c.id === id);
     if (!check) {
       throw new Error(`check "${id}" is not in the policy`);
     }
-    const r = await runTracked(track, { stepId, checkId: id }, { file: check.command, args: check.args, cwd: path.join(worktree, check.cwd), env, signal, timeoutMs: check.timeout * 1000 });
-    if (r.cancelled) {
-      throw cancelError(`check "${id}"`, r);
+    results.push(await runCommand(check, `check "${id}"`, { stepId, checkId: id }, { worktree, signal, env, track, startFailureIsResult }));
+  }
+  return results;
+}
+
+export async function runSetup({ setup, worktree, signal = null, env = childEnv(), track = null }) {
+  const results = [];
+  for (const item of setup) {
+    const r = await runCommand(item, `setup command "${item.id}"`, { stepId: null, setupId: item.id }, { worktree, signal, env, track, startFailureIsResult: true });
+    results.push(r);
+    if (r.exitCode !== 0) {
+      break;
     }
-    const exitCode = r.timedOut ? EXIT_TIMED_OUT : r.exitCode === null ? EXIT_KILLED : r.exitCode;
-    results.push({ id, exitCode, timedOut: r.timedOut, stdout: logLines(r.stdout), stderr: logLines(r.stderr) });
   }
   return results;
 }

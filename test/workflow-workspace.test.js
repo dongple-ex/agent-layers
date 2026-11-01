@@ -435,6 +435,35 @@ test('workflow workspace: the temporary index is removed after a check, also whe
   assert.deepEqual(fs.readdirSync(temp), []);
 });
 
+test('workflow workspace: an existing check input cannot be changed, deleted or renamed, and a new file next to it can', (t) => {
+  const s = worktreeOf(t);
+  const scope = (checkInputs = ['test', 'src/b.js']) => checkChanges(s.w.path, { baseCommit: s.baseCommit, gitFileHash: s.w.gitFileHash, writePaths: ['src', 'test'], protectedPaths: [], checkInputs }).violations;
+  put(s.w.path, 'test/new.test.js', 'new\n');
+  put(s.w.path, 'test/ignored.log', 'log\n');
+  put(s.w.path, 'src/a.js', 'not an input\n');
+  assert.deepEqual(scope(), []);
+
+  put(s.w.path, 'test/old.test.js', 'changed\n');
+  assert.deepEqual(scope(), [{ path: 'test/old.test.js', reason: 'check-input-changed', status: 'M' }]);
+  assert.deepEqual(scope([]), []);
+  git(s.w.path, 'checkout', '--', 'test/old.test.js');
+  assert.deepEqual(scope(), []);
+
+  fs.rmSync(path.join(s.w.path, 'src', 'b.js'));
+  assert.deepEqual(scope(), [{ path: 'src/b.js', reason: 'check-input-changed', status: 'D' }]);
+  git(s.w.path, 'checkout', '--', 'src/b.js');
+
+  fs.mkdirSync(path.join(s.w.path, 'src', 'moved'));
+  fs.renameSync(path.join(s.w.path, 'test', 'old.test.js'), path.join(s.w.path, 'src', 'moved', 'old.test.js'));
+  assert.deepEqual(scope(), [{ path: 'test/old.test.js', reason: 'check-input-changed', status: 'R' }]);
+  fs.renameSync(path.join(s.w.path, 'src', 'moved', 'old.test.js'), path.join(s.w.path, 'test', 'old.test.js'));
+
+  fs.renameSync(path.join(s.w.path, 'docs', 'guide.md'), path.join(s.w.path, 'test', 'guide.md'));
+  const moved = checkChanges(s.w.path, { baseCommit: s.baseCommit, gitFileHash: s.w.gitFileHash, writePaths: ['src', 'test', 'docs'], protectedPaths: [], checkInputs: ['test'] });
+  assert.deepEqual(moved.violations, []);
+  assert.equal(moved.changes.some((c) => c.path === 'test/guide.md'), true);
+});
+
 test('workflow workspace: a changed .git file of the worktree is a violation and git is not run there', (t) => {
   const s = worktreeOf(t);
   put(s.w.path, 'docs/guide.md', 'changed\n');

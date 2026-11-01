@@ -246,7 +246,15 @@ function pathViolation(p, writePaths, protectedPaths) {
   return writePaths.some((base) => pathCovers(base, p)) ? null : 'outside-write-paths';
 }
 
-export function checkChanges(worktree, { baseCommit, gitFileHash, writePaths, protectedPaths }) {
+function changedCheckInput(change, checkInputs) {
+  if (change.status === 'A' || change.status === 'C') {
+    return null;
+  }
+  const original = change.oldPath || change.path;
+  return checkInputs.some((base) => pathCovers(base, original)) ? original : null;
+}
+
+export function checkChanges(worktree, { baseCommit, gitFileHash, writePaths, protectedPaths, checkInputs = [] }) {
   if (contentHash(path.join(worktree, '.git')) !== gitFileHash) {
     return { changes: [], violations: [{ path: '.git', reason: 'git-file-changed' }] };
   }
@@ -261,6 +269,10 @@ export function checkChanges(worktree, { baseCommit, gitFileHash, writePaths, pr
     }
     if (!pathInsideWorktree(worktree, change.path)) {
       violations.push({ path: change.path, reason: 'link-outside-worktree', status: change.status });
+    }
+    const input = changedCheckInput(change, checkInputs);
+    if (input) {
+      violations.push({ path: input, reason: 'check-input-changed', status: change.status });
     }
   }
   return { changes, violations };

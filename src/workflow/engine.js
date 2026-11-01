@@ -16,6 +16,11 @@ const REVIEW_ROLES = [[REVIEW_STEP_ID, 'reviewer'], [AUDIT_STEP_ID, 'auditor']];
 const ACTIVE_STEP_STATUSES = ['RUNNING', 'VERIFYING'];
 const STREAK_KINDS = ['check', 'review'];
 const RECOVERY_REASONS = ['interrupted', 'process-left', 'process-unconfirmed'];
+const PREFLIGHT_STOPS = ['setup-failed', 'preflight-changed-files', 'baseline-failed', 'baseline-unexpected'];
+const REQUIRED_CHECKS_ROLE = 'required-checks';
+const SEAL_STALE = 'stale';
+const VERIFIER_METHODS = ['run', 'setup', 'baseline', 'seal'];
+const MAX_RECORDED_CHANGES = 20;
 
 export function wasInterrupted(state) {
   return state.status === 'INTERRUPTED'
@@ -27,8 +32,10 @@ export async function runWorkflow(handle, { provider, verifier, clock = Date.now
   if (!provider || typeof provider.call !== 'function') {
     throw new Error('runWorkflow: provider.call(request) is required');
   }
-  if (!verifier || typeof verifier.run !== 'function') {
-    throw new Error('runWorkflow: verifier.run(request) is required');
+  for (const method of VERIFIER_METHODS) {
+    if (!verifier || typeof verifier[method] !== 'function') {
+      throw new Error(`runWorkflow: verifier.${method}(request) is required`);
+    }
   }
   const { plan, policy } = readRun(handle.ctx, handle.runId);
   const byId = new Map(plan.steps.map((s) => [s.id, s]));
@@ -49,7 +56,7 @@ export async function runWorkflow(handle, { provider, verifier, clock = Date.now
     recovery,
   };
   try {
-    if (TERMINAL_RUN_STATUSES.includes(handle.state.status) || !prepare(rt, resume)) {
+    if (TERMINAL_RUN_STATUSES.includes(handle.state.status) || !prepare(rt, resume) || !(await preflight(rt))) {
       return handle.state;
     }
     for (const step of rt.work) {
@@ -57,11 +64,14 @@ export async function runWorkflow(handle, { provider, verifier, clock = Date.now
         return handle.state;
       }
     }
-    if (!rt.handle.state.reviewFix && rt.handle.state.steps[REVIEW_STEP_ID].status !== 'SUCCEEDED' && !(await requiredGate(rt))) {
-      return handle.state;
+    for (;;) {
+      if (!rt.handle.state.reviewFix && rt.handle.state.steps[REVIEW_STEP_ID].status !== 'SUCCEEDED' && !(await requiredGate(rt))) {
+        return handle.state;
+      }
+      if ((await reviewCycle(rt)) !== SEAL_STALE) {
+        return handle.state;
+      }
     }
-    await reviewCycle(rt);
-    return handle.state;
   } catch (err) {
     throw interruptOnError(rt, err);
   }
@@ -222,6 +232,9 @@ function prepare(rt, resume) {
     return prepareInterrupted(rt);
   }
   if (s.status === 'BLOCKED') {
+    if (resume && PREFLIGHT_STOPS.includes(s.stopReason)) {
+      return resumeSteps(rt, []);
+    }
     const blocked = s.order.filter((id) => s.steps[id].status === 'BLOCKED');
     const retry = blocked.filter((id) => s.steps[id].reason === 'transport');
     if (!resume || retry.length === 0 || retry.length !== blocked.length) {
@@ -235,6 +248,76 @@ function prepare(rt, resume) {
     });
   }
   return true;
+}
+
+function outOfTime(rt) {
+  return remainingBudget(rt.handle.state, rt.limits).activeSeconds < 0;
+}
+
+async function runSetup(rt) {
+  if (rt.policy.setup.length === 0) {
+    return true;
+  }
+  const started = rt.clock();
+  rt.inflight = started;
+  const results = (await rt.verifier.setup()).map(({ id, exitCode, timedOut }) => ({ id, exitCode, timedOut: timedOut === true }));
+  const seconds = elapsedSeconds(rt, started);
+  commit(rt, 'setup.finished', { results }, (n) => {
+    addActiveSeconds(n, seconds);
+  });
+  rt.inflight = null;
+  if (outOfTime(rt)) {
+    return stopRun(rt, 'FAILED', 'runTimeoutSeconds');
+  }
+  const failed = results.find((r) => r.exitCode !== 0);
+  return failed ? stopRun(rt, 'BLOCKED', 'setup-failed', null, { failed: failed.id, exitCode: failed.exitCode }) : true;
+}
+
+function baselineResult(rt, reported, id) {
+  const r = reportedCheck(reported, id);
+  const expected = rt.policy.checks.find((c) => c.id === id).baseline;
+  const entry = reported.find((x) => x && x.id === id);
+  const matched = expected === 'pass' ? r.exitCode === 0 : r.exitCode !== 0 && entry.completed !== false && entry.timedOut !== true;
+  return { ...r, timedOut: entry.timedOut === true, expected, matched };
+}
+
+async function baselineChecks(rt) {
+  const ids = [...new Set([...rt.work.flatMap((s) => s.checkIds), ...rt.policy.requiredChecks])];
+  const started = rt.clock();
+  rt.inflight = started;
+  const reported = await rt.verifier.baseline({ checkIds: [...ids] });
+  const results = ids.map((id) => baselineResult(rt, reported, id));
+  const { changed, violations } = rt.verifier.seal();
+  const unchanged = changed.length === 0 && violations.length === 0;
+  const seconds = elapsedSeconds(rt, started);
+  commit(rt, 'checks.baseline', { results, changed: changed.slice(0, MAX_RECORDED_CHANGES), violations: violations.slice(0, MAX_RECORDED_CHANGES) }, (n) => {
+    addActiveSeconds(n, seconds);
+    if (unchanged && results.every((r) => r.matched)) {
+      n.preflightDone = true;
+    }
+  });
+  rt.inflight = null;
+  if (outOfTime(rt)) {
+    return stopRun(rt, 'FAILED', 'runTimeoutSeconds');
+  }
+  const failed = results.filter((r) => !r.matched);
+  if (failed.some((r) => r.expected === 'pass')) {
+    return stopRun(rt, 'BLOCKED', 'baseline-failed', null, { failed: failed.map((r) => r.id) });
+  }
+  if (failed.length > 0) {
+    return stopRun(rt, 'BLOCKED', 'baseline-unexpected', null, { failed: failed.map((r) => r.id) });
+  }
+  return unchanged ? true : stopRun(rt, 'BLOCKED', 'preflight-changed-files');
+}
+
+async function preflight(rt) {
+  if (rt.handle.state.preflightDone) {
+    return true;
+  }
+  if (remainingBudget(rt.handle.state, rt.limits).activeSeconds <= 0) {
+    return stopRun(rt, 'FAILED', 'runTimeoutSeconds');
+  }
+  return (await runSetup(rt)) && baselineChecks(rt);
 }
 
 function markReady(rt, id) {
@@ -359,6 +442,18 @@ function recordResult(rt, req, result) {
   return { issues, artifact };
 }
 
+function reportedCheck(reported, id) {
+  const r = Array.isArray(reported) ? reported.find((x) => x && x.id === id) : undefined;
+  if (!r || !Number.isSafeInteger(r.exitCode)) {
+    throw new Error(`verifier did not report an integer exitCode for check "${id}"`);
+  }
+  const failedTests = r.failedTests === undefined ? [] : r.failedTests;
+  if (!Array.isArray(failedTests) || failedTests.some((n) => typeof n !== 'string')) {
+    throw new Error(`verifier reported failedTests for check "${id}" that is not an array of strings`);
+  }
+  return { id, exitCode: r.exitCode, failedTests };
+}
+
 async function runChecks(rt, statusId, checkIds) {
   const ids = [...new Set(checkIds)];
   if (ids.length === 0) {
@@ -370,17 +465,7 @@ async function runChecks(rt, statusId, checkIds) {
   const started = rt.clock();
   rt.inflight = started;
   const reported = await rt.verifier.run({ stepId: statusId, checkIds: [...ids] });
-  const results = ids.map((id) => {
-    const r = Array.isArray(reported) ? reported.find((x) => x && x.id === id) : undefined;
-    if (!r || !Number.isSafeInteger(r.exitCode)) {
-      throw new Error(`verifier did not report an integer exitCode for check "${id}"`);
-    }
-    const failedTests = r.failedTests === undefined ? [] : r.failedTests;
-    if (!Array.isArray(failedTests) || failedTests.some((n) => typeof n !== 'string')) {
-      throw new Error(`verifier reported failedTests for check "${id}" that is not an array of strings`);
-    }
-    return { id, exitCode: r.exitCode, failedTests };
-  });
+  const results = ids.map((id) => reportedCheck(reported, id));
   const seconds = elapsedSeconds(rt, started);
   commit(rt, 'checks.finished', { stepId: statusId, results }, (n) => {
     addActiveSeconds(n, seconds);
@@ -396,9 +481,24 @@ function failureText(failures) {
   return failures.map((f) => `check ${f.id} exited ${f.exitCode}${f.failedTests.length > 0 ? ` (${f.failedTests.length} failing tests)` : ''}`).join('; ');
 }
 
+function lastCheckFailures(rt, id) {
+  const last = readRun(rt.handle.ctx, rt.handle.runId).events.findLast((e) => e.type === 'checks.finished' && e.data.stepId === id);
+  return last ? last.data.results.filter((r) => r.exitCode !== 0) : [];
+}
+
+function resumedFeedback(rt, id) {
+  const { attempts, status } = rt.handle.state.steps[id];
+  if (attempts === 0 || status === 'SUCCEEDED') {
+    return null;
+  }
+  const failures = lastCheckFailures(rt, id);
+  const note = interruptionNote(rt);
+  return failures.length > 0 ? { failures, ...note } : note;
+}
+
 async function runWorkStep(rt, step) {
   const id = step.id;
-  let feedback = rt.handle.state.steps[id].attempts > 0 ? interruptionNote(rt) : null;
+  let feedback = resumedFeedback(rt, id);
   for (;;) {
     if (rt.handle.state.steps[id].status === 'SUCCEEDED') {
       return true;
@@ -455,16 +555,68 @@ async function runWorkStep(rt, step) {
   }
 }
 
+function stopOnViolations(rt, id, violations) {
+  const artifact = writeArtifact(rt.handle, `violations-${rt.handle.state.lastSeq}`, { stepId: id, violations });
+  const listed = violations.slice(0, 5).map((v) => (v.path ? `${v.path} (${v.reason})` : v.reason)).join(', ');
+  return stopStep(rt, id, 'FAILED', 'policy-violation', `the checked result broke the policy: ${listed}; see artifacts/${artifact.name}`);
+}
+
+async function gateFix(rt, failures) {
+  const id = REVIEW_STEP_ID;
+  let stop = null;
+  commit(rt, 'gate.check-failed', { stepId: id, failed: failures.map((f) => f.id) }, (n) => {
+    const same = recordFailure(n, checkSignature(REVIEW_FIX_TARGET, failures));
+    stop = same ? { reason: 'same-failure', message: `the same check failure happened 3 times in a row: ${failureText(failures)}` } : fixStop(rt);
+    n.steps[id].lastError = clean(failureText(failures));
+    if (!stop) {
+      n.steps[id].status = 'RETRY_PENDING';
+      n.reviewFix = { stepId: id, role: REQUIRED_CHECKS_ROLE, artifact: null, attempt: null };
+    }
+  });
+  return stop ? stopStep(rt, id, 'FAILED', stop.reason, stop.message) : fixLoop(rt, id, REQUIRED_CHECKS_ROLE, [], rt.stepIds, { failures });
+}
+
 async function requiredGate(rt) {
-  const checks = await runChecks(rt, REVIEW_STEP_ID, rt.policy.requiredChecks);
+  const ids = rt.handle.state.recheckAll ? [...rt.work.flatMap((s) => s.checkIds), ...rt.policy.requiredChecks] : rt.policy.requiredChecks;
+  const checks = await runChecks(rt, REVIEW_STEP_ID, ids);
   if (!checks) {
     return false;
   }
   if (checks.failures.length > 0) {
-    //20261030 TODO W5 decides how a failing required check is repaired instead of blocking the run
-    return stopRun(rt, 'BLOCKED', 'required-checks-failed', null, { failed: checks.failures.map((f) => f.id) });
+    return gateFix(rt, checks.failures);
   }
+  const seal = rt.verifier.seal();
+  if (seal.violations.length > 0) {
+    return stopOnViolations(rt, REVIEW_STEP_ID, seal.violations);
+  }
+  commit(rt, 'checks.sealed', { patchSha256: seal.patchSha256 }, (n) => {
+    n.sealedPatch = seal.patchSha256;
+    delete n.recheckAll;
+  });
   return true;
+}
+
+function compareSeal(rt, id) {
+  const seal = rt.verifier.seal();
+  if (seal.violations.length > 0) {
+    return stopOnViolations(rt, id, seal.violations);
+  }
+  const { sealedPatch } = rt.handle.state;
+  if (seal.patchSha256 === sealedPatch) {
+    return true;
+  }
+  let same = false;
+  commit(rt, 'seal.broken', { stepId: id, sealed: sealedPatch === undefined ? null : sealedPatch, current: seal.patchSha256 }, (n) => {
+    same = recordFailure(n, signatureOf('seal', REVIEW_STEP_ID, []));
+    if (!same) {
+      for (const [rid] of REVIEW_ROLES) {
+        n.steps[rid].status = 'PENDING';
+      }
+      delete n.sealedPatch;
+      n.recheckAll = true;
+    }
+  });
+  return same ? stopStep(rt, id, 'FAILED', 'same-failure', 'the result changed after the checks passed, 3 times in a row') : SEAL_STALE;
 }
 
 async function reviewCycle(rt) {
@@ -485,6 +637,10 @@ async function reviewCycle(rt) {
       const limit = limitReached(rt);
       if (limit) {
         return stopRun(rt, 'FAILED', limit, null, { stepId: id });
+      }
+      const sealed = compareSeal(rt, id);
+      if (sealed !== true) {
+        return sealed;
       }
       markReady(rt, id);
       const attempt = startStep(rt, id);
@@ -511,7 +667,11 @@ async function reviewCycle(rt) {
       break;
     }
     if (!restart) {
-      commit(rt, 'run.succeeded', {}, (n) => {
+      const sealed = compareSeal(rt, AUDIT_STEP_ID);
+      if (sealed !== true) {
+        return sealed;
+      }
+      commit(rt, 'run.succeeded', { patchSha256: rt.handle.state.sealedPatch }, (n) => {
         n.status = 'SUCCEEDED';
         delete n.stopReason;
       });
@@ -562,6 +722,9 @@ async function reviewFix(rt, id, role, findings, artifact) {
 }
 
 async function resumeReviewFix(rt, pending) {
+  if (pending.artifact === null) {
+    return fixLoop(rt, pending.stepId, pending.role, [], rt.stepIds, { failures: lastCheckFailures(rt, pending.stepId), ...interruptionNote(rt) });
+  }
   const saved = readArtifact(rt.handle, pending.artifact);
   const findings = saved && saved.result && saved.result.findings;
   if (saved.stepId !== pending.stepId || !Array.isArray(findings)) {
@@ -601,7 +764,8 @@ async function fixLoop(rt, id, role, findings, owners, firstFeedback = { finding
         n.steps[id].status = 'RUNNING';
       });
     }
-    const req = { role: 'coder', stepId: REVIEW_FIX_TARGET, statusId: id, attempt, goal: rt.plan.goal, instruction: `Apply the ${role} findings`, acceptance: rt.work.filter((s) => owners.includes(s.id)).flatMap((s) => s.acceptance), writePaths, feedback };
+    const instruction = findings.length > 0 ? `Apply the ${role} findings` : 'Fix the failing required checks';
+    const req = { role: 'coder', stepId: REVIEW_FIX_TARGET, statusId: id, attempt, goal: rt.plan.goal, instruction, acceptance: rt.work.filter((s) => owners.includes(s.id)).flatMap((s) => s.acceptance), writePaths, feedback };
     const call = await callRole(rt, req);
     if (!call) {
       return false;
@@ -621,10 +785,16 @@ async function fixLoop(rt, id, role, findings, owners, firstFeedback = { finding
       return false;
     }
     if (checks.failures.length === 0) {
-      commit(rt, 'steps.rechecked', { stepId: id, steps: affected, checkIds }, (n) => {
+      const seal = rt.verifier.seal();
+      if (seal.violations.length > 0) {
+        return stopOnViolations(rt, id, seal.violations);
+      }
+      commit(rt, 'steps.rechecked', { stepId: id, steps: affected, checkIds, patchSha256: seal.patchSha256 }, (n) => {
         for (const [rid] of REVIEW_ROLES) {
           n.steps[rid].status = 'PENDING';
         }
+        n.sealedPatch = seal.patchSha256;
+        delete n.recheckAll;
         clearFailureOf(n, REVIEW_FIX_TARGET);
         delete n.reviewFix;
       });
@@ -643,6 +813,6 @@ async function fixLoop(rt, id, role, findings, owners, firstFeedback = { finding
     if (stop) {
       return stopStep(rt, id, 'FAILED', stop.reason, stop.message);
     }
-    feedback = { findings, failures: checks.failures };
+    feedback = findings.length > 0 ? { findings, failures: checks.failures } : { failures: checks.failures };
   }
 }

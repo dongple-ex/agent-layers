@@ -53,11 +53,31 @@ export function fakeProvider(script = {}, { clock = null, secondsPerCall = 0 } =
   };
 }
 
-export function fakeVerifier(script = {}, { clock = null, secondsPerRun = 0 } = {}) {
+export function fakeVerifier(script = {}, { clock = null, secondsPerRun = 0, setup = [], baseline = {}, seals = [] } = {}) {
   const pending = queues(script);
+  const atBase = queues(baseline);
+  const sealQueue = [...seals];
   const runs = [];
+  const setupRuns = [];
+  const baselineRuns = [];
   return {
     runs,
+    setupRuns,
+    baselineRuns,
+    async setup() {
+      setupRuns.push(setup);
+      return setup;
+    },
+    async baseline({ checkIds }) {
+      baselineRuns.push([...checkIds]);
+      return checkIds.map((id) => {
+        const q = atBase.get(id);
+        return { id, exitCode: 0, failedTests: [], ...(q && q.length > 0 ? q.shift() : {}) };
+      });
+    },
+    seal() {
+      return { patchSha256: 'fake', changed: [], violations: [], ...(sealQueue.length > 0 ? sealQueue.shift() : {}) };
+    },
     async run({ stepId, checkIds }) {
       runs.push({ stepId, checkIds: [...checkIds] });
       if (clock) {

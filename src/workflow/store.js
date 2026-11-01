@@ -243,12 +243,18 @@ export function sanitizeEventData(value, depth = 0) {
 
 export function policySecretIssues(policy) {
   const { args, roleArgs } = policy.provider;
+  const { setup = [] } = policy;
   const issues = [];
-  for (const [where, list] of [['provider.args', args], ...Object.entries(roleArgs).map(([role, v]) => [`provider.roleArgs.${role}`, v])]) {
+  const providerLists = [['provider.args', args], ...Object.entries(roleArgs).map(([role, v]) => [`provider.roleArgs.${role}`, v])];
+  const lists = [
+    ...providerLists.map(([where, list]) => [where, list, 'must not hold a secret; name the variable in provider.env instead']),
+    ...setup.map((item, i) => [`setup[${i}].args`, item.args, 'must not hold a secret']),
+  ];
+  for (const [where, list, msg] of lists) {
     list.forEach((arg, i) => {
       const flag = /^--?([A-Za-z][A-Za-z0-9_-]*)/.exec(arg);
       if ((flag && isSecretField(flag[1], true)) || findSecretAssignment(arg) !== null) {
-        issues.push({ where: `${where}[${i}]`, msg: 'must not hold a secret; name the variable in provider.env instead' });
+        issues.push({ where: `${where}[${i}]`, msg });
       }
     });
   }

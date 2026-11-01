@@ -48,7 +48,69 @@ test('workflow policy: defaults are filled, paths normalized and runtime protect
   assert.deepEqual(policy.allowedWritePaths, ['src', 'test/unit']);
   assert.deepEqual(policy.protectedPaths, ['test/fixtures', '.git', '.codex', '.agents']);
   assert.deepEqual(policy.requiredRoles, ['reviewer', 'auditor']);
-  assert.deepEqual(policy.checks, [{ id: 'unit', command: 'npm', args: ['test'], cwd: '.', timeout: 600, inputs: [] }]);
+  assert.deepEqual(policy.checks, [{ id: 'unit', command: 'npm', args: ['test'], cwd: '.', timeout: 600, inputs: [], baseline: 'pass', failedTestPattern: null }]);
+});
+
+test('workflow policy: setup, baseline, inputs and failedTestPattern are normalized', () => {
+  const policy = policyOf({
+    setup: [{ id: 'install', command: 'npm', args: ['ci'], cwd: 'web/', timeout: 300 }],
+    checks: [{ id: 'accept', command: 'npm', args: ['test'], timeout: 600, baseline: 'fail', inputs: ['test/'], failedTestPattern: '^not ok \\d+ - (.+)$' }],
+    requiredChecks: ['accept'],
+  });
+  assert.deepEqual(policy.setup, [{ id: 'install', command: 'npm', args: ['ci'], cwd: 'web', timeout: 300 }]);
+  assert.deepEqual(policy.checks, [{ id: 'accept', command: 'npm', args: ['test'], cwd: '.', timeout: 600, inputs: ['test'], baseline: 'fail', failedTestPattern: '^not ok \\d+ - (.+)$' }]);
+  assert.deepEqual(policyOf({}).setup, []);
+  const again = normalizePolicy(policy);
+  assert.deepEqual(again.issues, []);
+  assert.deepEqual(again.policy, policy);
+});
+
+test('workflow policy: a failedTestPattern needs exactly one capture group', () => {
+  const issuesFor = (failedTestPattern) => normalizePolicy(rawPolicy({ checks: [{ id: 'unit', command: 'npm', args: ['test'], timeout: 600, failedTestPattern }] })).issues;
+  for (const good of ['(.+)', '(?:ok )(.+)', '(?<name>\\w+)', '(?=x)(.)']) {
+    assert.deepEqual(issuesFor(good), [], good);
+  }
+  for (const [bad, msg] of [
+    ['no group', /exactly one capture group/],
+    ['(a)(b)', /exactly one capture group/],
+    ['(a)|(b)', /exactly one capture group/],
+    ['(?:a)', /exactly one capture group/],
+    ['(', /not a valid regular expression/],
+    ['', /must be a regular expression/],
+    [7, /must be a regular expression/],
+  ]) {
+    const issues = issuesFor(bad);
+    assert.deepEqual(wheres(issues), ['checks[0].failedTestPattern'], String(bad));
+    assert.match(issues[0].msg, msg);
+  }
+});
+
+test('workflow policy: a wrong baseline or setup entry is refused, also in an add-check exception', () => {
+  const check = { id: 'unit', command: 'npm', args: ['test'], timeout: 600 };
+  const { policy, issues } = normalizePolicy(rawPolicy({
+    setup: [
+      { id: 'install', command: 'npm', args: ['ci'], timeout: 300, inputs: [] },
+      { id: 'install', command: 'npm', args: ['ci'], timeout: 300 },
+      { id: 'bad', command: '', args: 'x', timeout: 0, cwd: '../x' },
+      'not an object',
+    ],
+    checks: [{ ...check, baseline: 'maybe' }],
+    exceptions: [{ id: 'more', kind: 'add-check', check: { ...check, id: 'extra', baseline: 'never', failedTestPattern: 'none' } }],
+  }));
+  assert.equal(policy, null);
+  assert.deepEqual(wheres(issues), [
+    'setup[0].inputs',
+    'setup[1].id',
+    'setup[2].command',
+    'setup[2].args',
+    'setup[2].timeout',
+    'setup[2].cwd',
+    'setup[3]',
+    'checks[0].baseline',
+    'exceptions[0].check.baseline',
+    'exceptions[0].check.failedTestPattern',
+  ]);
+  assert.deepEqual(wheres(normalizePolicy(rawPolicy({ setup: 'npm ci' })).issues), ['setup']);
 });
 
 test('workflow policy: maxSteps + 3 must not exceed maxAgentCalls', () => {

@@ -10,7 +10,7 @@ import { commandVersion, createProvider, providerProblem } from './provider.js';
 import { formatReport, reportView } from './report.js';
 import { hashJson, normalizePolicy, validatePlan } from './schema.js';
 import { acquireRun, cancelRequested, commitRun, createRun, policySecretIssues, readArtifact, readRun, readRunOwner, releaseRun, requestCancel, sanitizeEventData, writeArtifact } from './store.js';
-import { checkCommandProblem, runChecks } from './verify.js';
+import { checkCommandProblem, childEnv, runChecks, runSetup } from './verify.js';
 import { checkChanges, compareFingerprints, createWorktree, describeWorktree, inspectRepository, removeWorktree, resultPatch, sourceFingerprint, worktreePath } from './workspace.js';
 
 const READ_ONLY_ROLES = ['reviewer', 'auditor'];
@@ -82,7 +82,7 @@ function assertClean(repo) {
 }
 
 function assertCommandsStart(policy) {
-  const problem = providerProblem(policy) || checkCommandProblem(policy.checks);
+  const problem = providerProblem(policy) || checkCommandProblem(policy.setup, childEnv(), 'setup command') || checkCommandProblem(policy.checks);
   if (problem) {
     throw invalid(problem);
   }
@@ -90,6 +90,10 @@ function assertCommandsStart(policy) {
 
 function commandLine(command, args) {
   return [command, ...args].join(' ');
+}
+
+function policyCommandLine({ command, args, cwd }) {
+  return `${sanitizeEventData(commandLine(command, args))}${cwd === '.' ? '' : ` (in ${cwd})`}`;
 }
 
 function progress(flags, message) {
@@ -297,6 +301,9 @@ function assertRunnable(stored, repo, resume) {
   if (resume && ENDED_STATUSES.includes(status)) {
     throw invalid(`run ${stored.runId} already ended as ${status}; make a new plan`);
   }
+  if (!Array.isArray(stored.policy.setup)) {
+    throw invalid(`run ${stored.runId} was planned by an older version without baseline checks; workflow status and report still read it, but it needs a new plan to run`);
+  }
   if (!resume) {
     assertClean(repo);
   }
@@ -304,7 +311,8 @@ function assertRunnable(stored, repo, resume) {
 }
 
 function describeRun(flags, stored, repo) {
-  const { provider, allowedWritePaths, protectedPaths, checks, limits } = stored.policy;
+  const { provider, allowedWritePaths, protectedPaths, setup, checks, limits } = stored.policy;
+  const notice = stored.state.preflightDone ? [] : ['  before any AI call, the setup commands run once in the worktree and the checks run once at the base commit; both use your permissions'];
   progress(flags, [
     `run ${stored.runId}, plan ${stored.plan.planHash}`,
     `  repository: ${repo.root}, base commit ${stored.plan.baseCommit}`,
@@ -312,7 +320,9 @@ function describeRun(flags, stored, repo) {
     ...Object.entries(provider.roleArgs).map(([role, args]) => `  command for ${role}: ${commandLine(provider.command, args)}`),
     `  steps: ${stored.plan.steps.map((s) => s.id).join(', ')}`,
     `  write paths: ${allowedWritePaths.join(', ')}; protected: ${protectedPaths.join(', ')}`,
-    `  checks: ${checks.map((c) => c.id).join(', ')}`,
+    ...setup.map((item) => `  setup ${item.id}: ${policyCommandLine(item)}`),
+    ...checks.map((check) => `  check ${check.id}, expected to ${check.baseline} at the base commit: ${policyCommandLine(check)}`),
+    ...notice,
     `  limits: ${limits.maxAgentCalls} agent calls, ${limits.runTimeoutSeconds}s of active time`,
   ].join('\n'));
   if (repo.baseCommit !== stored.plan.baseCommit) {
@@ -335,8 +345,9 @@ function openWorkspace(ctx, handle, run, repo) {
   return worktree;
 }
 
-function scopeCheck(worktree, writePaths, protectedPaths) {
-  const { changes, violations } = checkChanges(worktree.path, { baseCommit: worktree.baseCommit, gitFileHash: worktree.gitFileHash, writePaths, protectedPaths });
+function scopeCheck(worktree, run, writePaths) {
+  const checkInputs = [...new Set(run.policy.checks.flatMap((c) => c.inputs))];
+  const { changes, violations } = checkChanges(worktree.path, { baseCommit: worktree.baseCommit, gitFileHash: worktree.gitFileHash, writePaths, protectedPaths: run.policy.protectedPaths, checkInputs });
   const ignored = new Set(changes.filter((c) => c.ignored).map((c) => c.path));
   return {
     changed: changes.filter((c) => !c.ignored).map((c) => c.path),
@@ -407,8 +418,9 @@ function inspectInterruption(handle, run, worktree, checkProcesses) {
   const lastCall = run.events.findLast((e) => e.type === 'call.started');
   const req = lastCall ? lastCall.data : { role: 'last', stepId: null, attempt: null };
   const lastStep = [...run.state.order].reverse().find((id) => run.state.steps[id].attempts > 0);
-  const { changed, violations } = scopeCheck(worktree, writePathsUpTo(run, lastStep), run.policy.protectedPaths);
-  const broken = readOnlyCallChanged(run.events, worktree) ? [...violations, { reason: 'read-only-role-changed-files' }] : violations;
+  const { changed, violations } = scopeCheck(worktree, run, writePathsUpTo(run, lastStep));
+  const inScope = run.state.preflightDone ? violations : [];
+  const broken = readOnlyCallChanged(run.events, worktree) ? [...inScope, { reason: 'read-only-role-changed-files' }] : inScope;
   if (broken.length > 0) {
     const { message, stop } = violationError(handle, req, broken);
     return { passed: false, ...stop, message };
@@ -448,7 +460,7 @@ function guardedProvider({ provider, worktree, run, handle, logs, flags }) {
   async function callCoder(req) {
     const checkLogs = req.feedback && req.feedback.failures ? [...logs.values()] : [];
     const result = await provider.call({ ...req, ...shared, checks, checkLogs });
-    const { violations } = scopeCheck(worktree, writePathsUpTo(run, req.stepId), run.policy.protectedPaths);
+    const { violations } = scopeCheck(worktree, run, writePathsUpTo(run, req.stepId));
     if (violations.length > 0) {
       throw violationError(handle, req, violations);
     }
@@ -465,6 +477,22 @@ function guardedProvider({ provider, worktree, run, handle, logs, flags }) {
 
 function createVerifier({ handle, worktree, run, logs, signal, flags, track }) {
   return {
+    async setup() {
+      progress(flags, `setup: ${run.policy.setup.map((item) => item.id).join(', ')}`);
+      const results = await runSetup({ setup: run.policy.setup, worktree: worktree.path, signal, track });
+      writeArtifact(handle, `setup-${handle.state.lastSeq}`, { results });
+      return results.map(({ id, exitCode, timedOut }) => ({ id, exitCode, timedOut }));
+    },
+    async baseline({ checkIds }) {
+      progress(flags, `baseline checks at the base commit: ${checkIds.join(', ')}`);
+      const results = await runChecks({ checks: run.policy.checks, checkIds, worktree: worktree.path, signal, track, startFailureIsResult: true });
+      writeArtifact(handle, `baseline-${handle.state.lastSeq}`, { results });
+      return results.map(({ id, exitCode, timedOut, completed, failedTests }) => ({ id, exitCode, timedOut, completed, failedTests }));
+    },
+    seal() {
+      const { changed, violations } = scopeCheck(worktree, run, writePathsUpTo(run, null));
+      return { patchSha256: sha256(resultPatch(worktree.path, worktree.baseCommit)), changed, violations };
+    },
     async run({ stepId, checkIds }) {
       progress(flags, `checks for ${stepId}: ${checkIds.join(', ')}`);
       const results = await runChecks({ checks: run.policy.checks, checkIds, worktree: worktree.path, signal, track, stepId });
@@ -475,9 +503,18 @@ function createVerifier({ handle, worktree, run, logs, signal, flags, track }) {
           logs.set(r.id, r);
         }
       }
-      return results.map(({ id, exitCode }) => ({ id, exitCode, failedTests: [] }));
+      return results.map(({ id, exitCode, failedTests }) => ({ id, exitCode, failedTests }));
     },
   };
+}
+
+function restoreLogs(handle) {
+  const newest = fs.readdirSync(path.join(handle.dir, 'artifacts')).reduce((best, name) => {
+    const m = /^checks-(\d+)-.*\.json$/.exec(name);
+    return m && (!best || Number(m[1]) > best.seq) ? { seq: Number(m[1]), name } : best;
+  }, null);
+  const failing = newest ? readArtifact(handle, newest.name).results.filter((r) => r.exitCode !== 0) : [];
+  return new Map(failing.map((r) => [r.id, r]));
 }
 
 function outputLines(output) {
@@ -555,7 +592,7 @@ export async function cmdRun(ctx, flags, runId, { confirm, resume = false, signa
     if (recovery && !recovery.passed) {
       warn(recovery.message);
     }
-    const logs = new Map();
+    const logs = resume ? restoreLogs(handle) : new Map();
     const track = processTracker(handle);
     const provider = createProvider({ policy: run.policy, cwd: worktree.path, signal: abort.signal, retryDelayMs, onDiagnostic: recordDiagnostic(handle), track });
     started = true;
