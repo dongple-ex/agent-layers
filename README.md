@@ -176,7 +176,7 @@ To download only some projects, run `agent-layers sync --select` and pick them b
 name, separated by commas. In scripts, name them directly:
 
 ```sh
-agent-layers sync --projects acme,beta
+agent-layers sync --projects sample-a,sample-b
 agent-layers sync --projects extends:team
 ```
 
@@ -187,9 +187,9 @@ so other projects in the same repository are updated too. It applies nothing: ch
 base layer.
 
 ```sh
-agent-layers project init acme --mode private --remote "github.com/acme/*"
+agent-layers project init sample-a --mode private --remote "github.com/sample-a/*"
 agent-layers project apply            # inside the project folder; detected by git remote or folder name
-agent-layers project purge acme       # at the end of the engagement
+agent-layers project purge sample-a   # at the end of the engagement
 ```
 
 - **private** mode never edits tracked files. It writes `.claude/rules/agent-layers/project-<name>.md`,

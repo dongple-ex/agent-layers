@@ -143,16 +143,16 @@ agent-layers secrets check                 # 이 PC에 없는 비밀값 확인
 프로젝트를 골라 설정 저장소만 내려받으려면 `agent-layers sync --select`를 실행합니다. 번호나 이름을 쉼표로 구분해 여러 개를 고를 수 있습니다.
 
 ```bash
-agent-layers sync --projects acme,beta
+agent-layers sync --projects sample-a,sample-b
 agent-layers sync --projects extends:team
 ```
 
 `--projects`는 이미 받은 프로젝트 이름을 받습니다. 아직 받지 않은 외부 저장소는 `extends:<이름>`으로 선택합니다. 선택 동기화는 Git 저장소 전체를 clone/pull하므로 같은 저장소의 다른 프로젝트 파일도 함께 갱신됩니다. 설정은 자동 적용하지 않습니다. 내려받은 뒤 `project plan`으로 확인하고 `project apply`로 적용합니다. 옵션 없는 `sync`는 모든 저장소를 pull한 뒤 base 레이어를 적용합니다.
 
 ```sh
-agent-layers project init acme --mode private --remote "github.com/acme/*"
+agent-layers project init sample-a --mode private --remote "github.com/sample-a/*"
 agent-layers project apply            # 프로젝트 폴더 안에서 실행하면 git remote나 폴더 이름으로 프로젝트를 찾는다
-agent-layers project purge acme       # 프로젝트가 끝났을 때 실행한다
+agent-layers project purge sample-a   # 프로젝트가 끝났을 때 실행한다
 ```
 
 - **private** 모드는 git이 추적하는 파일을 고치지 않습니다. `.claude/rules/agent-layers/project-<이름>.md`, `.agents/rules/`, `.github/instructions/`, `.cursor/rules/`, Codex `developer_instructions` 같은 로컬 파일만 만들고, 그 목록을 `.git/info/exclude`에 넣습니다. 고객사 저장소에서는 이 모드를 씁니다.
