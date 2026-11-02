@@ -654,17 +654,17 @@ function gitFolder(dir) {
 test('#16 extends projects: a project from another setup repository is listed, detected and applied', { skip: !HAS_GIT }, () => {
   const sb = sandbox();
   extendsManifest(sb, [{ name: 'team', projects: '../team-setup/projects' }]);
-  sharedProject(path.join(sb.root, 'team-setup', 'projects'), 'a6a', 'a6a-repo');
-  const repo = path.join(sb.root, 'a6a-repo');
+  sharedProject(path.join(sb.root, 'team-setup', 'projects'), 'sample-a', 'sample-a-repo');
+  const repo = path.join(sb.root, 'sample-a-repo');
   gitFolder(repo);
   let r = cli(sb, ['project', 'list']);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /a6a\s+extends:team/);
+  assert.match(r.out, /sample-a\s+extends:team/);
   r = cli(sb, ['project', 'detect'], { cwd: repo });
-  assert.match(r.out, /-> a6a \(matched by/);
+  assert.match(r.out, /-> sample-a \(matched by/);
   r = cli(sb, ['project', 'apply', '--yes'], { cwd: repo });
   assert.equal(r.code, 0, r.out);
-  assert.match(read(path.join(repo, '.claude', 'rules', 'agent-layers', 'project-a6a.md')), /Shared rule for a6a/);
+  assert.match(read(path.join(repo, '.claude', 'rules', 'agent-layers', 'project-sample-a.md')), /Shared rule for sample-a/);
   r = cli(sb, ['apply', '--yes']);
   assert.equal(r.code, 0, r.out);
   r = cli(sb, ['validate']);
@@ -694,21 +694,21 @@ test('#18 extends projects: purge --remove-source never deletes a project of ano
   const sb = sandbox();
   extendsManifest(sb, [{ name: 'team', projects: '../team-setup/projects' }]);
   const shared = path.join(sb.root, 'team-setup', 'projects');
-  sharedProject(shared, 'a6a', 'a6a-repo');
-  const repo = path.join(sb.root, 'a6a-repo');
+  sharedProject(shared, 'sample-a', 'sample-a-repo');
+  const repo = path.join(sb.root, 'sample-a-repo');
   gitFolder(repo);
-  const rule = path.join(repo, '.claude', 'rules', 'agent-layers', 'project-a6a.md');
+  const rule = path.join(repo, '.claude', 'rules', 'agent-layers', 'project-sample-a.md');
   let r = cli(sb, ['project', 'apply', '--yes'], { cwd: repo });
   assert.equal(r.code, 0, r.out);
-  r = cli(sb, ['project', 'purge', 'a6a', '--remove-source', '--yes'], { cwd: repo });
+  r = cli(sb, ['project', 'purge', 'sample-a', '--remove-source', '--yes'], { cwd: repo });
   assert.notEqual(r.code, 0);
   assert.match(r.out, /comes from extends layer "team"/);
-  assert.ok(fs.existsSync(path.join(shared, 'a6a', 'project.jsonc')));
+  assert.ok(fs.existsSync(path.join(shared, 'sample-a', 'project.jsonc')));
   assert.ok(fs.existsSync(rule), 'a refused purge must not remove anything');
-  r = cli(sb, ['project', 'purge', 'a6a', '--yes'], { cwd: repo });
+  r = cli(sb, ['project', 'purge', 'sample-a', '--yes'], { cwd: repo });
   assert.equal(r.code, 0, r.out);
   assert.ok(!fs.existsSync(rule));
-  assert.ok(fs.existsSync(path.join(shared, 'a6a', 'project.jsonc')));
+  assert.ok(fs.existsSync(path.join(shared, 'sample-a', 'project.jsonc')));
 });
 
 test('#19 extends projects: a missing folder is reported unless optional, and sync clones then pulls it', { skip: !HAS_GIT }, () => {
@@ -723,19 +723,19 @@ test('#19 extends projects: a missing folder is reported unless optional, and sy
   r = cli(sb, ['validate']);
   assert.equal(r.code, 0, r.out);
   const origin = path.join(sb.root, 'team-origin');
-  sharedProject(path.join(origin, 'projects'), 'a6a', 'a6a-repo');
+  sharedProject(path.join(origin, 'projects'), 'sample-a', 'sample-a-repo');
   spawnSync('git', ['init', '-q', origin]);
   spawnSync('git', ['-C', origin, 'add', '.']);
   spawnSync('git', ['-C', origin, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init']);
   extendsManifest(sb, [{ name: 'team', projects: '../team-clone/projects', git: origin }]);
   r = cli(sb, ['sync', '--yes']);
   assert.equal(r.code, 0, r.out);
-  assert.ok(fs.existsSync(path.join(sb.root, 'team-clone', 'projects', 'a6a', 'project.jsonc')));
+  assert.ok(fs.existsSync(path.join(sb.root, 'team-clone', 'projects', 'sample-a', 'project.jsonc')));
   r = cli(sb, ['sync', '--yes']);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /git pull --ff-only \(.*team-clone\)/);
   r = cli(sb, ['project', 'list']);
-  assert.match(r.out, /a6a\s+extends:team/);
+  assert.match(r.out, /sample-a\s+extends:team/);
 });
 
 function syncGit(args) {

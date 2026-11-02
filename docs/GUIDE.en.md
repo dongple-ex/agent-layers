@@ -396,7 +396,7 @@ To share a single project with someone, keep it in a separate setup repository t
 
 ```jsonc
 "extends": [
-  { "name": "a6a", "projects": "../a6a-agent-layers/projects", "git": "https://github.com/<account>/a6a-agent-layers.git", "optional": true }
+  { "name": "sample-a", "projects": "../sample-a-agent-layers/projects", "git": "https://github.com/<account>/sample-a-agent-layers.git", "optional": true }
 ]
 ```
 
@@ -419,11 +419,11 @@ To share a single project with someone, keep it in a separate setup repository t
 | Task | Command |
 | --- | --- |
 | Choose multiple entries from a menu | `agent-layers sync --select` |
-| Select downloaded projects by name | `agent-layers sync --projects a6a,yko` |
+| Select downloaded projects by name | `agent-layers sync --projects sample-a,sample-b` |
 | Select an external repository not yet downloaded | `agent-layers sync --projects extends:team` |
 | Inspect downloaded projects | `agent-layers project list` |
-| Preview application | `agent-layers project plan a6a --path ./a6a --diff` |
-| Apply project settings | `agent-layers project apply a6a --path ./a6a` |
+| Preview application | `agent-layers project plan sample-a --path ./sample-a --diff` |
+| Apply project settings | `agent-layers project apply sample-a --path ./sample-a` |
 
 - In `extends:team`, `team` is the `name` of an `extends` entry in `agent-layers.jsonc`. Project names inside an undownloaded repository become available after downloading it.
 - Sync clones or pulls whole Git repositories with `pull --ff-only`. Multiple selections in one repository update it only once; other project files in that repository are updated too.

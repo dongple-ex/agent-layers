@@ -396,7 +396,7 @@ project 레이어는 특정 프로젝트 폴더에서만 쓰는 내 설정입니
 
 ```jsonc
 "extends": [
-  { "name": "a6a", "projects": "../a6a-agent-layers/projects", "git": "https://github.com/<계정>/a6a-agent-layers.git", "optional": true }
+  { "name": "sample-a", "projects": "../sample-a-agent-layers/projects", "git": "https://github.com/<계정>/sample-a-agent-layers.git", "optional": true }
 ]
 ```
 
@@ -419,11 +419,11 @@ project 레이어는 특정 프로젝트 폴더에서만 쓰는 내 설정입니
 | 목적 | 명령 |
 | --- | --- |
 | 목록에서 여러 항목 선택 | `agent-layers sync --select` |
-| 이미 받은 프로젝트를 이름으로 선택 | `agent-layers sync --projects a6a,yko` |
+| 이미 받은 프로젝트를 이름으로 선택 | `agent-layers sync --projects sample-a,sample-b` |
 | 아직 받지 않은 외부 프로젝트 저장소 선택 | `agent-layers sync --projects extends:team` |
 | 받은 프로젝트 확인 | `agent-layers project list` |
-| 적용할 내용 미리 보기 | `agent-layers project plan a6a --path ./a6a --diff` |
-| 프로젝트 설정 적용 | `agent-layers project apply a6a --path ./a6a` |
+| 적용할 내용 미리 보기 | `agent-layers project plan sample-a --path ./sample-a --diff` |
+| 프로젝트 설정 적용 | `agent-layers project apply sample-a --path ./sample-a` |
 
 - `extends:team`의 `team`은 `agent-layers.jsonc`에 등록한 `extends` 항목의 `name`입니다. 아직 받지 않은 저장소 내부의 프로젝트 이름은 내려받은 뒤 확인할 수 있습니다.
 - Git 저장소 전체를 clone하거나 `pull --ff-only`합니다. 같은 저장소의 여러 프로젝트를 선택해도 한 번만 갱신하며, 같은 저장소에 있는 다른 프로젝트 파일도 함께 갱신됩니다.
