@@ -180,6 +180,7 @@ agent-layers project purge sample-a   # 프로젝트가 끝났을 때 실행한�
 | `import` | 이 PC에 있는 사용자 설정을 가져온다 |
 | `validate [--strict]` | 설정 저장소를 검사한다 (CI에서 사용) |
 | `review [--packet] [--json] [--strict]`, `review check`, `review rules` | 설정 저장소의 MD를 읽어 검사하고, AI 검토용 패킷을 만든다 ([MD 검토와 검증 룰 관리](#md-검토와-검증-룰-관리) 참고) |
+| `workflow plan / validate / run / status / resume / cancel / report` | preview 기능. 정책 파일에 적은 AI CLI로 별도 git worktree에서 목표를 작업한다 ([workflow (preview)](#workflow-preview) 참고) |
 | `uninstall` | agent-layers가 쓴 내용을 모두 지운다 |
 
 공통 옵션은 `--only a,b`, `--skip a,b`, `--source <dir>`, `--home <dir>`(임시 홈 폴더로 시험), `--json`, `--quiet`입니다.
@@ -333,6 +334,29 @@ agent-layers review --strict
 `--strict`는 발견 사항, AI 검토 대기, 검사 제외, 미확인 링크, 룰 재검토 알림 또는 문서 부재가 있으면 1입니다.
 `review check`는 형식 오류나 검토 누락이 있으면 1이며, `needs-verification` 판단도 제출된 검토 결과로 셉니다.
 읽기·설정 해석 오류는 실패로 종료합니다.
+
+## workflow (preview)
+
+`agent-layers workflow`는 정책 파일에 적은 AI CLI를 실행해서, 목표를 단계별 계획으로 나누고 별도 git worktree에서 구현합니다. 필수 검사와 Reviewer, Auditor 역할의 검토를 모두 통과해야 실행을 완료로 판정합니다. preview 기능이므로 다음 버전에서 명령과 출력이 바뀔 수 있습니다.
+
+먼저 변경을 커밋하고, 목표 파일과 정책 파일은 저장소 밖에 둡니다. 정책은 [`templates/workflow/policy.example.jsonc`](templates/workflow/policy.example.jsonc)에서 시작합니다.
+
+```sh
+agent-layers workflow plan --goal-file ../goal.md --config ../policy.jsonc
+agent-layers workflow validate <run-id>
+agent-layers workflow run <run-id>
+agent-layers workflow report <run-id>
+```
+
+`plan`과 `run`은 시작하기 전에 실행할 명령과 호출 상한을 보여 주고 확인을 받습니다. 호출 상한은 AI CLI를 실행한 횟수이며, 토큰이나 금액의 상한이 아닙니다. 실행이 끝나도 코드는 worktree에만 있고, 직접 가져오기 전에는 저장소가 바뀌지 않습니다.
+
+| 운영체제 | 실행한 기록 | 프로세스를 시작한 뒤의 Ctrl+C, `workflow cancel` |
+|---|---|---|
+| Linux | 전체 시험, 패키지 설치, 실제 AI CLI로 실행 1건 | `CANCELLED`, 종료 코드 130. 자손 프로세스까지 끝낸다 |
+| Windows | 전체 시험, 실제 AI CLI로 실행 5건 | `INTERRUPTED`, 종료 코드 3. 직접 실행한 자식만 끝내고, 이 실행은 새 계획이 필요하다 |
+| macOS | 없음 | 실행으로 확인하지 않았다. 코드상 Windows와 같다 |
+
+종료 코드의 뜻은 다른 명령과 다릅니다. 2는 잘못된 입력이고 3은 사람을 기다리는 상태입니다. 정책 파일, 보장하지 않는 범위, 종료 코드는 [가이드](docs/GUIDE.ko.md#workflow로-작업-실행하기-preview)에 있습니다.
 
 ## 다른 도구와 비교
 

@@ -9,7 +9,12 @@ const NOT_GUARANTEED = [
   'result patch: a record with secret-looking lines masked; take the change from the worktree',
 ];
 const NEW_PLAN_NOTE = 'The worktree stays at the base commit, so a fix committed to the repository needs a new plan';
+const NEW_PLAN_ONLY_NOTE = 'workflow resume does not continue this run, so make a new plan. It starts from the repository HEAD, not from this worktree, so first see what this run left there';
 const STOP_HINTS = {
+  'role-blocked': `an AI role needs an answer; see result.needsInput in its file in the artifacts list, and put the answer in the goal. ${NEW_PLAN_ONLY_NOTE}`,
+  timeout: `an AI CLI call ran past limits.stepTimeoutSeconds; raise that limit in the policy or make the step smaller in the goal. ${NEW_PLAN_ONLY_NOTE}`,
+  'invalid-result': `the AI CLI did not give a valid role result; see the step's last error and any artifacts/call-unreadable-* in the run folder, then check the command and its output format in the policy. ${NEW_PLAN_ONLY_NOTE}`,
+  'finding-out-of-scope': `a finding names a path outside every step's writePaths, and a run does not widen its own scope; the path is in the step's last error. If that path belongs to this work, add it to allowedWritePaths in the policy and to the goal. ${NEW_PLAN_ONLY_NOTE}`,
   'setup-failed': `a setup command failed; see artifacts/setup-* in the run folder, fix the environment, then run workflow resume. ${NEW_PLAN_NOTE}`,
   'preflight-changed-files': `the setup commands or the checks changed files git does not ignore; clean the worktree or ignore those files, then run workflow resume. ${NEW_PLAN_NOTE}`,
   'baseline-failed': `a check failed at the base commit; see artifacts/baseline-* in the run folder. Fix the environment and run workflow resume, or mark the check "baseline": "fail" in a new plan if it should fail there. ${NEW_PLAN_NOTE}`,

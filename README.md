@@ -226,6 +226,7 @@ agent-layers project purge sample-a   # at the end of the engagement
 | `import` | capture existing user-level config |
 | `validate [--strict]` | lint the setup repository (use in CI) |
 | `review [--packet] [--json] [--strict]`, `review check`, `review rules` | read-only checks of the Markdown in the setup repository, and packets for an AI review (see [Markdown review](#markdown-review)) |
+| `workflow plan / validate / run / status / resume / cancel / report` | preview: work on a goal with the AI CLI named in a policy file, in a separate git worktree (see [Workflow (preview)](#workflow-preview)) |
 | `uninstall` | remove everything agent-layers wrote |
 
 Common options: `--only a,b`, `--skip a,b`, `--source <dir>`, `--home <dir>` (sandbox), `--json`, `--quiet`.
@@ -267,6 +268,37 @@ replaces it, a new ID adds a rule, and `"enabled": false` turns one off.
 
 Plain `review` exits with 0 once the checks have run. `review --strict` exits with 1 while
 anything is left, including pending AI reviews.
+
+## Workflow (preview)
+
+`agent-layers workflow` runs the AI CLI named in a policy file: it turns a goal into a plan of
+steps and implements them in a separate git worktree. A run counts as complete only after the
+required checks and the Reviewer and Auditor roles pass. It is a preview, so commands and output
+can change in a later version.
+
+Commit your changes first, and keep the goal and the policy outside the repository. Start the
+policy from [`templates/workflow/policy.example.jsonc`](templates/workflow/policy.example.jsonc).
+
+```sh
+agent-layers workflow plan --goal-file ../goal.md --config ../policy.jsonc
+agent-layers workflow validate <run-id>
+agent-layers workflow run <run-id>
+agent-layers workflow report <run-id>
+```
+
+`plan` and `run` show the commands and the call limit and ask before anything starts. The call
+limit counts runs of the AI CLI, not tokens or money. The code of a finished run stays in its
+worktree, and your repository does not change until you take it from there.
+
+| OS | What has been run | Ctrl+C or `workflow cancel` after a process started |
+|---|---|---|
+| Linux | full test suite, package install, 1 run with a real AI CLI | `CANCELLED`, exit code 130; descendant processes are ended too |
+| Windows | full test suite, 5 runs with a real AI CLI | `INTERRUPTED`, exit code 3; only the direct child is ended, and the run needs a new plan |
+| macOS | nothing | not confirmed by running it; the code behaves as on Windows |
+
+Exit codes mean something different from the other commands: 2 is bad input and 3 is waiting for
+a person. See the [guide](docs/GUIDE.en.md#running-a-task-with-workflow-preview) for the policy
+file, what is not guaranteed and the exit codes.
 
 ## Compared with other tools
 

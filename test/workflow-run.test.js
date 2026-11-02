@@ -1059,6 +1059,36 @@ test('workflow run: a check that fails at the base commit stops before any coder
   assert.match(text.stdout, /baseline checks at the base commit:\n {2}unit: exit 1, expected to pass, NOT as expected; failing tests: first/);
 });
 
+test('workflow report: a stop that resume does not continue says what to do next, and resume calls nothing', (t) => {
+  const finding = { code: 'docs', severity: 'low', path: 'docs/guide.md', evidence: 'not documented' };
+  const cases = [
+    ['role-blocked', { 'coder:impl': { result: { status: 'blocked', needsInput: ['Which file name?'] } } }, {}, /result\.needsInput/],
+    ['timeout', { 'coder:impl': { sleepMs: 60000 } }, { limits: { stepTimeoutSeconds: 1 } }, /limits\.stepTimeoutSeconds/],
+    ['invalid-result', { 'coder:impl': { stdout: 'I finished it.' } }, {}, /artifacts\/call-unreadable-\*/],
+    ['finding-out-of-scope', { 'auditor:audit': { result: { status: 'needs_changes', findings: [finding] } } }, {}, /allowedWritePaths/],
+  ];
+  for (const [reason, scenario, policy, hint] of cases) {
+    const s = setup(t, scenario, { policy });
+    const runId = planned(s);
+    assert.equal(runCli(s, runId).code, 3, reason);
+    assert.equal(JSON.parse(cli(s, ['report', runId, '--json']).stdout).stopReason, reason);
+    const text = cli(s, ['report', runId]);
+    assert.equal(text.code, 0, text.stderr);
+    const next = text.stdout.split('\n').find((l) => l.startsWith('next: '));
+    assert.ok(next, `${reason} has no next line`);
+    assert.match(next, hint);
+    assert.match(next, /workflow resume does not continue this run/);
+    assert.match(next, /new plan/);
+    const calls = s.calls().length;
+    const resumed = cli(s, ['resume', runId, '--path', s.repo, '--yes', '--json']);
+    assert.equal(resumed.code, 3, resumed.stderr);
+    const after = JSON.parse(resumed.stdout);
+    assert.equal(after.status, 'BLOCKED');
+    assert.equal(after.stopReason, reason);
+    assert.equal(s.calls().length, calls);
+  }
+});
+
 test('workflow run: a check expected to fail at the base commit is passed by the change, with one hash from the checks to the end', (t) => {
   const accept = 'if (!require("fs").existsSync("src/new.txt")) { console.error("the new file is missing"); process.exit(1); }';
   const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, { policy: { checks: [nodeCheck(accept, { baseline: 'fail' })] } });

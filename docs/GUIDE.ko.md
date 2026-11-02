@@ -457,6 +457,98 @@ project 레이어는 특정 프로젝트 폴더에서만 쓰는 내 설정입니
 - PC마다 다른 값(스크린샷 폴더 등)은 `~/.agent-layers/config.jsonc`의 `vars`에 둡니다. 이 파일은 설정 저장소에 들어가지 않습니다.
 - Codex 데스크톱 앱처럼 앱이 설정 파일을 다시 쓰는 경우가 있습니다. 가끔 `agent-layers status`로 확인하고, 바뀐 것이 있으면 다시 적용합니다.
 
+## workflow로 작업 실행하기 (preview)
+
+`agent-layers workflow`는 정책 파일에 적은 AI CLI를 실행해서, 목표를 단계별 계획으로 나누고 별도 git worktree에서 구현합니다. 필수 검사와 Reviewer, Auditor 역할의 검토를 모두 통과해야 실행을 완료로 판정합니다. 설정을 배포하는 `plan`, `apply`, `sync`와는 별개의 기능입니다. preview 기능이므로 다음 버전에서 명령과 출력이 바뀔 수 있습니다.
+
+### 시작 순서
+
+1. 대상 저장소의 변경을 커밋합니다. 커밋하지 않은 변경이 있으면 `plan`과 `run`이 종료 코드 2로 거부합니다.
+2. 목표 파일과 정책 파일을 저장소 밖에 만듭니다. 저장소 안에 새 파일을 두면 커밋하지 않은 변경으로 봅니다. 정책은 [`templates/workflow/policy.example.jsonc`](../templates/workflow/policy.example.jsonc)를 복사해서 고칩니다.
+3. 대상 저장소 폴더에서 아래 명령을 차례로 실행합니다. `<run-id>`에는 `plan`이 출력한 실행 ID를 씁니다. 다른 폴더에서 실행하려면 `plan`, `run`, `resume`에 `--path <저장소>`를 붙입니다.
+
+```sh
+agent-layers workflow plan --goal-file ../goal.md --config ../policy.jsonc
+agent-layers workflow validate <run-id>
+agent-layers workflow run <run-id>
+agent-layers workflow report <run-id>
+```
+
+| 명령 | 하는 일 | AI 호출 |
+| --- | --- | --- |
+| `workflow plan` | Planner 역할로 계획을 만들고 실행 ID를 출력합니다 | 있음 |
+| `workflow validate <run-id>` | 저장된 계획, 정책, 기록을 검사합니다 | 없음 |
+| `workflow run <run-id>` | 별도 worktree에서 계획을 실행합니다 | 있음 |
+| `workflow status <run-id>` | 단계 상태, 시도 횟수, 사용량을 보여 줍니다 | 없음 |
+| `workflow report <run-id>` | 검사 결과, 산출물, 남은 단계, 보장하지 않는 범위를 보여 줍니다 | 없음 |
+| `workflow resume <run-id>` | 멈춘 실행을 이어 갑니다. 이어 갈 수 없는 사유이면 호출 없이 끝납니다 | 이어 갈 때만 |
+| `workflow cancel <run-id>` | 진행 중인 실행에 중단을 요청하고 결과를 기다립니다. 실행 중인 터미널의 Ctrl+C도 같은 일을 합니다 | 없음 |
+
+실행이 멈춘 이유는 실행 상태와 단계의 `last error` 열에 나옵니다. `BLOCKED`로 멈춘 경우 대부분은 `workflow report`의 `next:` 줄이 다음에 할 일을 알려 줍니다. 통신 오류(`transport`)로 멈추었으면 연결이 복구된 뒤에 `resume`합니다. `FAILED`나 `CANCELLED`로 끝난 실행은 재개되지 않으므로 새 계획을 만듭니다. 모든 명령에 `--json`을 붙일 수 있습니다.
+
+### 승인과 호출 상한
+
+- `plan`, `run`, `resume`은 시작하기 전에 실행할 명령, 대상 저장소, 호출 상한을 보여 주고 확인을 받습니다. `run`과 `resume`은 단계, 쓰기 경로, 검사도 함께 보여 줍니다.
+- 터미널이 없는 곳에서 `--yes` 없이 실행하면 종료 코드 3으로 멈춥니다. 이때 AI CLI, 준비 명령, 검사는 시작되지 않습니다.
+- `--yes`는 이 확인을 건너뜁니다. 표시되는 내용을 먼저 확인한 뒤에 붙입니다.
+- 호출 상한 `limits.maxAgentCalls`(기본값 20)는 AI CLI를 실행한 횟수입니다. 한 번의 실행 안에서 일어나는 모델 요청, 토큰, 금액의 상한이 아닙니다.
+- 시간 상한은 호출마다 `limits.stepTimeoutSeconds`(기본값 900초), 실행 전체에 `limits.runTimeoutSeconds`(기본값 3600초)입니다.
+
+### 정책 파일
+
+예시 파일의 주석에 `setup`, `baseline`, `inputs`, `failedTestPattern`의 사용법이 있습니다. 아래 내용을 먼저 확인합니다.
+
+- `provider`의 명령은 지시문을 stdin으로 받고 최종 메시지를 stdout으로 출력해야 합니다. 플래그는 그 CLI에 속하고 버전에 따라 바뀔 수 있으므로, CLI의 `--help`로 확인합니다.
+- Windows에서는 `.cmd` 파일을 셸 없이 시작할 수 없어서 `plan`이 종료 코드 2로 거부합니다. npm으로 설치한 `codex`와 `npm` 자체가 여기에 해당하므로, 예시 파일을 그대로 쓰면 거부됩니다. `provider`는 `"command": "node"`로 쓰고, 그 패키지의 bin 스크립트 경로를 각 `args` 목록의 첫 항목으로 적습니다. `checks`와 `setup`의 `npm`도 같은 방식으로 바꾸거나, 시험이면 `"command": "node"`와 `"args": ["--test"]`처럼 테스트 실행기를 직접 적습니다.
+- 비밀값은 정책 파일에 적지 않습니다. 자식 프로세스에 넘길 환경 변수의 이름만 `provider.env`에 적습니다.
+
+⚠️ Codex 예시의 `-c approval_policy=never`를 지우지 마십시오. 사용자 설정에 따라 승인받지 않은 보조 모델이 샌드박스 밖 실행을 승인할 수 있습니다.
+
+### 결과 확인
+
+- `SUCCEEDED`는 프로그램의 검사와 검토 조건을 통과했다는 뜻입니다. 사용자가 원한 결과와 완전히 일치한다는 뜻은 아닙니다.
+- 실행이 끝나도 대상 저장소는 바뀌지 않습니다. 코드는 `report`의 `worktree:` 줄에 나오는 폴더에만 있으므로, 필요한 변경을 직접 가져와 커밋합니다.
+- worktree는 자동으로 지워지지 않습니다. 변경을 가져온 뒤에 `git worktree remove --force <worktree>`로 지웁니다.
+
+⚠️ `--force` 삭제는 가져오지 않은 변경까지 지웁니다. 지운 코드는 복구할 수 없습니다.
+
+### 보장하지 않는 범위
+
+`workflow report`가 출력하는 `not guaranteed` 목록과 같은 내용입니다.
+
+| 항목 | 내용 |
+| --- | --- |
+| 격리 | 샌드박스는 AI CLI와 정책에 맡깁니다. 준비 명령과 검사는 사용자 권한으로 실행됩니다 |
+| 쓰기 범위 | 호출마다 끝난 뒤에 검사하며, 미리 막지 않습니다. 앞 단계의 경로와 git이 무시하는 파일은 세지 않습니다 |
+| 프로세스 | 세션을 벗어난 프로세스는 실행이 끝나거나, 취소되거나, 재개될 때 찾지 못합니다 |
+| AI CLI 설정 | CLI가 자기 전역 설정에 만든 변경은 정리하지 않습니다 |
+| 모델과 사용량 | 기록하지 않습니다. 호출 수와 활성 시간만 셉니다 |
+| 결과 patch | 비밀값처럼 보이는 줄을 가린 기록입니다. 변경은 worktree에서 가져옵니다 |
+
+### 지원 환경
+
+Node.js는 18.17 이상이 필요합니다. 운영체제를 막지는 않지만, 중단했을 때의 동작이 다릅니다.
+
+| 운영체제 | 실행한 기록 | Ctrl+C, `workflow cancel` | 중단된 실행의 재개 |
+| --- | --- | --- | --- |
+| Linux | 전체 시험, 패키지 설치, 실제 AI CLI로 실행 1건(Codex CLI) | `CANCELLED`, 종료 코드 130. 자손 프로세스까지 끝냅니다 | 관리 프로세스가 강제 종료되면 남은 자식을 자동으로 끝내지 않고 재개를 막습니다. 그 프로세스를 끝낸 뒤 다시 `resume`합니다 |
+| Windows | 전체 시험, 실제 AI CLI로 실행 5건(Codex CLI 3건, Claude Code 2건) | `INTERRUPTED`, 종료 코드 3. 직접 실행한 자식만 끝내므로 자손 프로세스가 남을 수 있습니다 | `process-unconfirmed`로 멈추고 재개되지 않습니다. 새 계획이 필요합니다 |
+| macOS | 실행한 기록이 없습니다 | Linux가 아닌 OS로 분류되므로 코드상 Windows와 같습니다. 실행으로 확인하지 않았습니다 | 코드상 Windows와 같습니다. 실행으로 확인하지 않았습니다 |
+
+위 표의 중단은 프로세스를 하나라도 시작한 뒤의 경우입니다. 프로세스를 시작하기 전에 취소하면 어느 운영체제에서든 `CANCELLED`, 종료 코드 130으로 끝납니다.
+
+### 종료 코드
+
+workflow 명령의 종료 코드는 다른 agent-layers 명령과 뜻이 다릅니다. 다른 명령은 잘못된 입력에도 대부분 1을 돌려주고, 2는 알 수 없는 명령에만 씁니다. 스크립트에서 종료 코드를 볼 때는 이 차이를 구분합니다.
+
+| 코드 | 뜻 | 예 |
+| --- | --- | --- |
+| 0 | 완료 또는 정상 조회 | `SUCCEEDED`. `status`와 `report`는 실행이 실패했어도 조회에 성공하면 0입니다 |
+| 1 | 실행 실패 | `FAILED` |
+| 2 | 잘못된 입력 또는 실행할 수 없는 상태 | 잘못된 옵션, 커밋하지 않은 변경, 이미 끝난 실행의 `resume` |
+| 3 | 사람의 입력, 승인, 복구를 기다림 | `BLOCKED`, `INTERRUPTED`, 터미널 없이 `--yes`를 주지 않은 경우, 다른 프로세스가 진행 중인 실행 |
+| 130 | 취소 | `CANCELLED` |
+
 ---
 ---
 

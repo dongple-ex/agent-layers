@@ -457,6 +457,98 @@ Three ways to fix the target agents permanently:
 - Values that differ per machine (a screenshots folder, ...) go under `vars` in `~/.agent-layers/config.jsonc`. That file is not part of the setup repository.
 - Some apps rewrite their own config files, the Codex desktop app for example. Run `agent-layers status` now and then and apply again if something changed.
 
+## Running a task with workflow (preview)
+
+`agent-layers workflow` runs the AI CLI named in a policy file: it turns a goal into a plan of steps and implements them in a separate git worktree. A run counts as complete only after the required checks and the Reviewer and Auditor roles pass. It is separate from the `plan`, `apply` and `sync` commands that deploy your setup. It is a preview, so commands and output can change in a later version.
+
+### Getting started
+
+1. Commit the changes in the target repository. `plan` and `run` refuse uncommitted changes with exit code 2.
+2. Create the goal file and the policy file outside the repository. A new file inside it counts as an uncommitted change. Copy [`templates/workflow/policy.example.jsonc`](../templates/workflow/policy.example.jsonc) and edit it for the policy.
+3. Run the commands below in order from the target repository. Use the run ID printed by `plan` for `<run-id>`. To run from another folder, add `--path <repo>` to `plan`, `run` and `resume`.
+
+```sh
+agent-layers workflow plan --goal-file ../goal.md --config ../policy.jsonc
+agent-layers workflow validate <run-id>
+agent-layers workflow run <run-id>
+agent-layers workflow report <run-id>
+```
+
+| Command | What it does | AI calls |
+| --- | --- | --- |
+| `workflow plan` | Makes a plan with the Planner role and prints the run ID | yes |
+| `workflow validate <run-id>` | Checks the stored plan, policy and records | no |
+| `workflow run <run-id>` | Runs the plan in a separate worktree | yes |
+| `workflow status <run-id>` | Shows step states, attempts and budget use | no |
+| `workflow report <run-id>` | Shows check results, artifacts, remaining steps and what is not guaranteed | no |
+| `workflow resume <run-id>` | Continues a stopped run. If the reason for the stop cannot be continued, it ends without a call | only when it continues |
+| `workflow cancel <run-id>` | Asks a running run to stop and waits for the result. Ctrl+C in the terminal of the run does the same | no |
+
+The status of the run and the `last error` column of the step say why a run stopped. For most `BLOCKED` reasons, the `next:` line of `workflow report` says what to do next. After a communication error (`transport`), run `resume` once the connection is back. A run that ended as `FAILED` or `CANCELLED` does not resume, so make a new plan. Every command accepts `--json`.
+
+### Approval and call limits
+
+- `plan`, `run` and `resume` show the commands, the target repository and the call limit, and ask for confirmation before they start. `run` and `resume` also show the steps, write paths and checks.
+- Without a terminal and without `--yes`, they stop with exit code 3. The AI CLI, setup commands and checks do not start.
+- `--yes` skips this confirmation. Read what is shown before you add it.
+- The call limit `limits.maxAgentCalls` (default 20) counts how many times the AI CLI is run. It does not limit the model requests inside one run of the CLI, tokens or money.
+- The time limits are `limits.stepTimeoutSeconds` per call (default 900 seconds) and `limits.runTimeoutSeconds` for the whole run (default 3600 seconds).
+
+### The policy file
+
+The comments in the example file explain `setup`, `baseline`, `inputs` and `failedTestPattern`. Check these first:
+
+- The `provider` command must take its instructions on stdin and print its final message on stdout. Its flags belong to that CLI and can change with its version, so check them with its `--help`.
+- On Windows a `.cmd` file cannot start without a shell, so `plan` refuses it with exit code 2. That includes `codex` installed with npm, and `npm` itself, so the example file is refused as it stands. For `provider`, use `"command": "node"` and put the path of the package's bin script first in each `args` list. Do the same for `npm` in `checks` and `setup`, or for a test check name the test runner directly, such as `"command": "node"` with `"args": ["--test"]`.
+- Secrets never go in the policy file. List only the names of the environment variables to pass on under `provider.env`.
+
+⚠️ Do not remove `-c approval_policy=never` from the Codex example. Depending on your settings, a helper model that you did not approve can approve running outside the sandbox.
+
+### Checking the result
+
+- `SUCCEEDED` means the checks and reviews of the program passed. It does not mean the result is exactly what you wanted.
+- The target repository does not change when a run ends. The code is only in the folder on the `worktree:` line of `report`, so take the changes you want from there and commit them yourself.
+- A worktree is not removed automatically. After taking the changes, remove it with `git worktree remove --force <worktree>`.
+
+⚠️ `--force` also deletes changes you did not take, and the deleted code cannot be recovered.
+
+### What is not guaranteed
+
+This is the same as the `not guaranteed` list printed by `workflow report`.
+
+| Item | Details |
+| --- | --- |
+| Isolation | Sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions |
+| Write scope | Checked after each call, not blocked; paths of earlier steps and files git ignores are not counted |
+| Processes | One that left its session is not found when a run ends, is cancelled or is resumed |
+| AI CLI settings | Changes a CLI makes to its own global settings are not cleaned up |
+| Model and usage | Not recorded; only calls and active time are counted |
+| Result patch | A record with secret-looking lines masked; take the change from the worktree |
+
+### Supported environments
+
+Node.js 18.17 or later is required. No operating system is refused, but they behave differently when a run is stopped.
+
+| OS | What has been run | Ctrl+C, `workflow cancel` | Resuming a stopped run |
+| --- | --- | --- | --- |
+| Linux | Full test suite, package install, 1 run with a real AI CLI (Codex CLI) | `CANCELLED`, exit code 130. Descendant processes are ended too | If the managing process is killed, the children it left are not ended automatically and resume is refused. End those processes, then run `resume` again |
+| Windows | Full test suite, 5 runs with a real AI CLI (Codex CLI 3, Claude Code 2) | `INTERRUPTED`, exit code 3. Only the direct child is ended, so descendant processes may keep running | Stops with `process-unconfirmed` and does not continue. A new plan is needed |
+| macOS | Nothing has been run | Treated as a non-Linux OS, so the code behaves as on Windows. Not confirmed by running it | The code behaves as on Windows. Not confirmed by running it |
+
+The table covers a stop after at least one process has started. A cancel before any process starts ends as `CANCELLED` with exit code 130 on every OS.
+
+### Exit codes
+
+Exit codes of the workflow commands mean something different from the other agent-layers commands. The others mostly return 1 even for bad input, and use 2 only for an unknown command. Keep this in mind when a script reads the exit code.
+
+| Code | Meaning | Examples |
+| --- | --- | --- |
+| 0 | Completed, or a query succeeded | `SUCCEEDED`. `status` and `report` return 0 when the query works, even if the run failed |
+| 1 | The run failed | `FAILED` |
+| 2 | Bad input, or a state that cannot run | A bad option, uncommitted changes, `resume` of a run that has ended |
+| 3 | Waiting for input, approval or recovery by a person | `BLOCKED`, `INTERRUPTED`, no terminal and no `--yes`, a run another process is working on |
+| 130 | Cancelled | `CANCELLED` |
+
 ---
 ---
 
