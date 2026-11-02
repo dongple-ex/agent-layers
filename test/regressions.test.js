@@ -229,8 +229,8 @@ test('#1 purge keeps a Claude folder shared with another path that maps to the s
   const { createContext } = await import('../src/context.js');
   const sb = sandbox();
   const ctx = createContext({ home: sb.home });
-  const root = path.join(sb.root, 'acme_portal');
-  const twin = path.join(sb.root, 'acme-portal');
+  const root = path.join(sb.root, 'sample-a_portal');
+  const twin = path.join(sb.root, 'sample-a-portal');
   const dir = path.join(sb.home, '.claude', 'projects', path.resolve(root).replace(/[^A-Za-z0-9]/g, '-'));
   write(path.join(dir, 'a.jsonl'), `${JSON.stringify({ type: 'user', cwd: root })}\n`);
   write(path.join(dir, 'b.jsonl'), `${JSON.stringify({ type: 'user', cwd: twin })}\n`);
@@ -566,7 +566,7 @@ test('update command follows the install location, and versions compare numerica
 test('remote URLs with ports and trailing .git/ normalize to host/org/repo', async () => {
   const { normalizeRemote } = await import('../src/project.js');
   assert.equal(normalizeRemote('ssh://git@host.example:22/org/repo.git/'), 'host.example/org/repo');
-  assert.equal(normalizeRemote('git@github.com:acme/portal.git'), 'github.com/acme/portal');
+  assert.equal(normalizeRemote('git@github.com:sample-a/portal.git'), 'github.com/sample-a/portal');
   assert.equal(normalizeRemote('https://user@dev.azure.com/org/proj/_git/repo'), 'dev.azure.com/org/proj/_git/repo');
 });
 

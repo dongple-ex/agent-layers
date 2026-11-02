@@ -55,7 +55,7 @@ These six terms are enough to follow the rest of the guide. The key distinction:
 | Setup repository | The git repository with the source of your rules, skills, MCP servers and settings. Usually a private GitHub repository | `github.com/<account>/my-agent-layers`, cloned to `~/.agent-layers/source` |
 | Base layer | The `base/` folder of the setup repository. Applied on every machine and in every project | Working rules you always follow, skills you use often |
 | Project layer | A `projects/<name>/` folder. Applied only in that project folder and removed when the project ends | A client-only MCP server, personal rules for one project |
-| Secret reference | `${secret:name}` written in place of a value. The real value is stored in the OS keychain on each machine | `${secret:acme/api-token}` |
+| Secret reference | `${secret:name}` written in place of a value. The real value is stored in the OS keychain on each machine | `${secret:sample-a/api-token}` |
 | plan / apply | `plan` is a dry run that only shows changes; `apply` writes them | `agent-layers plan --diff`, then `agent-layers apply` |
 
 - The OS keychain is Credential Manager on Windows, Keychain on macOS and libsecret on Linux.
@@ -344,13 +344,13 @@ Sometimes you do not need the keychain at all:
 
 A project layer holds your own settings for one project folder only. Use it to add your rules or MCP servers to a repository you share with a client or team without touching it, and remove everything in one step when the project ends.
 
-1. Create it. `projects/acme/project.jsonc` is added to the setup repository.
+1. Create it. `projects/sample-a/project.jsonc` is added to the setup repository.
 
    ```text
-   agent-layers project init acme --mode private --remote "github.com/acme/*"
+   agent-layers project init sample-a --mode private --remote "github.com/sample-a/*"
    ```
 
-2. Add content. The folders are the same as in base: `projects/acme/instructions/`, `skills/`, `mcp/`.
+2. Add content. The folders are the same as in base: `projects/sample-a/instructions/`, `skills/`, `mcp/`.
 
 3. Go to the project folder, preview and apply. Without a name, the project is found from the current folder.
 
@@ -359,18 +359,18 @@ A project layer holds your own settings for one project folder only. Use it to a
    agent-layers project apply
    ```
 
-4. When the project ends, purge it, then delete `projects/acme/` from the setup repository and commit.
+4. When the project ends, purge it, then delete `projects/sample-a/` from the setup repository and commit.
 
    ```text
-   agent-layers project purge acme
+   agent-layers project purge sample-a
    ```
 
 Projects are recognized by the rules below, not by folder path, so the same project is found even if its folder is in a different place on each machine.
 
 | Option | Matches | Example |
 | --- | --- | --- |
-| `--remote` | The git remote URL. `*` is allowed | `"github.com/acme/*"` |
-| `--dir-name` | The folder name. For repositories without a remote | `acme_workspace` |
+| `--remote` | The git remote URL. `*` is allowed | `"github.com/sample-a/*"` |
+| `--dir-name` | The folder name. For repositories without a remote | `sample-a_workspace` |
 
 There are two modes:
 
@@ -383,7 +383,7 @@ Settings in `project.jsonc` you will change most often:
 
 | Setting | Meaning |
 | --- | --- |
-| `"name": "acme"` | The project name. The folder name is used when it is left out. It starts with a letter or digit and uses only letters, digits, `.`, `_` and `-`; any other name is an error |
+| `"name": "sample-a"` | The project name. The folder name is used when it is left out. It starts with a letter or digit and uses only letters, digits, `.`, `_` and `-`; any other name is an error |
 | `"targets": "inherit"` | Use all targets of the setup repository. Write `["claude"]` to apply only to that agent |
 | `"memory": { "claude": "project" }` | Keep Claude's auto memory inside the project folder (git-excluded) so it is removed with the folder. A relative path inside the project folder also works in place of `"project"`; a path outside the project folder is not applied and is reported as an error |
 | `"purge": { "agentData": true }` | `purge` also removes this project's agent conversation records |

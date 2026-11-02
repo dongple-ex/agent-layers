@@ -155,14 +155,14 @@ test('toml editor: comments attached to the next table survive replace, remove a
 });
 
 test('mdblock: markers match whole lines only', () => {
-  let t = upsertBlock('', 'project.acme-v2', 'v2 entry', { style: 'hash' });
-  t = upsertBlock(t, 'project.acme', 'acme entry', { style: 'hash' });
-  assert.equal(getBlockContent(t, 'project.acme-v2', 'hash'), 'v2 entry');
-  assert.equal(getBlockContent(t, 'project.acme', 'hash'), 'acme entry');
-  t = upsertBlock(t, 'project.acme', 'acme changed', { style: 'hash' });
-  assert.equal(getBlockContent(t, 'project.acme-v2', 'hash'), 'v2 entry');
-  t = removeBlock(t, 'project.acme', 'hash');
-  assert.equal(getBlockContent(t, 'project.acme-v2', 'hash'), 'v2 entry');
+  let t = upsertBlock('', 'project.sample-a-v2', 'v2 entry', { style: 'hash' });
+  t = upsertBlock(t, 'project.sample-a', 'sample-a entry', { style: 'hash' });
+  assert.equal(getBlockContent(t, 'project.sample-a-v2', 'hash'), 'v2 entry');
+  assert.equal(getBlockContent(t, 'project.sample-a', 'hash'), 'sample-a entry');
+  t = upsertBlock(t, 'project.sample-a', 'sample-a changed', { style: 'hash' });
+  assert.equal(getBlockContent(t, 'project.sample-a-v2', 'hash'), 'v2 entry');
+  t = removeBlock(t, 'project.sample-a', 'hash');
+  assert.equal(getBlockContent(t, 'project.sample-a-v2', 'hash'), 'v2 entry');
 });
 
 test('toml editor: remove key and empty document handling', () => {

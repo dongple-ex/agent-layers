@@ -55,7 +55,7 @@ agent-layers가 하지 않는 일도 있습니다.
 | 설정 저장소 | 내 규칙·스킬·MCP·설정의 원본을 담는 git 저장소. 보통 비공개 GitHub 저장소로 둡니다 | `github.com/<계정>/my-agent-layers`, PC에서는 `~/.agent-layers/source` |
 | base 레이어 | 설정 저장소의 `base/` 폴더. 모든 PC, 모든 프로젝트에 적용합니다 | 항상 지킬 작업 규칙, 자주 쓰는 스킬 |
 | project 레이어 | 설정 저장소의 `projects/<이름>/` 폴더. 그 프로젝트 폴더에서만 적용하고, 끝나면 지웁니다 | 고객사 전용 MCP, 그 프로젝트에서만 쓸 개인 규칙 |
-| 비밀값 참조 | 설정에 값 대신 적는 `${secret:이름}`. 실제 값은 PC마다 OS 키체인에 저장합니다 | `${secret:acme/api-token}` |
+| 비밀값 참조 | 설정에 값 대신 적는 `${secret:이름}`. 실제 값은 PC마다 OS 키체인에 저장합니다 | `${secret:sample-a/api-token}` |
 | plan / apply | `plan`은 바뀔 내용만 보여 주는 미리 보기, `apply`는 실제로 쓰는 적용입니다 | `agent-layers plan --diff` 뒤 `agent-layers apply` |
 
 - OS 키체인은 Windows에서는 자격 증명 관리자, macOS에서는 키체인, Linux에서는 libsecret입니다.
@@ -344,13 +344,13 @@ agent-layers secrets delete example/api-token
 
 project 레이어는 특정 프로젝트 폴더에서만 쓰는 내 설정입니다. 고객사 저장소처럼 팀이 함께 쓰는 저장소를 건드리지 않고 내 규칙이나 MCP를 더할 때 쓰고, 프로젝트가 끝나면 한 번에 지웁니다.
 
-1. 만듭니다. 설정 저장소에 `projects/acme/project.jsonc`가 생깁니다.
+1. 만듭니다. 설정 저장소에 `projects/sample-a/project.jsonc`가 생깁니다.
 
    ```text
-   agent-layers project init acme --mode private --remote "github.com/acme/*"
+   agent-layers project init sample-a --mode private --remote "github.com/sample-a/*"
    ```
 
-2. 내용을 넣습니다. 폴더 구성은 base와 같습니다: `projects/acme/instructions/`, `skills/`, `mcp/`.
+2. 내용을 넣습니다. 폴더 구성은 base와 같습니다: `projects/sample-a/instructions/`, `skills/`, `mcp/`.
 
 3. 프로젝트 폴더로 이동해서 미리 보고 적용합니다. 이름을 생략하면 현재 폴더로 프로젝트를 찾습니다.
 
@@ -359,18 +359,18 @@ project 레이어는 특정 프로젝트 폴더에서만 쓰는 내 설정입니
    agent-layers project apply
    ```
 
-4. 프로젝트가 끝나면 지우고, 설정 저장소에서도 `projects/acme/`를 지운 뒤 커밋합니다.
+4. 프로젝트가 끝나면 지우고, 설정 저장소에서도 `projects/sample-a/`를 지운 뒤 커밋합니다.
 
    ```text
-   agent-layers project purge acme
+   agent-layers project purge sample-a
    ```
 
 프로젝트는 폴더 경로가 아니라 아래 기준으로 찾습니다. 그래서 PC마다 폴더 위치가 달라도 같은 프로젝트로 인식합니다.
 
 | 옵션 | 기준 | 예 |
 | --- | --- | --- |
-| `--remote` | git 원격 주소. `*`를 쓸 수 있습니다 | `"github.com/acme/*"` |
-| `--dir-name` | 폴더 이름. 원격 주소가 없는 저장소에 씁니다 | `acme_workspace` |
+| `--remote` | git 원격 주소. `*`를 쓸 수 있습니다 | `"github.com/sample-a/*"` |
+| `--dir-name` | 폴더 이름. 원격 주소가 없는 저장소에 씁니다 | `sample-a_workspace` |
 
 모드는 두 가지입니다.
 
@@ -383,7 +383,7 @@ project 레이어는 특정 프로젝트 폴더에서만 쓰는 내 설정입니
 
 | 항목 | 뜻 |
 | --- | --- |
-| `"name": "acme"` | 프로젝트 이름입니다. 생략하면 폴더 이름을 씁니다. 영문자나 숫자로 시작하고 영문자, 숫자, `.`, `_`, `-`만 씁니다. 이 규칙에 맞지 않으면 오류가 납니다 |
+| `"name": "sample-a"` | 프로젝트 이름입니다. 생략하면 폴더 이름을 씁니다. 영문자나 숫자로 시작하고 영문자, 숫자, `.`, `_`, `-`만 씁니다. 이 규칙에 맞지 않으면 오류가 납니다 |
 | `"targets": "inherit"` | 설정 저장소 전체 대상을 따릅니다. `["claude"]`처럼 적으면 그 에이전트에만 적용합니다 |
 | `"memory": { "claude": "project" }` | Claude 자동 메모리를 프로젝트 폴더 안(git 제외)에 두어, 폴더와 함께 지울 수 있게 합니다. `"project"` 대신 프로젝트 폴더 안의 상대 경로를 적을 수도 있습니다. 프로젝트 폴더 밖 경로는 적용하지 않고 오류로 알립니다 |
 | `"purge": { "agentData": true }` | `purge`할 때 그 프로젝트의 에이전트 대화 기록도 함께 지웁니다 |
