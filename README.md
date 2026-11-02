@@ -94,6 +94,9 @@ Capture what you already have on this machine into the base layer:
 agent-layers import --from claude,codex,gemini,copilot
 ```
 
+On import, absolute home paths become `{{home}}`, and plaintext secrets in MCP server definitions
+become `${secret:NAME}` references.
+
 ## Setup repository layout
 
 ```text
@@ -113,15 +116,6 @@ projects/<name>/
 ```
 
 Projects of another setup repository are imported with the `projects` field of `extends`. See "Projects from another setup repository" in the [guide](docs/GUIDE.en.md).
-
-Run `agent-layers sync --select` to choose projects or external repositories by comma-separated numbers or names. For scripts, use:
-
-```bash
-agent-layers sync --projects a6a,yko
-agent-layers sync --projects extends:team
-```
-
-Use a known project name, or `extends:<name>` for an external repository that has not been downloaded yet. Selected sync clones/pulls whole Git repositories, including other projects in the same repository, and does not apply settings. Review with `project plan` and apply with `project apply` afterwards. Plain `sync` retains its existing full-sync and base-application behavior.
 
 Neutral MCP definition:
 
@@ -178,6 +172,20 @@ environment overrides.
 
 ## Projects
 
+To download only some projects, run `agent-layers sync --select` and pick them by number or
+name, separated by commas. In scripts, name them directly:
+
+```sh
+agent-layers sync --projects acme,beta
+agent-layers sync --projects extends:team
+```
+
+`--projects` takes the name of a project you already have, or `extends:<name>` for an external
+repository that is not downloaded yet. A selected sync clones or pulls the whole Git repository,
+so other projects in the same repository are updated too. It applies nothing: check with
+`project plan`, then run `project apply`. Plain `sync` pulls every repository and applies the
+base layer.
+
 ```sh
 agent-layers project init acme --mode private --remote "github.com/acme/*"
 agent-layers project apply            # inside the project folder; detected by git remote or folder name
@@ -204,11 +212,12 @@ agent-layers project purge acme       # at the end of the engagement
 
 | Command | Purpose |
 |---|---|
-| `init [dir] [--from url]` | create or clone a setup repository and register it |
+| `init [dir] [--from url] [--lang lang]` | create or clone a setup repository and register it; `--lang en` or `--lang ko` sets the language of the persona file |
 | `doctor [--strict]` | environment, installed agents, plaintext secrets, misplaced Codex keys, Zed/Copilot ordering, newer agent-layers version on npm; `--strict` also fails on warnings |
 | `agents` | supported agents by tier and their resolved paths |
 | `plan [--diff] [--all]` / `apply [--yes] [--force] [--prune]` | dry run / write the base layer; `--prune` also removes outputs of agents that are no longer selected |
 | `sync` | `git pull --ff-only` the setup repository (and team layers), then apply |
+| `sync --select` / `sync --projects a,b` | download only the chosen projects or `extends:<name>` repositories; applies nothing |
 | `status` | managed outputs and drift |
 | `show [layer] [--json]` | what each layer holds (instructions, skills, MCP servers, setting keys, files) and which agents receive it; projects as one-line summaries |
 | `project list / init / detect / plan / apply / purge` | project layers |
@@ -216,9 +225,48 @@ agent-layers project purge acme       # at the end of the engagement
 | `exec --env K=V -- cmd` | run a command with secrets injected |
 | `import` | capture existing user-level config |
 | `validate [--strict]` | lint the setup repository (use in CI) |
+| `review [--packet] [--json] [--strict]`, `review check`, `review rules` | read-only checks of the Markdown in the setup repository, and packets for an AI review (see [Markdown review](#markdown-review)) |
 | `uninstall` | remove everything agent-layers wrote |
 
-Common options: `--only a,b`, `--skip a,b`, `--source <dir>`, `--home <dir>` (sandbox), `--json`.
+Common options: `--only a,b`, `--skip a,b`, `--source <dir>`, `--home <dir>` (sandbox), `--json`, `--quiet`.
+
+## Markdown review
+
+`validate` checks the configuration format. `review` reads the `.md` and `.md.tmpl` files under
+`instructions/`, `skills/`, `commands/` and `agents/` in the base, extends and project layers,
+reports static findings, and lists what still needs an AI review. It only reads files; the one
+exception is `review rules ... --write`, which saves `review-rules.jsonc` and keeps the previous
+version in a `.bak` file next to it. Its messages and built-in rule descriptions are in Korean.
+
+```sh
+agent-layers review --source ./my-agent-layers
+agent-layers review --source ./my-agent-layers --packet --json > review-packet.json
+agent-layers review check --source ./my-agent-layers --input ai-result.json
+agent-layers review rules list --source ./my-agent-layers
+```
+
+| Kind | What it checks |
+|---|---|
+| `duplicate-paragraph` | the same paragraph repeated under the same conditions; a merge candidate, never removed |
+| `broken-local-link` | relative links and reference definitions that point to missing files |
+| `required-sections` | headings that your own rules require |
+| `manual` | contradictions, outdated workarounds, excessive checks and similar issues, left for an AI review; the CLI calls no AI |
+
+Give the `--packet` output to the AI you already use and ask it to follow `packet.instructions`.
+`review check` rejects a result made for older files, rules or settings, and reports missing or
+duplicate decisions.
+
+⚠️ Passing `review check` does not mean the AI's judgments are correct; the result says
+`factualAccuracyVerified: false`.
+
+The packet contains file contents and local paths. Known secret patterns are masked, but read the
+packet before you send it anywhere; `review` itself sends nothing.
+
+Your own rules go in `review-rules.jsonc` in the setup repository: a rule with a built-in ID
+replaces it, a new ID adds a rule, and `"enabled": false` turns one off.
+
+Plain `review` exits with 0 once the checks have run. `review --strict` exits with 1 while
+anything is left, including pending AI reviews.
 
 ## Compared with other tools
 
@@ -233,6 +281,11 @@ Common options: `--only a,b`, `--skip a,b`, `--source <dir>`, `--home <dir>` (sa
 
 agent-layers can sit next to these: keep skills in a Claude plugin marketplace, or let chezmoi
 install agent-layers itself.
+
+## Feedback
+
+Share bugs, ideas, or suggestions through the [feedback form](https://github.com/dongple-ex/agent-layers/issues/new?template=feedback.yml).
+If relevant, include your installed version (`agent-layers --version`).
 
 ## Development
 

@@ -1,0 +1,16 @@
+name: 의견 보내기 / Feedback
+description: 오류, 개선 제안 등 자유롭게 의견을 남겨 주세요. Share bugs, ideas, or suggestions.
+body:
+  - type: textarea
+    id: feedback
+    attributes:
+      label: 의견 / Feedback
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 사용 버전 (선택) / Version (optional)
+      description: "agent-layers --version"
+    validations:
+      required: false

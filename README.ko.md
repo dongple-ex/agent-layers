@@ -143,11 +143,11 @@ agent-layers secrets check                 # 이 PC에 없는 비밀값 확인
 프로젝트를 골라 설정 저장소만 내려받으려면 `agent-layers sync --select`를 실행합니다. 번호나 이름을 쉼표로 구분해 여러 개를 고를 수 있습니다.
 
 ```bash
-agent-layers sync --projects a6a,yko
+agent-layers sync --projects acme,beta
 agent-layers sync --projects extends:team
 ```
 
-`--projects`는 이미 받은 프로젝트 이름을 받습니다. 아직 받지 않은 외부 저장소는 `extends:<이름>`으로 선택합니다. 선택 동기화는 Git 저장소 전체를 clone/pull하므로 같은 저장소의 다른 프로젝트 파일도 함께 갱신됩니다. 설정은 자동 적용하지 않습니다. 내려받은 뒤 `project plan`으로 확인하고 `project apply`로 적용합니다. 옵션 없는 `sync`는 기존처럼 전체 동기화 후 base를 적용합니다.
+`--projects`는 이미 받은 프로젝트 이름을 받습니다. 아직 받지 않은 외부 저장소는 `extends:<이름>`으로 선택합니다. 선택 동기화는 Git 저장소 전체를 clone/pull하므로 같은 저장소의 다른 프로젝트 파일도 함께 갱신됩니다. 설정은 자동 적용하지 않습니다. 내려받은 뒤 `project plan`으로 확인하고 `project apply`로 적용합니다. 옵션 없는 `sync`는 모든 저장소를 pull한 뒤 base 레이어를 적용합니다.
 
 ```sh
 agent-layers project init acme --mode private --remote "github.com/acme/*"
@@ -166,11 +166,12 @@ agent-layers project purge acme       # 프로젝트가 끝났을 때 실행한�
 
 | 명령 | 용도 |
 |---|---|
-| `init [dir] [--from url]` | 설정 저장소를 만들거나 복제하고, 이 PC에 등록한다 |
+| `init [dir] [--from url] [--lang lang]` | 설정 저장소를 만들거나 복제하고, 이 PC에 등록한다. `--lang en` 또는 `--lang ko`로 개인 설정 파일의 언어를 정한다 |
 | `doctor [--strict]` | 환경, 설치된 에이전트, 평문 비밀값, Codex 설정의 잘못된 키 위치, Zed와 Copilot 파일 우선순위를 점검하고, npm에 agent-layers 새 버전이 있는지 확인한다. `--strict`를 붙이면 경고도 실패로 처리한다 |
 | `agents` | 지원 에이전트를 Tier별로 나누고 이 PC 기준 경로와 함께 보여 준다 |
 | `plan [--diff] [--all]` / `apply [--yes] [--force] [--prune]` | base 레이어를 미리 보거나 적용한다. `--prune`을 주면 더 이상 선택하지 않은 에이전트의 산출물도 지운다 |
 | `sync` | 설정 저장소(와 team 레이어)를 `git pull --ff-only`한 뒤 적용한다 |
+| `sync --select` / `sync --projects a,b` | 고른 프로젝트나 `extends:<이름>` 저장소만 내려받는다. 설정은 적용하지 않는다 |
 | `status` | 관리 중인 파일과 바깥에서 바뀐 항목을 보여 준다 |
 | `show [layer] [--json]` | 레이어별로 들어 있는 규칙·스킬·MCP 서버·설정 키·파일과 받는 에이전트를 보여 준다. 프로젝트는 한 줄 요약으로 보여 준다 |
 | `project list / init / detect / plan / apply / purge` | project 레이어를 다룬다 |
@@ -178,9 +179,10 @@ agent-layers project purge acme       # 프로젝트가 끝났을 때 실행한�
 | `exec --env K=V -- cmd` | 비밀값을 주입해서 명령을 실행한다 |
 | `import` | 이 PC에 있는 사용자 설정을 가져온다 |
 | `validate [--strict]` | 설정 저장소를 검사한다 (CI에서 사용) |
+| `review [--packet] [--json] [--strict]`, `review check`, `review rules` | 설정 저장소의 MD를 읽어 검사하고, AI 검토용 패킷을 만든다 ([MD 검토와 검증 룰 관리](#md-검토와-검증-룰-관리) 참고) |
 | `uninstall` | agent-layers가 쓴 내용을 모두 지운다 |
 
-공통 옵션은 `--only a,b`, `--skip a,b`, `--source <dir>`, `--home <dir>`(임시 홈 폴더로 시험), `--json`입니다.
+공통 옵션은 `--only a,b`, `--skip a,b`, `--source <dir>`, `--home <dir>`(임시 홈 폴더로 시험), `--json`, `--quiet`입니다.
 
 ## MD 검토와 검증 룰 관리
 
@@ -344,6 +346,11 @@ agent-layers review --strict
 | Claude Code 플러그인, claude.ai 동기화 | 스킬·명령·MCP를 공식 경로로 배포한다 | CLAUDE.md와 rules를 실을 수 없고 Claude 전용이다 |
 
 agent-layers는 이 도구들과 함께 쓸 수 있습니다. 예를 들어 스킬은 Claude 플러그인 마켓플레이스로 배포하고, agent-layers 설치는 chezmoi에 맡길 수 있습니다.
+
+## 피드백
+
+오류, 개선 제안 등 모든 의견은 [의견 보내기](https://github.com/dongple-ex/agent-layers/issues/new?template=feedback.yml)로 남겨 주십시오.
+필요하면 사용 버전(`agent-layers --version`)도 함께 적어 주십시오.
 
 ## 개발
 
