@@ -98,6 +98,8 @@ export function buildVars(ctx, manifest, project = null, root = null) {
     codexHome: ctx.paths.codexHome,
     geminiHome: ctx.paths.geminiHome,
     copilotHome: ctx.paths.copilotHome,
+    kimiHome: ctx.paths.kimiHome,
+    grokHome: ctx.paths.grokHome,
     homeSlash: ctx.paths.home.replace(/\\/g, '/'),
   };
   const raw = deepMerge(deepMerge(manifest.vars || {}, ctx.config.vars || {}), project ? project.vars || {} : {});

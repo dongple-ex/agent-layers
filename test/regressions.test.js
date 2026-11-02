@@ -1220,6 +1220,17 @@ test('shared projects get kimi and grok MCP files with references only', { skip:
   assert.match(read(path.join(repo, 'AGENTS.md')), /# Team rules/);
 });
 
+test('instruction templates can use the kimi and grok home folders', () => {
+  const sb = sandbox();
+  manifest(sb, ['claude']);
+  write(path.join(sb.source, 'base', 'instructions', '10-homes.md.tmpl'), '# Homes\n\n- kimi: {{kimiHome}}\n- grok: {{grokHome}}\n');
+  const r = cli(sb, ['apply', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  const text = read(path.join(sb.home, '.claude', 'rules', 'agent-layers', '10-homes.md'));
+  assert.ok(text.includes(`- kimi: ${path.join(sb.home, '.kimi-code')}`), text);
+  assert.ok(text.includes(`- grok: ${path.join(sb.home, '.grok')}`), text);
+});
+
 function snapshot(dir, skip = []) {
   const files = {};
   const walk = (d) => {
