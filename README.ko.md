@@ -14,6 +14,8 @@
 
 먼저 직접 확인하려면 [Claude Code·Codex·Gemini 지침을 한 번에 바꾸는 예제](docs/SHARED-RULES.ko.md)를 따라 해 보십시오. AI 계정 없이 가짜 홈 폴더에서 규칙을 적용하고, 한 줄을 바꾸고, 기존 메모가 보존되는지 확인합니다.
 
+[서브에이전트 규칙을 workflow에 연결하는 예제](docs/WORKFLOW-ROLES.ko.md)에서는 Claude Code 역할별 규칙·도구·모델을 관리하고 Planner·Coder·Reviewer·Auditor에 연결합니다. 정의 배포와 모의 실행 검증, 실제 AI 실행 절차를 구분해 설명합니다.
+
 ## 해결하는 문제
 
 | 문제 | agent-layers의 처리 방식 |

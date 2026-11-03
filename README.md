@@ -24,6 +24,10 @@ Try the [shared-rules walkthrough (Korean)](docs/SHARED-RULES.ko.md): update one
 Claude Code, Codex and Gemini CLI in a temporary home, and check that an existing note survives.
 No AI account is required.
 
+The [workflow role-rules walkthrough (Korean)](docs/WORKFLOW-ROLES.ko.md) connects managed
+Claude Code agent definitions to Planner, Coder, Reviewer and Auditor roles, with per-role
+instructions, tools and model settings. It separates simulated verification from real AI execution.
+
 ## Why
 
 | Problem | What agent-layers does |
