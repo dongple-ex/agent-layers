@@ -17,7 +17,7 @@
 | --- | --- | --- |
 | 1 개념 | 무엇을 하는 도구인지, 꼭 알아야 할 용어, 저장소 사이의 관계 | 처음 접하는 사람 |
 | 2 처음 설치 | 설정 저장소를 새로 만들기, 기존 설정을 새 PC로 가져오기 | 설치하려는 사람 |
-| 3 매일 쓰기 | 규칙·스킬·MCP 추가, 프로젝트별 설정, 여러 PC 동기화 | 설치를 마친 사람 |
+| 3 매일 쓰기 | 규칙·스킬·MCP 추가, 프로젝트별 설정, 여러 PC 동기화, workflow로 작업 실행하기 (preview) | 설치를 마친 사람 |
 | 4 점검과 문제 해결 | 점검 명령, 자주 묻는 질문, 되돌리기, 명령 요약 | 문제가 생긴 사람 |
 
 ---
@@ -484,7 +484,7 @@ agent-layers workflow report <run-id>
 | `workflow resume <run-id>` | 멈춘 실행을 이어 갑니다. 이어 갈 수 없는 사유이면 호출 없이 끝납니다 | 이어 갈 때만 |
 | `workflow cancel <run-id>` | 진행 중인 실행에 중단을 요청하고 결과를 기다립니다. 실행 중인 터미널의 Ctrl+C도 같은 일을 합니다 | 없음 |
 
-실행이 멈춘 이유는 실행 상태와 단계의 `last error` 열에 나옵니다. `BLOCKED`로 멈춘 경우 대부분은 `workflow report`의 `next:` 줄이 다음에 할 일을 알려 줍니다. 통신 오류(`transport`)로 멈추었으면 연결이 복구된 뒤에 `resume`합니다. `FAILED`나 `CANCELLED`로 끝난 실행은 재개되지 않으므로 새 계획을 만듭니다. 모든 명령에 `--json`을 붙일 수 있습니다.
+실행이 멈춘 이유는 실행 상태와 단계의 `last error` 열에 나옵니다. `BLOCKED`로 멈춘 경우 대부분은 `workflow report`의 `next:` 줄이 다음에 할 일을 알려 줍니다. AI CLI 호출이 오류로 끝나는 일이 반복되면 `transport`로 멈춥니다. 네트워크 오류만이 아니라 0이 아닌 종료 코드나 신호로 끝난 호출이 모두 해당합니다. 원인을 고친 뒤에 `resume`하면 같은 worktree에서 이어 갑니다. `FAILED`나 `CANCELLED`로 끝난 실행은 재개되지 않으므로 새 계획을 만듭니다. 모든 명령에 `--json`을 붙일 수 있습니다.
 
 ### 승인과 호출 상한
 
@@ -682,6 +682,13 @@ npm install --global agent-layers
 | 점검 | `agent-layers doctor` | 에이전트와 위험한 설정을 점검합니다 | 예 |
 | 점검 | `agent-layers validate` | 설정 저장소를 검사합니다 | 예 |
 | 점검 | `agent-layers agents` | 지원 에이전트와 설정 위치를 보여 줍니다 | 예 |
+| workflow (preview) | `agent-layers workflow plan --goal-file <파일> --config <파일>` | AI CLI로 계획을 만들고 실행 ID를 출력합니다 | 아니오 |
+| workflow (preview) | `agent-layers workflow validate <run-id>` | 저장된 계획, 정책, 기록을 검사합니다 | 예 |
+| workflow (preview) | `agent-layers workflow run <run-id>` | 별도 worktree에서 계획을 실행합니다 | 아니오 |
+| workflow (preview) | `agent-layers workflow status <run-id>` | 단계 상태, 시도 횟수, 사용량을 보여 줍니다 | 예 |
+| workflow (preview) | `agent-layers workflow report <run-id>` | 검사 결과, 산출물, 남은 단계, 보장하지 않는 범위를 보여 줍니다 | 예 |
+| workflow (preview) | `agent-layers workflow resume <run-id>` | 멈춘 실행을 이어 갑니다 | 아니오 |
+| workflow (preview) | `agent-layers workflow cancel <run-id>` | 진행 중인 실행에 중단을 요청하고 결과를 기다립니다 | 아니오 |
 
 여러 명령에 공통으로 붙는 옵션입니다.
 

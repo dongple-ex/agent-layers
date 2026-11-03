@@ -340,12 +340,19 @@ test('workflow run: a failing CLI is retried, then BLOCKED, and resume continues
   assert.equal(blocked.status, 'BLOCKED');
   assert.equal(blocked.stopReason, 'transport');
   assert.equal(blocked.steps.impl.lastError, 'transport error exit-1');
+  const next = cli(s, ['report', runId]).stdout.split('\n').find((l) => l.startsWith('next: '));
+  assert.ok(next, 'transport has no next line');
+  assert.match(next, /artifacts\/call-failed-\*/);
+  assert.match(next, /then run workflow resume/);
+  assert.match(next, /new plan/);
+  assert.doesNotMatch(next, /does not continue/);
   const failedCall = readRun(s.ctx, runId);
   const artifacts = fs.readdirSync(path.join(failedCall.dir, 'artifacts')).filter((n) => n.startsWith('call-failed-'));
   assert.equal(artifacts.length, 3);
   const logged = artifacts.flatMap((n) => JSON.parse(fs.readFileSync(path.join(failedCall.dir, 'artifacts', n), 'utf8')).stderr);
   assert.equal(logged.filter((line) => line === 'network down').length, 1);
   const firstWorktree = s.calls()[1].cwd;
+  fs.writeFileSync(s.policyFile, '{}');
 
   assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, resume: true, retryDelayMs: 0 }), 0);
   const done = readRun(s.ctx, runId);

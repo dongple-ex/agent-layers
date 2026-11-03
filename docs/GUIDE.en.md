@@ -17,7 +17,7 @@ This guide walks a first-time user through agent-layers, from installation to ev
 | --- | --- | --- |
 | 1 Concepts | What the tool does, the terms you need, how the repositories relate | are new to agent-layers |
 | 2 First install | Create a new setup repository, bring an existing one to a new machine | are about to install |
-| 3 Everyday use | Add rules, skills and MCP servers, per-project settings, syncing machines | have finished installing |
+| 3 Everyday use | Add rules, skills and MCP servers, per-project settings, syncing machines, running a task with workflow (preview) | have finished installing |
 | 4 Checks and troubleshooting | Check commands, FAQ, undo, command summary | ran into a problem |
 
 ---
@@ -484,7 +484,7 @@ agent-layers workflow report <run-id>
 | `workflow resume <run-id>` | Continues a stopped run. If the reason for the stop cannot be continued, it ends without a call | only when it continues |
 | `workflow cancel <run-id>` | Asks a running run to stop and waits for the result. Ctrl+C in the terminal of the run does the same | no |
 
-The status of the run and the `last error` column of the step say why a run stopped. For most `BLOCKED` reasons, the `next:` line of `workflow report` says what to do next. After a communication error (`transport`), run `resume` once the connection is back. A run that ended as `FAILED` or `CANCELLED` does not resume, so make a new plan. Every command accepts `--json`.
+The status of the run and the `last error` column of the step say why a run stopped. For most `BLOCKED` reasons, the `next:` line of `workflow report` says what to do next. A run stops with `transport` when AI CLI calls keep ending with an error. That covers every call that ends with a non-zero exit code or a signal, not only network errors. Fix the cause, then run `resume`, which continues in the same worktree. A run that ended as `FAILED` or `CANCELLED` does not resume, so make a new plan. Every command accepts `--json`.
 
 ### Approval and call limits
 
@@ -682,6 +682,13 @@ Commands marked "yes" in the read-only column write nothing and can be run at an
 | Checks | `agent-layers doctor` | Checks agents and risky settings | yes |
 | Checks | `agent-layers validate` | Checks the setup repository | yes |
 | Checks | `agent-layers agents` | Shows supported agents and their config locations | yes |
+| workflow (preview) | `agent-layers workflow plan --goal-file <file> --config <file>` | Makes a plan with the AI CLI and prints the run ID | no |
+| workflow (preview) | `agent-layers workflow validate <run-id>` | Checks the stored plan, policy and records | yes |
+| workflow (preview) | `agent-layers workflow run <run-id>` | Runs the plan in a separate worktree | no |
+| workflow (preview) | `agent-layers workflow status <run-id>` | Shows step states, attempts and budget use | yes |
+| workflow (preview) | `agent-layers workflow report <run-id>` | Shows check results, artifacts, remaining steps and what is not guaranteed | yes |
+| workflow (preview) | `agent-layers workflow resume <run-id>` | Continues a stopped run | no |
+| workflow (preview) | `agent-layers workflow cancel <run-id>` | Asks a running run to stop and waits for the result | no |
 
 Options shared by many commands:
 

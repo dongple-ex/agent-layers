@@ -11,6 +11,7 @@ const NOT_GUARANTEED = [
 const NEW_PLAN_NOTE = 'The worktree stays at the base commit, so a fix committed to the repository needs a new plan';
 const NEW_PLAN_ONLY_NOTE = 'workflow resume does not continue this run, so make a new plan. It starts from the repository HEAD, not from this worktree, so first see what this run left there';
 const STOP_HINTS = {
+  transport: "the AI CLI call kept ending with an error; the step's last error has the code, and artifacts/call-failed-* in the run folder keep the output. Fix the cause, then run workflow resume, which continues in the same worktree; with the same error it stops again after one more call. A run keeps the policy it was planned with, so a wrong command or argument in the policy needs a new plan",
   'role-blocked': `an AI role needs an answer; see result.needsInput in its file in the artifacts list, and put the answer in the goal. ${NEW_PLAN_ONLY_NOTE}`,
   timeout: `an AI CLI call ran past limits.stepTimeoutSeconds; raise that limit in the policy or make the step smaller in the goal. ${NEW_PLAN_ONLY_NOTE}`,
   'invalid-result': `the AI CLI did not give a valid role result; see the step's last error and any artifacts/call-unreadable-* in the run folder, then check the command and its output format in the policy. ${NEW_PLAN_ONLY_NOTE}`,
