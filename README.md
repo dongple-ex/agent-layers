@@ -20,6 +20,10 @@ New here? Start with the [beginner's guide](docs/GUIDE.en.md).
 
 [한국어 문서](README.ko.md) · [처음 쓰는 사람을 위한 agent-layers 가이드 (한국어)](docs/GUIDE.ko.md)
 
+Try the [shared-rules walkthrough (Korean)](docs/SHARED-RULES.ko.md): update one rule for
+Claude Code, Codex and Gemini CLI in a temporary home, and check that an existing note survives.
+No AI account is required.
+
 ## Why
 
 | Problem | What agent-layers does |

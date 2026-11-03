@@ -12,6 +12,8 @@
 
 [처음 쓰는 사람을 위한 agent-layers 가이드](docs/GUIDE.ko.md)부터 읽으십시오. 설치부터 매일 쓰는 방법까지 순서대로 정리되어 있습니다.
 
+먼저 직접 확인하려면 [Claude Code·Codex·Gemini 지침을 한 번에 바꾸는 예제](docs/SHARED-RULES.ko.md)를 따라 해 보십시오. AI 계정 없이 가짜 홈 폴더에서 규칙을 적용하고, 한 줄을 바꾸고, 기존 메모가 보존되는지 확인합니다.
+
 ## 해결하는 문제
 
 | 문제 | agent-layers의 처리 방식 |
