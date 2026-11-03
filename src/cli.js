@@ -1199,7 +1199,8 @@ Base layer (home directory)
   apply [--yes] [--force] [--prune]     write the base layer; --prune also removes outputs of unselected agents
   sync [--yes]                        git pull the setup repository, then apply
   status                              list managed outputs and local drift
-  uninstall [--yes]                   remove everything agent-layers wrote
+  uninstall [--yes]                   remove the files, blocks and keys written for your agents
+                                      keeps ~/.agent-layers (state, backups, workflow records) and empty TOML table headers
 
 Project layers
   sync --select                      choose projects/repositories to download; no apply

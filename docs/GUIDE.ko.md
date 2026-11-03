@@ -640,9 +640,18 @@ npm install --global agent-layers
 | 적용하기 전 파일로 돌리기 | `~/.agent-layers/backups/<날짜-시각>/`에서 원본을 복사합니다 |
 | 규칙이나 스킬 하나 빼기 | 설정 저장소에서 지우고 `apply`합니다. 원본에서 지운 항목은 에이전트 설정에서도 정리됩니다 |
 | 한 에이전트에서 모두 빼기 | `targets`에서 뺀 뒤 `apply --prune`을 실행합니다 |
-| agent-layers가 쓴 내용을 전부 지우기 | `agent-layers uninstall`. 다른 내용은 남깁니다 |
+| agent-layers가 에이전트용으로 쓴 내용 지우기 | `agent-layers uninstall`. 다른 내용은 남깁니다. 함께 남는 항목은 아래 표에 있습니다 |
 | 엔진까지 제거하기 | `agent-layers uninstall` 뒤 `npm uninstall --global agent-layers` |
 | 비밀값 지우기 | `agent-layers secrets delete <이름>` |
+
+`uninstall`을 실행해도 아래 항목은 남습니다.
+
+| 남는 항목 | 내용 |
+| --- | --- |
+| `~/.agent-layers/` | `state.json`, `backups/`, `workflows/`의 workflow 기록, `config.jsonc`, `source/`에 둔 설정 저장소입니다. `backups/`에는 `uninstall`이 지우기 전에 만든 사본도 들어갑니다 |
+| TOML 설정 파일 (Codex, Grok, Kimi의 `config.toml`) | agent-layers가 값을 쓴 테이블의 빈 헤더(`[features]` 등)가 남습니다. 값은 지워집니다. 이 헤더 때문에 agent-layers가 새로 만든 파일도 남습니다 |
+| 빈 폴더 | `.claude/skills`처럼 안의 파일만 지워지고 폴더는 남습니다 |
+| 키체인의 비밀값 | `agent-layers secrets delete <이름>`으로 지웁니다 |
 
 주의할 점입니다.
 
@@ -668,7 +677,7 @@ npm install --global agent-layers
 | base | `agent-layers sync` | 설정 저장소를 pull한 뒤 적용합니다 | 아니오 |
 | base | `agent-layers status` | 관리 중인 파일과 바깥에서 바뀐 파일을 보여 줍니다 | 예 |
 | base | `agent-layers show [이름]` | 레이어별 내용과 받는 에이전트를 보여 줍니다 | 예 |
-| base | `agent-layers uninstall` | agent-layers가 쓴 내용을 모두 지웁니다 | 아니오 |
+| base | `agent-layers uninstall` | 에이전트용으로 쓴 파일, 블록, 키를 지웁니다. 남는 항목은 「되돌리기와 주의 사항」 절에 있습니다 | 아니오 |
 | project | `agent-layers project init <이름> --mode private --remote <주소>` | 프로젝트 레이어를 만듭니다 | 아니오 |
 | project | `agent-layers project list` | 프로젝트 레이어 목록을 보여 줍니다 | 예 |
 | project | `agent-layers project detect` | 현재 폴더가 어느 프로젝트인지 보여 줍니다 | 예 |

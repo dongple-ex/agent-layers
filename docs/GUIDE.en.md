@@ -640,9 +640,18 @@ Overwritten files are always backed up, so most changes can be undone. The excep
 | Restore a file to its state before apply | Copy the original from `~/.agent-layers/backups/<date-time>/` |
 | Remove one rule or skill | Delete it from the setup repository and `apply`. Items removed from the source are cleaned up in agent config too |
 | Remove everything from one agent | Take it out of `targets` and run `apply --prune` |
-| Remove everything agent-layers wrote | `agent-layers uninstall`. Other content stays |
+| Remove what agent-layers wrote for your agents | `agent-layers uninstall`. Other content stays. The table below lists what else stays |
 | Remove the engine too | `agent-layers uninstall`, then `npm uninstall --global agent-layers` |
 | Delete a secret | `agent-layers secrets delete <name>` |
+
+`uninstall` leaves these in place:
+
+| What stays | Details |
+| --- | --- |
+| `~/.agent-layers/` | `state.json`, `backups/`, workflow records in `workflows/`, `config.jsonc`, and the setup repository if it is in `source/`. `backups/` also holds the copies `uninstall` makes of what it removes |
+| TOML settings files (Codex, Grok, Kimi `config.toml`) | The empty header of each table agent-layers wrote to, such as `[features]`. The values are removed. Because of these headers, a file agent-layers created also stays |
+| Empty folders | Folders such as `.claude/skills` stay after the files in them are removed |
+| Keychain secrets | Run `agent-layers secrets delete <name>` to delete one |
 
 Cautions:
 
@@ -668,7 +677,7 @@ Commands marked "yes" in the read-only column write nothing and can be run at an
 | base | `agent-layers sync` | Pulls the setup repository, then applies | no |
 | base | `agent-layers status` | Shows managed files and files changed outside agent-layers | yes |
 | base | `agent-layers show [name]` | Shows what each layer holds and which agents receive it | yes |
-| base | `agent-layers uninstall` | Removes everything agent-layers wrote | no |
+| base | `agent-layers uninstall` | Removes the files, blocks and keys written for your agents. "Undo and cautions" lists what stays | no |
 | project | `agent-layers project init <name> --mode private --remote <URL>` | Creates a project layer | no |
 | project | `agent-layers project list` | Lists project layers | yes |
 | project | `agent-layers project detect` | Shows which project the current folder belongs to | yes |

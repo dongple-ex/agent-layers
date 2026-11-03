@@ -227,7 +227,7 @@ agent-layers project purge sample-a   # at the end of the engagement
 | `validate [--strict]` | lint the setup repository (use in CI) |
 | `review [--packet] [--json] [--strict]`, `review check`, `review rules` | read-only checks of the Markdown in the setup repository, and packets for an AI review (see [Markdown review](#markdown-review)) |
 | `workflow plan / validate / run / status / resume / cancel / report` | preview: work on a goal with the AI CLI named in a policy file, in a separate git worktree (see [Workflow (preview)](#workflow-preview)) |
-| `uninstall` | remove everything agent-layers wrote |
+| `uninstall` | remove the files, blocks and keys written for your agents. `~/.agent-layers/` stays (state, backups, workflow records), and so do empty table headers in TOML settings files such as Codex `config.toml` |
 
 Common options: `--only a,b`, `--skip a,b`, `--source <dir>`, `--home <dir>` (sandbox), `--json`, `--quiet`.
 
@@ -321,7 +321,7 @@ the life of a project. These are the main reasons to choose it:
   sessions for that folder, and lists global or cloud data for you to review.
 - **You can check changes first and remove them later.** `plan --diff` shows each change before it
   is written, and `uninstall` removes the files, blocks and keys it wrote for your agents and keeps
-  your own content.
+  your own content. `~/.agent-layers/` and empty TOML table headers stay (see [Commands](#commands)).
 
 | Tool | What it does well | What agent-layers adds |
 |---|---|---|

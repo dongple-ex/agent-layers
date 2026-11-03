@@ -181,7 +181,7 @@ agent-layers project purge sample-a   # 프로젝트가 끝났을 때 실행한�
 | `validate [--strict]` | 설정 저장소를 검사한다 (CI에서 사용) |
 | `review [--packet] [--json] [--strict]`, `review check`, `review rules` | 설정 저장소의 MD를 읽어 검사하고, AI 검토용 패킷을 만든다 ([MD 검토와 검증 룰 관리](#md-검토와-검증-룰-관리) 참고) |
 | `workflow plan / validate / run / status / resume / cancel / report` | preview 기능. 정책 파일에 적은 AI CLI로 별도 git worktree에서 목표를 작업한다 ([workflow (preview)](#workflow-preview) 참고) |
-| `uninstall` | agent-layers가 쓴 내용을 모두 지운다 |
+| `uninstall` | 에이전트용으로 쓴 파일, 블록, 키를 지운다. 상태 파일, 백업, workflow 기록이 있는 `~/.agent-layers/`는 남고, Codex `config.toml` 같은 TOML 설정 파일의 빈 테이블 헤더도 남는다 |
 
 공통 옵션은 `--only a,b`, `--skip a,b`, `--source <dir>`, `--home <dir>`(임시 홈 폴더로 시험), `--json`, `--quiet`입니다.
 
@@ -366,7 +366,7 @@ agent-layers workflow report <run-id>
 - **비밀값이 저장소에 들어가지 않습니다.** `${secret:NAME}`의 값은 OS 키체인이나 1Password에 둡니다. 생성된 설정에는 환경 변수 참조나, MCP 서버가 시작될 때 값을 가져오는 실행 명령이 들어갑니다. 값이 설정 파일에 들어가는 경우는 `options.secrets.mode`로 직접 선택했을 때뿐입니다.
 - **저장소 하나로 모든 PC를 관리합니다.** 개인 base 레이어를 모든 PC에 적용하고, `extends`로 team 레이어를 더합니다. PC 전용 값과 `{{home}}` 같은 템플릿을 쓰면 저장소에 절대 경로를 넣지 않아도 됩니다.
 - **고객사 작업을 비공개로 두고 나중에 지울 수 있습니다.** private 모드는 추적 중인 파일을 고치지 않습니다. `project purge`는 agent-layers가 쓴 내용과 그 폴더에 대한 에이전트의 로컬 대화 기록, 메모리, 세션을 지우고, 전역 데이터와 클라우드 데이터는 검토할 수 있게 목록으로 보여 줍니다.
-- **변경을 먼저 확인하고 나중에 제거할 수 있습니다.** `plan --diff`는 쓰기 전에 각 변경을 보여 주고, `uninstall`은 에이전트용으로 쓴 파일, 블록, 키를 지우면서 사용자의 내용은 남깁니다.
+- **변경을 먼저 확인하고 나중에 제거할 수 있습니다.** `plan --diff`는 쓰기 전에 각 변경을 보여 주고, `uninstall`은 에이전트용으로 쓴 파일, 블록, 키를 지우면서 사용자의 내용은 남깁니다. `~/.agent-layers/`와 TOML의 빈 테이블 헤더도 남습니다 ([명령](#명령) 참고).
 
 | 도구 | 잘하는 일 | agent-layers가 더하는 것 |
 |---|---|---|
