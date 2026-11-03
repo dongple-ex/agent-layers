@@ -1,5 +1,7 @@
 # Claude Code·Codex·Gemini 지침을 한 번에 바꾸기
 
+[English](SHARED-RULES.en.md)
+
 같은 작업 규칙을 Claude Code, Codex, Gemini CLI에 각각 복사해 두면, 규칙을 바꿀 때마다 세 파일을 찾아 고쳐야 합니다. agent-layers에서는 Markdown 원본 하나를 고치고 `apply`를 실행하면 각 도구의 지침 파일이 함께 바뀝니다.
 
 이 예제에서는 **규칙 한 곳 수정 → 세 도구에 반영 → 기존 메모 보존**을 직접 확인합니다. AI 계정이나 API 키 없이 실행할 수 있습니다.
