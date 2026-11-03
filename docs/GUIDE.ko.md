@@ -1,4 +1,4 @@
-# agent-layers 처음 사용자 가이드
+# 처음 쓰는 사람을 위한 agent-layers 가이드
 
 작성일: 2026-10-05 · [English](GUIDE.en.md)
 
@@ -11,13 +11,13 @@
 | 대상 | Claude Code, Codex, Gemini CLI 같은 AI 코딩 에이전트를 두 개 이상 쓰거나, 여러 PC에서 같은 설정을 쓰고 싶은 사람 |
 | 기준 버전 | agent-layers 0.1.6 |
 | 엔진 저장소 | [github.com/dongple-ex/agent-layers](https://github.com/dongple-ex/agent-layers) |
-| 이번 버전의 검증 환경 | Windows 11 x64(Node.js 24.14.1, 18.17.0)와 Linux ARM64(Node.js 18.17.0) 자동 테스트, Linux ARM64(Node.js 24.15.0)에서 설치한 패키지의 명령 실행. macOS·iOS 실기기, OS 키체인 연동은 이번 버전에서 검증하지 않았습니다 |
+| 이번 버전의 검증 환경 | Windows 11 x64(Node.js 24.14.1, 18.17.0)와 Linux ARM64(Node.js 18.17.0)에서 자동 테스트를 실행했고, Linux ARM64(Node.js 24.15.0)에서는 설치한 패키지로 명령을 실행해 확인했습니다. macOS·iOS 실기기와 OS 키체인 연동은 이번 버전에서 검증하지 않았습니다 |
 
 | PART | 다루는 내용 | 먼저 읽을 사람 |
 | --- | --- | --- |
 | 1 개념 | 무엇을 하는 도구인지, 꼭 알아야 할 용어, 저장소 사이의 관계 | 처음 접하는 사람 |
 | 2 처음 설치 | 설정 저장소를 새로 만들기, 기존 설정을 새 PC로 가져오기 | 설치하려는 사람 |
-| 3 매일 쓰기 | 규칙·스킬·MCP 추가, 프로젝트별 설정, 여러 PC 동기화, workflow로 작업 실행하기 (preview) | 설치를 마친 사람 |
+| 3 일반적인 사용 | 규칙·스킬·MCP 추가, 프로젝트별 설정, 여러 PC 동기화, workflow로 작업 실행하기 (preview) | 설치를 마친 사람 |
 | 4 점검과 문제 해결 | 점검 명령, 자주 묻는 질문, 되돌리기, 명령 요약 | 문제가 생긴 사람 |
 
 ---
@@ -31,18 +31,18 @@ agent-layers는 git 저장소 하나에 적어 둔 규칙·스킬·MCP 서버·�
 
 | 없을 때의 문제 | agent-layers를 쓰면 |
 | --- | --- |
-| 에이전트마다 규칙 파일 이름과 위치가 다릅니다 (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md` 등) | 한 곳에 쓰면 각 에이전트의 위치로 변환해 씁니다 |
+| 에이전트마다 규칙 파일 이름과 위치가 다릅니다 (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md` 등) | 한 곳에 적으면 에이전트마다 맞는 위치와 형식으로 바꿔 씁니다 |
 | PC를 바꾸면 설정을 처음부터 다시 만들어야 합니다 | git 저장소에서 명령 몇 개로 복원합니다 |
 | 고객사 프로젝트가 끝나도 그 프로젝트용 설정과 대화 기록이 남습니다 | 프로젝트별 설정을 따로 두고, 끝나면 한 번에 지웁니다 |
 | MCP 설정 파일에 비밀번호가 평문으로 남습니다 | 비밀번호는 OS 키체인에 두고, 설정에는 참조만 씁니다 |
-| 설정을 바꾸면 무엇이 바뀌는지 알기 어렵습니다 | 쓰기 전에 미리 보기(`plan`)로 바뀌는 내용을 보여 주고, 덮어쓴 파일은 백업합니다 |
+| 설정을 바꾸면 무엇이 바뀌는지 알기 어렵습니다 | 쓰기 전에 미리 보기(`plan`)로 바뀌는 내용을 보여 주고, 덮어쓸 파일은 미리 백업합니다 |
 
 대상 에이전트는 16종입니다: Claude Code, Codex, Gemini CLI, Antigravity, GitHub Copilot CLI, Cursor, OpenCode, Zed, Junie, Kiro, Amp, Factory, Devin, Qwen Code, Cline, Goose. 에이전트별 설정 위치는 `agent-layers agents`로 확인합니다.
 
 agent-layers가 하지 않는 일도 있습니다.
 
 - 로그인 정보, 대화 기록, 캐시 같은 에이전트의 상태 파일은 동기화하지 않습니다.
-- git commit과 push를 대신 하지 않습니다. 저장소에 올리는 일은 사용자가 직접 합니다.
+- git commit과 push를 대신하지 않습니다. 저장소에 올리는 일은 사용자가 직접 합니다.
 - 프로젝트 저장소에서 git이 추적하는 파일은 고치지 않습니다(private 모드).
 
 ## 꼭 알아야 할 용어
@@ -56,12 +56,12 @@ agent-layers가 하지 않는 일도 있습니다.
 | base 레이어 | 설정 저장소의 `base/` 폴더. 모든 PC, 모든 프로젝트에 적용합니다 | 항상 지킬 작업 규칙, 자주 쓰는 스킬 |
 | project 레이어 | 설정 저장소의 `projects/<이름>/` 폴더. 그 프로젝트 폴더에서만 적용하고, 끝나면 지웁니다 | 고객사 전용 MCP, 그 프로젝트에서만 쓸 개인 규칙 |
 | 비밀값 참조 | 설정에 값 대신 적는 `${secret:이름}`. 실제 값은 PC마다 OS 키체인에 저장합니다 | `${secret:sample-a/api-token}` |
-| plan / apply | `plan`은 바뀔 내용만 보여 주는 미리 보기, `apply`는 실제로 쓰는 적용입니다 | `agent-layers plan --diff` 뒤 `agent-layers apply` |
+| plan / apply | `plan`은 바뀔 내용을 보여 주기만 하는 미리 보기이고, `apply`는 실제로 파일에 쓰는 명령입니다 | `agent-layers plan --diff` 뒤 `agent-layers apply` |
 
 - OS 키체인은 Windows에서는 자격 증명 관리자, macOS에서는 키체인, Linux에서는 libsecret입니다.
 - `~`는 홈 폴더입니다. Windows에서는 `C:\Users\<사용자>`입니다.
 
-## 저장소와 명령의 방향
+## 저장소와 명령의 관계
 
 ```mermaid
 flowchart LR
@@ -70,7 +70,7 @@ flowchart LR
     ER["엔진 저장소<br/>github.com/dongple-ex/agent-layers<br/>공개 · 모두가 같은 엔진"]
   end
   subgraph PC["이 PC: 설정을 만드는 쪽"]
-    SRC["원본 사본<br/>~/.agent-layers/source<br/>여기서 고치고 커밋·push"]
+    SRC["로컬 설정 저장소<br/>~/.agent-layers/source<br/>여기서 고치고 커밋·push"]
     ENG["agent-layers 엔진<br/>npm 전역 설치"]
   end
   subgraph AG["이 PC: 에이전트가 읽는 곳"]
@@ -92,9 +92,9 @@ flowchart LR
   style PROJ fill:#1f3a5a,stroke:#63a8f0,color:#e3f0fd
 ```
 
-고치는 곳은 원본 사본 하나이고, 에이전트 설정은 `apply`로 만들어집니다. 원본 사본을 고친 뒤 `apply`를 실행하면 엔진이 각 에이전트의 형식으로 씁니다. GitHub로 올리는 `git push`와, 이 PC의 기존 설정을 원본으로 가져오는 `import`는 필요할 때 사용자가 직접 실행합니다.
+고치는 곳은 로컬 설정 저장소 하나이고, 에이전트 설정은 `apply`로 만들어집니다. 로컬 설정 저장소를 고친 뒤 `apply`를 실행하면 엔진이 에이전트마다 맞는 형식으로 씁니다. GitHub로 올리는 `git push`와, 이 PC의 기존 설정을 설정 저장소로 가져오는 `import`는 필요할 때 사용자가 직접 실행합니다.
 
-고객사나 팀이 함께 쓰는 프로젝트 저장소는 이 그림과 별개입니다. agent-layers는 그 저장소의 커밋 대상을 바꾸지 않고, git이 무시하는 파일에만 씁니다(private 모드).
+고객사나 팀이 함께 쓰는 프로젝트 저장소는 이 그림과 별개입니다. agent-layers는 그 저장소에서 커밋되는 파일을 바꾸지 않고, git이 무시하는 파일에만 씁니다(private 모드).
 
 ---
 ---
@@ -103,7 +103,7 @@ flowchart LR
 
 ## 준비물
 
-필수는 Node.js와 git 두 가지입니다. 설정 저장소를 다른 PC와 나눠 쓰려면 GitHub 계정도 필요합니다.
+꼭 필요한 것은 Node.js와 git 두 가지입니다. 설정 저장소를 다른 PC와 나눠 쓰려면 GitHub 계정도 필요합니다.
 
 | 준비물 | 필요한 이유 | 확인 방법 |
 | --- | --- | --- |
@@ -113,9 +113,9 @@ flowchart LR
 | AI 에이전트 1개 이상 | 설정을 적용할 대상입니다 | 설치 후 `agent-layers doctor` |
 | GitHub CLI(`gh`), 선택 | 비공개 저장소를 명령으로 만들 때 편합니다. 웹에서 만들어도 됩니다 | `gh --version` |
 
-- Windows에서는 설치 스크립트(`install.ps1`)가 git과 Node.js가 없으면 winget으로 설치합니다.
+- Windows에서는 git이나 Node.js가 없으면 설치 스크립트(`install.ps1`)가 winget으로 설치합니다.
 - macOS·Linux에서는 설치 스크립트(`install.sh`)가 Homebrew나 이미 설치된 Node.js를 씁니다.
-- 프로그램을 새로 설치한 뒤에는 터미널을 새로 열어야 명령을 찾습니다. VS Code 안의 터미널은 VS Code를 다시 시작해야 합니다.
+- 프로그램을 새로 설치한 뒤에는 터미널을 새로 열어야 새 명령이 인식됩니다. VS Code 안의 터미널은 VS Code를 다시 시작해야 합니다.
 
 ## 시나리오 A: 처음부터 만들기
 
@@ -134,15 +134,15 @@ flowchart LR
    agent-layers init
    ```
 
-   기본 규칙 템플릿은 영어로 복사됩니다. 개인 설정 파일인 `base/instructions/05-persona.md`(호칭, 응답 언어, 말투, 보고 형식)는 이 PC에 있는 기존 에이전트 지시문의 언어로 만들어집니다. 기존 지시문이 한국어 위주면 한국어로, 영어 위주이거나 지시문이 없으면 영어로 만들어집니다. 언어를 직접 정하려면 `agent-layers init --lang ko`처럼 `--lang ko` 또는 `--lang en`을 붙입니다.
+   기본 규칙 템플릿은 영어로 되어 있습니다. 개인 설정 파일인 `base/instructions/05-persona.md`(호칭, 응답 언어, 말투, 보고 형식)는 이 PC에 있는 기존 에이전트 지시문의 언어로 만들어집니다. 기존 지시문이 한국어 위주면 한국어로, 영어 위주이거나 지시문이 없으면 영어로 만들어집니다. 언어를 직접 정하려면 `agent-layers init --lang ko`처럼 `--lang ko` 또는 `--lang en`을 붙입니다.
 
-3. 이 PC에서 찾은 에이전트와 위험한 설정을 점검합니다. 아무것도 쓰지 않습니다.
+3. 이 PC에서 찾은 에이전트와 위험한 설정을 점검합니다. 이 단계에서는 아무 파일도 바꾸지 않습니다.
 
    ```text
    agent-layers doctor
    ```
 
-4. 템플릿의 예시를 내 내용으로 바꿉니다. 무엇을 어디에 넣는지는 PART 3의 표를 봅니다.
+4. 템플릿의 예시를 내 내용으로 바꿉니다. 무엇을 어디에 넣는지는 PART 3의 표를 참고합니다.
    - `base/instructions/`의 예시 규칙 3개와 페르소나 파일(`05-persona.md`)을 내 규칙으로 고칩니다.
    - 필요 없는 예시(`projects/example/`, `base/skills/commit-message/` 등)는 지웁니다.
    - `base/mcp/github.jsonc`는 `"enabled": false`라서 그대로 두면 적용되지 않습니다.
@@ -160,7 +160,7 @@ flowchart LR
    agent-layers apply
    ```
 
-7. 에이전트를 새로 시작해서 규칙이 적용되었는지 확인합니다. 규칙은 세션을 시작할 때 읽힙니다.
+7. 에이전트를 새로 시작해서 규칙이 적용되었는지 확인합니다. 에이전트는 세션을 시작할 때 규칙을 읽습니다.
 
 8. GitHub에 비공개 저장소로 올립니다. 아래는 GitHub CLI에 로그인한 경우입니다.
 
@@ -202,7 +202,7 @@ sh install-agent-layers.sh https://github.com/<계정>/my-agent-layers.git
 3. 설정 저장소를 `~/.agent-layers/source`로 복제하고 원본으로 등록합니다.
 4. `doctor`, `secrets check`, `plan`을 차례로 실행해 결과만 보여 줍니다.
 
-그다음 빠진 비밀값을 저장하고 적용합니다.
+그다음 이 PC에 없는 비밀값을 저장하고 적용합니다.
 
 ```text
 agent-layers secrets set <비밀값 이름>
@@ -223,14 +223,14 @@ agent-layers apply
 - 비공개 저장소를 처음 복제할 때 GitHub 로그인 창이 한 번 뜹니다.
 - 스크립트를 바로 실행하지 않고 파일로 내려받는 이유는, 실행하기 전에 내용을 열어 확인할 수 있게 하기 위해서입니다.
 - 스크립트가 마지막에 적용까지 실행하게 하려면 Windows에서는 `-Apply`를 붙이고, macOS·Linux에서는 `AGENT_LAYERS_APPLY=1`을 설정합니다. 이 경우에도 쓰기 전에 확인 질문은 나옵니다.
-- 새 PC에 이미 있던 설정은 지우지 않습니다. 규칙은 관리 블록만 추가하고, 설정 파일은 저장소에 적은 키만 병합합니다.
+- 새 PC에 이미 있던 설정은 지우지 않습니다. 규칙 파일에는 관리 블록만 추가하고, 설정 파일은 저장소에 적은 키만 병합합니다.
 
 ⚠️ `~/.agent-layers/source`에 이미 파일이 있으면 `init --from`은 멈춥니다. 다른 폴더를 쓰려면 `agent-layers init <폴더> --from <주소>`처럼 폴더를 지정합니다.
 
 ---
 ---
 
-# PART 3 — 매일 쓰기
+# PART 3 — 일반적인 사용
 
 ## 규칙과 스킬 고치기
 
@@ -241,22 +241,22 @@ agent-layers apply
 3. `agent-layers apply`로 적용합니다.
 4. `git commit`, `git push`로 저장소에 올립니다.
 
-무엇을 어디에 넣는지는 아래 표를 따릅니다. 모든 경로는 설정 저장소 기준입니다.
+무엇을 어디에 넣는지는 아래 표를 참고합니다. 경로는 모두 설정 저장소를 기준으로 적었습니다.
 
 | 넣고 싶은 것 | 넣는 곳 | 에이전트가 읽는 방식 |
 | --- | --- | --- |
-| 항상 지킬 규칙 | `base/instructions/<번호>-<이름>.md` | 매 세션 시작할 때 읽습니다. 규칙 파일 하나만 읽는 에이전트에는 파일 이름 순서대로 합쳐서 씁니다 |
+| 항상 지킬 규칙 | `base/instructions/<번호>-<이름>.md` | 세션을 시작할 때마다 읽습니다. 규칙 파일 하나만 읽는 에이전트에는 파일 이름 순서대로 합쳐서 씁니다 |
 | 특정 경로에만 적용할 규칙 | 위와 같은 파일 앞부분에 `paths:` 지정 | 지원하는 에이전트(Claude, Copilot, Antigravity 등)만 경로별로 적용합니다 |
 | PC마다 다른 값이 들어간 규칙 | `base/instructions/<이름>.md.tmpl` | `{{home}}`, `{{os}}`, `{{vars.이름}}`이 PC별 값으로 바뀝니다 |
 | 필요할 때만 읽을 지식·절차 | `base/skills/<이름>/SKILL.md` | 설명(`description`)에 적은 상황이 되면 에이전트가 읽습니다 |
 | 슬래시 명령 | `base/commands/<이름>.md` | Claude는 Markdown, Gemini는 TOML로 변환됩니다 |
 | 서브에이전트 | `base/agents/<이름>.md` | Claude에만 적용됩니다 |
 | 에이전트 설정값 | `base/settings/claude.json`, `codex.toml`, `gemini.json` | 적은 키만 병합하고, 나머지 기존 설정은 그대로 둡니다 |
-| 운영체제별 설정값 | `base/settings/claude@windows.json` 처럼 `@운영체제` | 그 운영체제에서만 병합됩니다 |
+| 운영체제별 설정값 | `base/settings/claude@windows.json`처럼 `@운영체제`를 붙인 파일 | 그 운영체제에서만 병합됩니다 |
 | 관리를 그만둘 설정 키 | `base/settings/_forget.jsonc`, 예: `{ "codex": ["model"] }` | 설정 파일에서 뺀 키를 지우지 않고 관리 대상에서만 뺍니다. 값은 그대로 남습니다 |
 | 그대로 복사할 파일 | `base/files/<에이전트>/...` | 에이전트 홈 폴더로 복사됩니다. `.tmpl`은 변수를 채운 뒤 복사합니다 |
 
-스킬은 아래 형식으로 씁니다. `description`이 스킬을 읽을지 판단하는 기준이므로, 무엇을 담았는지와 언제 쓰는지를 함께 적습니다. 이름은 64자 이내로 영문 소문자, 숫자, `-`만 씁니다.
+스킬은 아래 형식으로 씁니다. 에이전트는 `description`을 보고 스킬을 읽을지 정하므로, 무엇을 담았는지와 언제 쓰는지를 함께 적습니다. 이름은 64자 이내로 영문 소문자, 숫자, `-`만 씁니다.
 
 ```markdown
 ---
@@ -272,13 +272,13 @@ description: "커밋 메시지 작성 규칙(제목 길이, 본문 형식). 커�
 - 특정 에이전트에만 배포하려면 스킬 폴더에 `agent-layers.jsonc`를 만들고 `{ "targets": ["claude"] }`처럼 적습니다.
 - `targets`에 agent-layers가 모르는 에이전트 이름이 있으면 `validate`, `plan`, `apply`가 `unknown target` 오류로 멈춥니다. `plan`과 `apply`는 파일을 쓰기 전에 멈춥니다.
 - `{ "targets": [] }`처럼 빈 목록을 적으면 그 스킬은 어느 에이전트에도 배포되지 않습니다.
-- 항상 지킬 규칙은 에이전트가 매 세션 읽으므로 짧게 유지합니다. 길고 가끔 필요한 절차는 스킬로 둡니다. Codex는 규칙 파일을 기본 32 KiB까지만 읽습니다.
+- 항상 지킬 규칙은 에이전트가 세션마다 읽으므로 짧게 유지합니다. 길고 가끔만 필요한 절차는 스킬로 둡니다. Codex는 규칙 파일을 기본 32 KiB까지만 읽습니다.
 
 ⚠️ `~/.claude/rules/agent-layers/`처럼 agent-layers가 쓴 파일을 직접 고치면, 다음 적용 때 "바깥에서 바뀐 파일(drift)"로 보고 건너뜁니다. 항상 설정 저장소를 고칩니다.
 
 ## MCP 서버와 비밀값
 
-MCP 서버는 `mcp/<이름>.jsonc`에 중립 형식으로 한 번만 적으면 각 에이전트의 형식으로 변환됩니다. 비밀번호나 토큰은 값 대신 `${secret:이름}`으로 적고, 실제 값은 PC마다 키체인에 한 번 저장합니다.
+MCP 서버는 `mcp/<이름>.jsonc`에 에이전트와 상관없는 공통 형식으로 한 번만 적으면, 에이전트마다 맞는 형식으로 변환됩니다. 비밀번호나 토큰은 값 대신 `${secret:이름}`으로 적고, 실제 값은 PC마다 키체인에 한 번 저장합니다.
 
 - 모든 프로젝트에서 쓸 서버: `base/mcp/<이름>.jsonc`
 - 한 프로젝트에서만 쓸 서버: `projects/<프로젝트>/mcp/<이름>.jsonc`
@@ -327,7 +327,7 @@ agent-layers secrets delete example/api-token
 - `secrets set`은 값을 물어보고, 입력한 값은 화면에 보이지 않습니다.
 - `secrets check`는 설정 저장소가 참조하는데 이 PC에 아직 없는 비밀값을 보여 줍니다.
 - PC에서 실행하는 서버는 `agent-layers exec`로 감싸서 등록됩니다. 서버가 시작될 때 exec가 키체인에서 값을 읽어 환경 변수로 넘깁니다.
-- 원격 서버는 환경 변수 참조로 등록됩니다. 환경 변수 참조를 지원하지 않는 에이전트에는 경고를 내고 쓰지 않습니다.
+- 원격 서버는 환경 변수 참조로 등록됩니다. 환경 변수 참조를 지원하지 않는 에이전트에는 그 서버를 쓰지 않고 경고를 출력합니다.
 
 키체인이 필요 없는 경우도 있습니다.
 
@@ -342,9 +342,9 @@ agent-layers secrets delete example/api-token
 
 ## 프로젝트별 설정(project 레이어)
 
-project 레이어는 특정 프로젝트 폴더에서만 쓰는 내 설정입니다. 고객사 저장소처럼 팀이 함께 쓰는 저장소를 건드리지 않고 내 규칙이나 MCP를 더할 때 쓰고, 프로젝트가 끝나면 한 번에 지웁니다.
+project 레이어는 특정 프로젝트 폴더에서만 쓰는 내 설정입니다. 고객사 저장소처럼 팀이 함께 쓰는 저장소를 바꾸지 않고 내 규칙이나 MCP를 추가할 때 쓰고, 프로젝트가 끝나면 한 번에 지웁니다.
 
-1. 만듭니다. 설정 저장소에 `projects/sample-a/project.jsonc`가 생깁니다.
+1. 프로젝트 레이어를 만듭니다. 설정 저장소에 `projects/sample-a/project.jsonc`가 생깁니다.
 
    ```text
    agent-layers project init sample-a --mode private --remote "github.com/sample-a/*"
@@ -404,7 +404,7 @@ project 레이어는 특정 프로젝트 폴더에서만 쓰는 내 설정입니
 | --- | --- |
 | `projects` | 가져올 저장소의 `projects` 폴더. 설정 저장소 기준 상대 경로로 씁니다 |
 | `path` | 가져올 저장소의 base 레이어. 프로젝트만 가져올 때는 생략합니다 |
-| `git` | 폴더가 없을 때 `agent-layers sync`가 clone할 주소. `path`가 없으면 `projects`의 상위 폴더에 clone합니다 |
+| `git` | 폴더가 없을 때 `agent-layers sync`가 복제할 주소. `path`가 없으면 `projects`의 상위 폴더에 복제합니다 |
 | `optional` | `true`이면 폴더가 없어도 `validate`가 오류로 보지 않습니다 |
 
 - `agent-layers sync`는 가져온 저장소도 `git pull --ff-only`합니다.
@@ -412,9 +412,9 @@ project 레이어는 특정 프로젝트 폴더에서만 쓰는 내 설정입니
 - 내 저장소와 가져온 저장소에 같은 이름의 프로젝트가 있으면 오류가 납니다. 적용 기록을 프로젝트 이름으로 구분하기 때문입니다. 한쪽 이름을 바꿉니다.
 - `project purge --remove-source`는 내 저장소의 프로젝트만 지웁니다. 가져온 프로젝트의 소스는 그 저장소에서 지웁니다.
 
-### 프로젝트를 선택하여 내려받기
+### 프로젝트를 골라서 내려받기
 
-`agent-layers sync --select`는 현재 로컬 설정에 등록된 프로젝트와 외부 프로젝트 저장소를 보여 줍니다. 번호나 이름을 쉼표로 구분하여 입력합니다. 빈 입력, Ctrl+C, 입력 종료는 내려받기를 취소합니다.
+`agent-layers sync --select`는 로컬 설정 저장소에 등록된 프로젝트와 외부 프로젝트 저장소를 보여 줍니다. 번호나 이름을 쉼표로 구분해 입력합니다. 아무것도 입력하지 않거나, Ctrl+C를 누르거나, 입력이 끝나면(EOF) 내려받지 않고 취소합니다.
 
 | 목적 | 명령 |
 | --- | --- |
@@ -425,13 +425,13 @@ project 레이어는 특정 프로젝트 폴더에서만 쓰는 내 설정입니
 | 적용할 내용 미리 보기 | `agent-layers project plan sample-a --path ./sample-a --diff` |
 | 프로젝트 설정 적용 | `agent-layers project apply sample-a --path ./sample-a` |
 
-- `extends:team`의 `team`은 `agent-layers.jsonc`에 등록한 `extends` 항목의 `name`입니다. 아직 받지 않은 저장소 내부의 프로젝트 이름은 내려받은 뒤 확인할 수 있습니다.
-- Git 저장소 전체를 clone하거나 `pull --ff-only`합니다. 같은 저장소의 여러 프로젝트를 선택해도 한 번만 갱신하며, 같은 저장소에 있는 다른 프로젝트 파일도 함께 갱신됩니다.
+- `extends:team`의 `team`은 `agent-layers.jsonc`에 등록한 `extends` 항목의 `name`입니다. 아직 받지 않은 저장소에 들어 있는 프로젝트의 이름은 내려받은 뒤에 확인할 수 있습니다.
+- 프로젝트를 골라도 Git 저장소는 통째로 복제하거나 `pull --ff-only`합니다. 같은 저장소에서 프로젝트를 여러 개 골라도 저장소는 한 번만 갱신하고, 그 저장소에 있는 다른 프로젝트 파일도 함께 갱신됩니다.
 - 내 설정 저장소의 프로젝트를 선택하면 내 설정 저장소 전체를 갱신합니다. 외부 저장소만 선택하면 내 설정 저장소와 선택하지 않은 다른 저장소는 갱신하지 않습니다.
-- 선택 동기화는 base와 프로젝트 설정을 적용하지 않습니다. 기존 `sync --project <이름>`은 적용 범위를 정하는 옵션이며, 내려받을 대상을 고르는 복수형 `--projects`와 다릅니다.
-- `--select`는 터미널에서만 사용할 수 있습니다. 자동화에서는 `--projects`를 사용하며, `--yes`가 선택을 대신하지 않습니다.
-- 잘못된 이름, 모호한 이름, `--select`와 `--projects`의 동시 사용, 적용 옵션과의 조합은 Git 작업 전에 오류로 처리합니다.
-- Git 갱신이 실패하면 남은 저장소 작업을 중단합니다. 이미 갱신한 저장소는 자동으로 되돌리지 않습니다. 문제를 해결한 뒤 같은 선택 명령을 다시 실행합니다.
+- 골라서 내려받을 때는 base와 프로젝트 설정을 적용하지 않습니다. 단수형 `sync --project <이름>`은 적용 범위를 정하는 옵션이며, 내려받을 대상을 고르는 복수형 `--projects`와 다릅니다.
+- `--select`는 터미널에서만 사용할 수 있습니다. 스크립트로 실행할 때는 `--projects`를 쓰고, `--yes`를 붙여도 선택을 대신하지 않습니다.
+- 잘못되거나 모호한 이름을 주거나, `--select`와 `--projects`를 함께 쓰거나, 적용 옵션과 함께 쓰면 Git 작업을 시작하기 전에 오류로 멈춥니다.
+- Git 갱신이 실패하면 남은 저장소는 갱신하지 않고 멈춥니다. 이미 갱신한 저장소는 자동으로 되돌리지 않습니다. 문제를 해결한 뒤 같은 명령을 다시 실행합니다.
 
 ## 여러 PC 동기화와 적용 대상 조절
 
@@ -445,7 +445,7 @@ project 레이어는 특정 프로젝트 폴더에서만 쓰는 내 설정입니
 | 이번 한 번만 일부 에이전트 제외 | `agent-layers apply --skip zed` |
 | 제외한 에이전트에 이미 쓴 내용까지 정리 | `agent-layers apply --only claude --prune` |
 
-적용 대상을 계속 고정하는 방법은 세 가지입니다.
+적용 대상을 고정해 두는 방법은 세 가지입니다.
 
 | 범위 | 설정 위치 | 예 |
 | --- | --- | --- |
@@ -481,10 +481,10 @@ agent-layers workflow report <run-id>
 | `workflow run <run-id>` | 별도 worktree에서 계획을 실행합니다 | 있음 |
 | `workflow status <run-id>` | 단계 상태, 시도 횟수, 사용량을 보여 줍니다 | 없음 |
 | `workflow report <run-id>` | 검사 결과, 산출물, 남은 단계, 보장하지 않는 범위를 보여 줍니다 | 없음 |
-| `workflow resume <run-id>` | 멈춘 실행을 이어 갑니다. 이어 갈 수 없는 사유이면 호출 없이 끝납니다 | 이어 갈 때만 |
+| `workflow resume <run-id>` | 멈춘 실행을 이어 갑니다. 이어 갈 수 없는 이유로 멈췄으면 AI를 호출하지 않고 끝납니다 | 이어 갈 때만 |
 | `workflow cancel <run-id>` | 진행 중인 실행에 중단을 요청하고 결과를 기다립니다. 실행 중인 터미널의 Ctrl+C도 같은 일을 합니다 | 없음 |
 
-실행이 멈춘 이유는 실행 상태와 단계의 `last error` 열에 나옵니다. `BLOCKED`로 멈춘 경우 대부분은 `workflow report`의 `next:` 줄이 다음에 할 일을 알려 줍니다. AI CLI 호출이 오류로 끝나는 일이 반복되면 `transport`로 멈춥니다. 네트워크 오류만이 아니라 0이 아닌 종료 코드나 신호로 끝난 호출이 모두 해당합니다. 원인을 고친 뒤에 `resume`하면 같은 worktree에서 이어 갑니다. `FAILED`나 `CANCELLED`로 끝난 실행은 재개되지 않으므로 새 계획을 만듭니다. 모든 명령에 `--json`을 붙일 수 있습니다.
+실행이 멈춘 이유는 실행 상태와 단계의 `last error` 열에 나옵니다. `BLOCKED`로 멈췄을 때는 대부분 `workflow report`의 `next:` 줄에 다음에 할 일이 나옵니다. AI CLI 호출이 오류로 끝나는 일이 반복되면 `transport`로 멈춥니다. 네트워크 오류만이 아니라 0이 아닌 종료 코드나 신호로 끝난 호출이 모두 해당합니다. 원인을 고친 뒤에 `resume`하면 같은 worktree에서 이어 갑니다. `FAILED`나 `CANCELLED`로 끝난 실행은 재개되지 않으므로 새 계획을 만듭니다. 모든 명령에 `--json`을 붙일 수 있습니다.
 
 ### 승인과 호출 상한
 
@@ -527,7 +527,7 @@ agent-layers workflow report <run-id>
 
 ### 지원 환경
 
-Node.js는 18.17 이상이 필요합니다. 운영체제를 막지는 않지만, 중단했을 때의 동작이 다릅니다.
+Node.js는 18.17 이상이 필요합니다. 운영체제에 따라 실행을 막지는 않지만, 중단했을 때의 동작은 운영체제마다 다릅니다.
 
 | 운영체제 | 실행한 기록 | Ctrl+C, `workflow cancel` | 중단된 실행의 재개 |
 | --- | --- | --- | --- |
@@ -558,7 +558,7 @@ workflow 명령의 종료 코드는 다른 agent-layers 명령과 뜻이 다릅�
 
 아래 명령은 모두 읽기 전용이라 언제 실행해도 안전합니다. 문제가 생기면 `doctor`와 `status`부터 실행합니다.
 
-| 명령 | 확인하는 것 | 쓰는 때 |
+| 명령 | 확인하는 것 | 쓰는 시점 |
 | --- | --- | --- |
 | `agent-layers doctor` | 설치된 에이전트, 설정 파일의 평문 비밀번호, 잘못된 위치에 들어간 설정, 규칙 파일 크기 | 처음 설치할 때, 동작이 이상할 때 |
 | `agent-layers status` | agent-layers가 관리하는 파일 목록과, 적용한 뒤 바깥에서 바뀐 파일 | 설정 파일을 직접 고친 것 같을 때 |
@@ -590,7 +590,7 @@ workflow 명령의 종료 코드는 다른 agent-layers 명령과 뜻이 다릅�
 
 **`init`을 하면 이 PC의 설정이 설정 저장소에 들어가나요?**
 
-아닙니다. `init`은 어느 저장소를 원본으로 쓸지 정하는 명령입니다. `--from` 없이 실행하면 예시만 든 템플릿을 만들고, `--from`을 주면 기존 저장소를 복제합니다. 이 PC의 기존 설정을 저장소로 가져오는 명령은 `agent-layers import`입니다.
+아닙니다. `init`은 어느 저장소를 원본으로 쓸지 정하는 명령입니다. `--from` 없이 실행하면 예시만 들어 있는 템플릿을 만들고, `--from`을 주면 기존 저장소를 복제합니다. 이 PC의 기존 설정을 저장소로 가져오는 명령은 `agent-layers import`입니다.
 
 - `import`는 가져올 파일 목록을 먼저 보여 주고, 확인을 받은 뒤 설정 저장소의 base 레이어에 씁니다.
 - 홈 경로는 `{{home}}` 같은 변수로, 평문 비밀값은 `${secret:...}` 참조로 바뀝니다.
@@ -603,7 +603,7 @@ workflow 명령의 종료 코드는 다른 agent-layers 명령과 뜻이 다릅�
 
 **MCP를 붙이려면 항상 키체인을 설정해야 하나요?**
 
-아닙니다. 비밀번호나 토큰을 설정에 넣어야 하는 서버만 비밀값마다 PC당 한 번 `secrets set`을 합니다. 비밀값이 없거나 브라우저 로그인으로 인증하는 서버는 필요 없습니다.
+아닙니다. 비밀번호나 토큰을 설정에 넣어야 하는 서버만, 비밀값마다 PC에서 한 번씩 `secrets set`을 실행합니다. 비밀값이 없거나 브라우저 로그인으로 인증하는 서버에는 필요하지 않습니다.
 
 **에이전트 설정 파일을 직접 고치면 어떻게 되나요?**
 
@@ -615,7 +615,7 @@ agent-layers가 쓴 부분을 고쳤다면 다음 적용 때 `drift`로 보고 �
 
 **프로젝트 저장소의 `AGENTS.md`와 내 base 규칙이 둘 다 적용되나요?**
 
-둘 다 읽힙니다. 두 규칙이 다를 때를 대비해 base 규칙에 "프로젝트 규칙이 다르게 정하면 프로젝트 규칙을 따른다"처럼 우선순위를 적어 둡니다. 겹치는 내용이 많으면 매 세션의 컨텍스트 사용량이 그만큼 늘어납니다.
+에이전트가 둘 다 읽습니다. 두 규칙이 다를 때를 대비해 base 규칙에 "프로젝트 규칙이 다르게 정하면 프로젝트 규칙을 따른다"처럼 우선순위를 적어 둡니다. 겹치는 내용이 많으면 세션마다 쓰는 컨텍스트가 그만큼 늘어납니다.
 
 **설정 저장소를 GitHub 대신 Google Drive 같은 폴더에 두어도 되나요?**
 
@@ -633,11 +633,11 @@ npm install --global agent-layers
 
 ## 되돌리기와 주의 사항
 
-덮어쓴 파일은 항상 백업되므로, 적용한 내용은 대부분 되돌릴 수 있습니다. 예외는 `project purge`로 지운 에이전트 대화 기록입니다.
+덮어쓰기 전에 항상 백업하므로, 적용한 내용은 대부분 되돌릴 수 있습니다. 예외는 `project purge`로 지운 에이전트 대화 기록입니다.
 
 | 하고 싶은 일 | 방법 |
 | --- | --- |
-| 적용하기 전 파일로 돌리기 | `~/.agent-layers/backups/<날짜-시각>/`에서 원본을 복사합니다 |
+| 적용하기 전의 파일로 되돌리기 | `~/.agent-layers/backups/<날짜-시각>/`에서 원본을 복사합니다 |
 | 규칙이나 스킬 하나 빼기 | 설정 저장소에서 지우고 `apply`합니다. 원본에서 지운 항목은 에이전트 설정에서도 정리됩니다 |
 | 한 에이전트에서 모두 빼기 | `targets`에서 뺀 뒤 `apply --prune`을 실행합니다 |
 | agent-layers가 에이전트용으로 쓴 내용 지우기 | `agent-layers uninstall`. 다른 내용은 남깁니다. 함께 남는 항목은 아래 표에 있습니다 |
@@ -668,44 +668,44 @@ npm install --global agent-layers
 
 | 분류 | 명령 | 하는 일 | 읽기 전용 |
 | --- | --- | --- | --- |
-| 설치 | `npm install --global agent-layers` | 엔진을 설치하거나 최신으로 바꿉니다 | 아니오 |
-| 설치 | `agent-layers init` | 템플릿으로 새 설정 저장소를 만들고 등록합니다. `--lang ko` 또는 `--lang en`으로 페르소나 파일의 언어를 정합니다 | 아니오 |
-| 설치 | `agent-layers init --from <주소>` | 기존 설정 저장소를 복제하고 등록합니다 | 아니오 |
-| 설치 | `agent-layers import --from claude,codex` | 이 PC의 기존 설정을 설정 저장소로 가져옵니다 | 아니오 |
+| 설치 | `npm install --global agent-layers` | 엔진을 설치하거나 최신으로 바꿉니다 | 아니요 |
+| 설치 | `agent-layers init` | 템플릿으로 새 설정 저장소를 만들고 등록합니다. `--lang ko` 또는 `--lang en`으로 페르소나 파일의 언어를 정합니다 | 아니요 |
+| 설치 | `agent-layers init --from <주소>` | 기존 설정 저장소를 복제하고 등록합니다 | 아니요 |
+| 설치 | `agent-layers import --from claude,codex` | 이 PC의 기존 설정을 설정 저장소로 가져옵니다 | 아니요 |
 | base | `agent-layers plan --diff` | 적용하면 바뀔 내용을 보여 줍니다 | 예 |
-| base | `agent-layers apply` | base 레이어를 적용합니다 | 아니오 |
-| base | `agent-layers sync` | 설정 저장소를 pull한 뒤 적용합니다 | 아니오 |
+| base | `agent-layers apply` | base 레이어를 적용합니다 | 아니요 |
+| base | `agent-layers sync` | 설정 저장소를 pull한 뒤 적용합니다 | 아니요 |
 | base | `agent-layers status` | 관리 중인 파일과 바깥에서 바뀐 파일을 보여 줍니다 | 예 |
 | base | `agent-layers show [이름]` | 레이어별 내용과 받는 에이전트를 보여 줍니다 | 예 |
-| base | `agent-layers uninstall` | 에이전트용으로 쓴 파일, 블록, 키를 지웁니다. 남는 항목은 「되돌리기와 주의 사항」 절에 있습니다 | 아니오 |
-| project | `agent-layers project init <이름> --mode private --remote <주소>` | 프로젝트 레이어를 만듭니다 | 아니오 |
+| base | `agent-layers uninstall` | 에이전트용으로 쓴 파일, 블록, 키를 지웁니다. 남는 항목은 「되돌리기와 주의 사항」 절에 있습니다 | 아니요 |
+| project | `agent-layers project init <이름> --mode private --remote <주소>` | 프로젝트 레이어를 만듭니다 | 아니요 |
 | project | `agent-layers project list` | 프로젝트 레이어 목록을 보여 줍니다 | 예 |
 | project | `agent-layers project detect` | 현재 폴더가 어느 프로젝트인지 보여 줍니다 | 예 |
 | project | `agent-layers project plan --diff` | 프로젝트 레이어를 미리 봅니다 | 예 |
-| project | `agent-layers project apply` | 프로젝트 레이어를 적용합니다 | 아니오 |
-| project | `agent-layers project purge <이름>` | 프로젝트 레이어와 에이전트 기록을 지웁니다 | 아니오 |
-| 비밀값 | `agent-layers secrets set <이름>` | 비밀값을 키체인에 저장합니다 | 아니오 |
+| project | `agent-layers project apply` | 프로젝트 레이어를 적용합니다 | 아니요 |
+| project | `agent-layers project purge <이름>` | 프로젝트 레이어와 에이전트 기록을 지웁니다 | 아니요 |
+| 비밀값 | `agent-layers secrets set <이름>` | 비밀값을 키체인에 저장합니다 | 아니요 |
 | 비밀값 | `agent-layers secrets check` | 이 PC에 없는 비밀값을 보여 줍니다 | 예 |
 | 비밀값 | `agent-layers secrets list` | 저장한 비밀값 이름을 보여 줍니다 | 예 |
-| 비밀값 | `agent-layers secrets delete <이름>` | 비밀값을 지웁니다 | 아니오 |
+| 비밀값 | `agent-layers secrets delete <이름>` | 비밀값을 지웁니다 | 아니요 |
 | 점검 | `agent-layers doctor` | 에이전트와 위험한 설정을 점검합니다 | 예 |
 | 점검 | `agent-layers validate` | 설정 저장소를 검사합니다 | 예 |
 | 점검 | `agent-layers agents` | 지원 에이전트와 설정 위치를 보여 줍니다 | 예 |
-| workflow (preview) | `agent-layers workflow plan --goal-file <파일> --config <파일>` | AI CLI로 계획을 만들고 실행 ID를 출력합니다 | 아니오 |
+| workflow (preview) | `agent-layers workflow plan --goal-file <파일> --config <파일>` | AI CLI로 계획을 만들고 실행 ID를 출력합니다 | 아니요 |
 | workflow (preview) | `agent-layers workflow validate <run-id>` | 저장된 계획, 정책, 기록을 검사합니다 | 예 |
-| workflow (preview) | `agent-layers workflow run <run-id>` | 별도 worktree에서 계획을 실행합니다 | 아니오 |
+| workflow (preview) | `agent-layers workflow run <run-id>` | 별도 worktree에서 계획을 실행합니다 | 아니요 |
 | workflow (preview) | `agent-layers workflow status <run-id>` | 단계 상태, 시도 횟수, 사용량을 보여 줍니다 | 예 |
 | workflow (preview) | `agent-layers workflow report <run-id>` | 검사 결과, 산출물, 남은 단계, 보장하지 않는 범위를 보여 줍니다 | 예 |
-| workflow (preview) | `agent-layers workflow resume <run-id>` | 멈춘 실행을 이어 갑니다 | 아니오 |
-| workflow (preview) | `agent-layers workflow cancel <run-id>` | 진행 중인 실행에 중단을 요청하고 결과를 기다립니다 | 아니오 |
+| workflow (preview) | `agent-layers workflow resume <run-id>` | 멈춘 실행을 이어 갑니다 | 아니요 |
+| workflow (preview) | `agent-layers workflow cancel <run-id>` | 진행 중인 실행에 중단을 요청하고 결과를 기다립니다 | 아니요 |
 
-여러 명령에 공통으로 붙는 옵션입니다.
+여러 명령에서 함께 쓰는 옵션입니다.
 
 | 옵션 | 뜻 |
 | --- | --- |
 | `--only a,b` / `--skip a,b` | 일부 에이전트에만 적용하거나 일부를 뺍니다 |
 | `--yes` | 확인 질문 없이 진행합니다 |
-| `--force` | 충돌·변경된 파일도 백업한 뒤 덮어씁니다 |
+| `--force` | 충돌하거나 바깥에서 바뀐 파일도 백업한 뒤 덮어씁니다 |
 | `--source <폴더>` | 등록된 것 대신 다른 설정 저장소를 씁니다 |
 | `--home <폴더>` | 홈 폴더를 바꿔서 시험합니다. 실제 설정을 건드리지 않고 연습할 때 씁니다 |
-| `--json` / `--quiet` | 기계가 읽는 출력 / 출력 줄이기 |
+| `--json` / `--quiet` | JSON으로 출력 / 출력 줄이기 |
