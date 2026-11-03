@@ -37,7 +37,7 @@ agent-layers는 git 저장소 하나에 적어 둔 규칙·스킬·MCP 서버·�
 | MCP 설정 파일에 비밀번호가 평문으로 남습니다 | 비밀번호는 OS 키체인에 두고, 설정에는 참조만 씁니다 |
 | 설정을 바꾸면 무엇이 바뀌는지 알기 어렵습니다 | 쓰기 전에 미리 보기(`plan`)로 바뀌는 내용을 보여 주고, 덮어쓸 파일은 미리 백업합니다 |
 
-대상 에이전트는 16종입니다: Claude Code, Codex, Gemini CLI, Antigravity, GitHub Copilot CLI, Cursor, OpenCode, Zed, Junie, Kiro, Amp, Factory, Devin, Qwen Code, Cline, Goose. 에이전트별 설정 위치는 `agent-layers agents`로 확인합니다.
+대상 에이전트는 18종입니다: Claude Code, Codex, Gemini CLI, Antigravity, GitHub Copilot CLI, Cursor, OpenCode, Zed, Junie, Kiro, Amp, Factory, Devin, Qwen Code, Cline, Goose, Kimi Code, Grok Build. 에이전트별 설정 위치는 `agent-layers agents`로 확인합니다.
 
 agent-layers가 하지 않는 일도 있습니다.
 
@@ -599,7 +599,7 @@ workflow 명령의 종료 코드는 다른 agent-layers 명령과 뜻이 다릅�
 
 **Claude에서만 쓰는 도구인가요?**
 
-아닙니다. 터미널에서 따로 실행하는 프로그램이고, 16종 에이전트를 같은 저장소로 설정합니다. 슬래시 명령은 Claude와 Gemini에만, 서브에이전트는 Claude에만 변환됩니다.
+아닙니다. 터미널에서 따로 실행하는 프로그램이고, 18종 에이전트를 같은 저장소로 설정합니다. 슬래시 명령은 Claude와 Gemini에만, 서브에이전트는 Claude에만 변환됩니다.
 
 **MCP를 붙이려면 항상 키체인을 설정해야 하나요?**
 

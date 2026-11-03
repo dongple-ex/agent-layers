@@ -37,7 +37,7 @@ agent-layers is a command-line tool that takes the rules, skills, MCP servers an
 | MCP config files hold passwords in plain text | Passwords live in the OS keychain; config files hold only references |
 | It is hard to tell what a change will touch | A dry run (`plan`) shows every change before writing, and overwritten files are backed up |
 
-Sixteen agents are supported: Claude Code, Codex, Gemini CLI, Antigravity, GitHub Copilot CLI, Cursor, OpenCode, Zed, Junie, Kiro, Amp, Factory, Devin, Qwen Code, Cline and Goose. Run `agent-layers agents` to see where each one reads its configuration.
+Eighteen agents are supported: Claude Code, Codex, Gemini CLI, Antigravity, GitHub Copilot CLI, Cursor, OpenCode, Zed, Junie, Kiro, Amp, Factory, Devin, Qwen Code, Cline, Goose, Kimi Code and Grok Build. Run `agent-layers agents` to see where each one reads its configuration.
 
 What agent-layers does not do:
 
@@ -599,7 +599,7 @@ No. `init` only decides which repository is your source. Without `--from` it cre
 
 **Is it only for Claude?**
 
-No. It is a separate program that configures sixteen agents from the same repository. Slash commands are converted only for Claude and Gemini, and subagents only for Claude.
+No. It is a separate program that configures eighteen agents from the same repository. Slash commands are converted only for Claude and Gemini, and subagents only for Claude.
 
 **Do I always need the keychain to add an MCP server?**
 
