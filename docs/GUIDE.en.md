@@ -11,7 +11,7 @@ This guide walks a first-time user through agent-layers, from installation to ev
 | Audience | People who use two or more AI coding agents (Claude Code, Codex, Gemini CLI, ...) or want the same setup on several machines |
 | Version | agent-layers 0.1.6 |
 | Engine repository | [github.com/dongple-ex/agent-layers](https://github.com/dongple-ex/agent-layers) |
-| Tested for this release | Automated tests on Windows 11 x64 (Node.js 24.14.1) and Linux ARM64 (Node.js 24.15.0). Node.js 18.17 (the minimum supported version), macOS and iOS devices, and OS keychain integration have not been verified for this release |
+| Tested for this release | Automated tests on Windows 11 x64 (Node.js 24.14.1 and 18.17.0) and Linux ARM64 (Node.js 18.17.0), plus commands run from the installed package on Linux ARM64 (Node.js 24.15.0). macOS and iOS devices, and OS keychain integration have not been verified for this release |
 
 | PART | Covers | Read first if you |
 | --- | --- | --- |
