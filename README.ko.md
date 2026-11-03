@@ -360,14 +360,24 @@ agent-layers workflow report <run-id>
 
 ## 다른 도구와 비교
 
-| 도구 | 강점 | agent-layers가 채우는 부분 |
+아래 도구들은 규칙 파일 생성, 스킬 패키징, dotfiles 동기화처럼 각자의 일에 강합니다. agent-layers는 여러 PC에 걸쳐, 프로젝트가 끝날 때까지 에이전트 설정 전체를 관리합니다. agent-layers를 고를 주요 이유는 아래와 같습니다.
+
+- **에이전트가 다시 쓰는 파일에서도 안전합니다.** `~/.codex/config.toml`, `~/.gemini/settings.json` 같은 파일에서 자신의 블록과 키만 다룹니다. 다른 내용은 그대로 두고, 바깥에서 바뀐 부분은 drift로 감지해 건너뛰며, `--force`로 바꾸기 전에 원본을 백업합니다.
+- **비밀값이 저장소에 들어가지 않습니다.** `${secret:NAME}`의 값은 OS 키체인이나 1Password에 둡니다. 생성된 설정에는 환경 변수 참조나, MCP 서버가 시작될 때 값을 가져오는 실행 명령이 들어갑니다. 값이 설정 파일에 들어가는 경우는 `options.secrets.mode`로 직접 선택했을 때뿐입니다.
+- **저장소 하나로 모든 PC를 관리합니다.** 개인 base 레이어를 모든 PC에 적용하고, `extends`로 team 레이어를 더합니다. PC 전용 값과 `{{home}}` 같은 템플릿을 쓰면 저장소에 절대 경로를 넣지 않아도 됩니다.
+- **고객사 작업을 비공개로 두고 나중에 지울 수 있습니다.** private 모드는 추적 중인 파일을 고치지 않습니다. `project purge`는 agent-layers가 쓴 내용과 그 폴더에 대한 에이전트의 로컬 대화 기록, 메모리, 세션을 지우고, 전역 데이터와 클라우드 데이터는 검토할 수 있게 목록으로 보여 줍니다.
+- **변경을 먼저 확인하고 나중에 제거할 수 있습니다.** `plan --diff`는 쓰기 전에 각 변경을 보여 주고, `uninstall`은 에이전트용으로 쓴 파일, 블록, 키를 지우면서 사용자의 내용은 남깁니다.
+
+| 도구 | 잘하는 일 | agent-layers가 더하는 것 |
 |---|---|---|
-| rulesync, ruler | 지원 에이전트가 많고 프로젝트 규칙 생성에 강하다 | 개인 전역 레이어(ruler에 없음), PC 전용 값, 비밀값, 에이전트가 다시 쓰는 파일에 대한 키 단위 병합, 프로젝트 폐기 |
-| Microsoft APM | 매니페스트와 잠금 파일, Windows 설치 지원 | 프로젝트별 지시문 레이어, 고객사용 비공개 모드 |
-| chezmoi | dotfiles, 템플릿, 비밀번호 관리자 연동 | 에이전트별 형식과 위치에 대한 지식 |
-| dotagents (iannuttall) | `.agents` 폴더 하나를 에이전트 6종에 심볼릭 링크로 연결하고, 전역·프로젝트 범위와 백업을 지원한다 | 링크 대신 키 단위 병합, MCP 서버와 에이전트 설정, 비밀값, PC 전용 값, 프로젝트 폐기 |
-| agentrig | Agent Plugins v1 패키지(스킬, MCP)를 Claude Code·Codex·Cursor에 설치하고 공유한다 | 항상 적용되는 지시문 파일, 에이전트 설정, 키체인 비밀값, PC 전용 값 |
-| Claude Code 플러그인, claude.ai 동기화 | 스킬·명령·MCP를 공식 경로로 배포한다 | CLAUDE.md와 rules를 실을 수 없고 Claude 전용이다 |
+| rulesync, ruler | 많은 에이전트 지원(rulesync), 프로젝트와 전역 규칙, MCP 설정, 백업과 되돌리기(ruler) | OS 키체인 비밀값, PC 전용 값과 템플릿, 에이전트가 다시 쓰는 파일의 drift 감지, `project purge` |
+| Microsoft APM | 매니페스트, 잠금 파일, Windows 설치를 갖춘 의존성 관리 | 프로젝트별 지시문 레이어, 고객사용 비공개 모드, `project purge` |
+| chezmoi | 여러 PC의 dotfiles, 템플릿, 비밀번호 관리자 연동 | 에이전트별 형식과 위치에 대한 내장 지식. 원본 하나를 각 에이전트의 고유 파일로 변환함 |
+| dotagents (iannuttall) | `.agents` 폴더 하나를 에이전트 6종에 심볼릭 링크로 연결, 전역과 프로젝트 범위, 백업 | 링크 대신 키 단위 병합, 에이전트 18종, MCP 서버와 에이전트 설정, 비밀값, PC 전용 값, `project purge` |
+| agentrig | Claude Code, Codex, Cursor에서 쓰는 이식형 플러그인(스킬, MCP, 훅, 명령)과 공유 | 항상 적용되는 지시문 파일, 에이전트 설정, 키체인 비밀값, PC 전용 값 |
+| Claude Code 플러그인, claude.ai 동기화 | 스킬, 명령, MCP의 공식 배포 | 항상 적용되는 지시문(플러그인의 `CLAUDE.md`는 읽지 않음)과 Claude 밖의 에이전트 |
+
+이 비교는 2026-11-03 기준 각 프로젝트의 공식 문서를 바탕으로 합니다. 마지막 열은 agent-layers가 제공하고 그 문서에는 설명이 없는 내용입니다. 이 도구들은 빠르게 바뀌므로, 결정하기 전에 최신 문서를 확인하십시오.
 
 agent-layers는 이 도구들과 함께 쓸 수 있습니다. 예를 들어 스킬은 Claude 플러그인 마켓플레이스로 배포하고, agent-layers 설치는 chezmoi에 맡길 수 있습니다.
 

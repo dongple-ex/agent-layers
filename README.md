@@ -302,14 +302,39 @@ file, what is not guaranteed and the exit codes.
 
 ## Compared with other tools
 
-| Tool | Strength | Gap that agent-layers fills |
+Each tool below is strong at its own job, such as generating rule files, packaging skills or
+syncing dotfiles. agent-layers manages the whole setup of your agents, across your machines and for
+the life of a project. These are the main reasons to choose it:
+
+- **Safe on files that agents rewrite.** It owns only its own blocks and keys in files such as
+  `~/.codex/config.toml` and `~/.gemini/settings.json`. Other content stays, outside edits are
+  detected as drift and skipped, and the original is backed up before `--force` replaces it.
+- **Secrets stay out of the repository.** `${secret:NAME}` values live in the OS keychain or
+  1Password. Generated config holds an environment reference, or a launcher that fetches the value
+  when the MCP server starts. A value reaches a config file only if you opt in with
+  `options.secrets.mode`.
+- **One source for every machine.** A personal base layer follows you, `extends` adds team layers,
+  and machine-local values and templates such as `{{home}}` keep absolute paths out of the
+  repository.
+- **Client work stays private and can be removed.** Private mode never edits tracked files.
+  `project purge` removes what agent-layers wrote and the agents' local transcripts, memory and
+  sessions for that folder, and lists global or cloud data for you to review.
+- **You can check changes first and remove them later.** `plan --diff` shows each change before it
+  is written, and `uninstall` removes the files, blocks and keys it wrote for your agents and keeps
+  your own content.
+
+| Tool | What it does well | What agent-layers adds |
 |---|---|---|
-| rulesync, ruler | many agents, project rules | personal/global layer (ruler), machine-local values, secrets, merging into agent-rewritten files, project purge |
-| Microsoft APM | manifest, lockfile, Windows installers | instructions layering per project, private client mode |
-| chezmoi | dotfiles, templates, password managers | knowledge of agent formats and locations |
-| dotagents (iannuttall) | one `.agents` folder symlinked into six agents, global and project scope, backups | key-level merging instead of symlinks, MCP servers and agent settings, secrets, machine-local values, project purge |
-| agentrig | Agent Plugins v1 packages (skills, MCP) for Claude Code, Codex and Cursor, with sharing | always-on instruction files, agent settings, keychain secrets, machine-local values |
-| Claude Code plugins / claude.ai sync | native distribution of skills, commands, MCP | cannot carry CLAUDE.md or rules; Claude only |
+| rulesync, ruler | many agents (rulesync), project and global rules, MCP config, backups and revert (ruler) | OS keychain secrets, machine-local values and templates, drift detection on files agents rewrite, `project purge` |
+| Microsoft APM | dependency manager with a manifest, a lockfile and Windows installers | instructions layered per project, private client mode, `project purge` |
+| chezmoi | dotfiles across machines, templates, password managers | built-in knowledge of each agent's formats and locations, so one source becomes each agent's native files |
+| dotagents (iannuttall) | one `.agents` folder symlinked into six agents, global and project scope, backups | key-level merging instead of symlinks, 18 agents, MCP servers and agent settings, secrets, machine-local values, `project purge` |
+| agentrig | portable plugins (skills, MCP, hooks, commands) for Claude Code, Codex and Cursor, with sharing | always-on instruction files, agent settings, keychain secrets, machine-local values |
+| Claude Code plugins / claude.ai sync | native distribution of skills, commands, MCP | always-on instructions, since a plugin's `CLAUDE.md` is not loaded, and agents other than Claude |
+
+This comparison comes from each project's own documentation as of 2026-11-03. The last column lists
+what agent-layers offers and that documentation does not describe. These tools change quickly, so
+check their current documentation before you decide.
 
 agent-layers can sit next to these: keep skills in a Claude plugin marketplace, or let chezmoi
 install agent-layers itself.
