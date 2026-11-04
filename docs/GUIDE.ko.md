@@ -273,7 +273,7 @@ description: "커밋 메시지 작성 규칙(제목 길이, 본문 형식). 커�
 - 특정 에이전트에만 배포하려면 스킬 폴더에 `agent-layers.jsonc`를 만들고 `{ "targets": ["claude"] }`처럼 적습니다.
 - `targets`에 agent-layers가 모르는 에이전트 이름이 있으면 `validate`, `plan`, `apply`가 `unknown target` 오류로 멈춥니다. `plan`과 `apply`는 파일을 쓰기 전에 멈춥니다.
 - `{ "targets": [] }`처럼 빈 목록을 적으면 그 스킬은 어느 에이전트에도 배포되지 않습니다.
-- 항상 지킬 규칙은 에이전트가 세션마다 읽으므로 짧게 유지합니다. 길고 가끔만 필요한 절차는 스킬로 둡니다. Codex는 규칙 파일을 기본 32 KiB까지만 읽습니다.
+- 항상 지킬 규칙은 에이전트가 세션마다 읽으므로 짧게 유지합니다. 길고 가끔만 필요한 절차는 스킬로 둡니다. Codex 공식 문서에 따르면, 프로젝트의 `AGENTS.md` 파일은 합쳐서 기본 32 KiB(`project_doc_max_bytes`)까지만 읽습니다.
 
 ⚠️ `~/.claude/rules/agent-layers/`처럼 agent-layers가 쓴 파일을 직접 고치면, 다음 적용 때 "바깥에서 바뀐 파일(drift)"로 보고 건너뜁니다. 항상 설정 저장소를 고칩니다.
 

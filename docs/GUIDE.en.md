@@ -273,7 +273,7 @@ Body
 - To deploy a skill to specific agents only, add `agent-layers.jsonc` to the skill folder with `{ "targets": ["claude"] }`.
 - If `targets` contains an agent name that agent-layers does not know, `validate`, `plan` and `apply` stop with an `unknown target` error. `plan` and `apply` stop before they write any file.
 - An empty list such as `{ "targets": [] }` deploys the skill to no agent.
-- Keep always-on rules short, since agents read them in every session. Put long, occasional procedures in skills. Codex reads only the first 32 KiB of rules by default.
+- Keep always-on rules short, since agents read them in every session. Put long, occasional procedures in skills. According to the Codex docs, project `AGENTS.md` files are read only up to 32 KiB combined by default (`project_doc_max_bytes`).
 
 ⚠️ If you edit a file that agent-layers wrote, such as `~/.claude/rules/agent-layers/`, the next apply reports it as changed outside agent-layers (drift) and skips it. Always edit the setup repository.
 
