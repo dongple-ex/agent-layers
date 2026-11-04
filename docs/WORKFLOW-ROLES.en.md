@@ -1,10 +1,12 @@
-# Manage subagent rules and connect them to workflow
+# Manage and deploy role definitions, with optional workflow integration
 
 [한국어](WORKFLOW-ROLES.ko.md)
 
 “The implementer may edit only `src/`. The reviewer checks that tests have not been weakened. The auditor looks for unnecessary permissions.” You can store and share these role-specific standards just like code.
 
-agent-layers manages **Claude Code subagent definitions alongside shared instructions** in your setup source. You can define each role's rules, tools and model, deploy them, and connect those definitions to workflow's Planner, Coder, Reviewer and Auditor. When your team's review standards change, edit the source and apply it again.
+agent-layers keeps your team's rules and settings consistent across AI tools. Managing **Claude Code subagent definitions alongside shared instructions** extends that configuration management: store each role's rules, tools and model in the source, then deploy them. When your team's review standards change, edit the source and apply it again. This purpose is complete without workflow, and you can use the deployed definitions directly in Claude.
+
+Use your AI tool's built-in task delegation when it is enough. Connecting the definitions to workflow's Planner, Coder, Reviewer and Auditor is an optional preview path for repeated tasks that need fixed checks, recorded results and resuming. Task length alone does not justify adding workflow.
 
 Written and checked: 2026-11-03
 
@@ -14,14 +16,14 @@ Written and checked: 2026-11-03
 | Requirements | Node.js 18.17+, git 2.32+, Bash, agent-layers and Claude Code installed |
 | Checked environment | Linux ARM64, Node.js 24.15.0 |
 | Verification scope | Definition deployment and format validation, plus a workflow run with a mock provider |
-| Real AI calls | None while preparing this article. The real execution steps in PART 3 require authentication and consume usage |
+| Real AI calls | The real Claude examples in this article (the optional session in PART 2 and workflow execution in PART 3) were not run. Both paths require authentication and consume usage when processing tasks |
 | References | [Shared-rules walkthrough](SHARED-RULES.en.md), [workflow guide](GUIDE.en.md#running-a-task-with-workflow-preview), [example policy](../templates/workflow/policy.example.jsonc) |
 
 | PART | Contents |
 | --- | --- |
 | 1 | Why manage role-specific rules, and how the pieces connect |
-| 2 | Deploying four subagent definitions to a temporary home |
-| 3 | A policy for implementing a sum function with workflow |
+| 2 | Deploying four subagent definitions; optionally using them directly in Claude |
+| 3 | Optional workflow integration: a policy for implementing a sum function |
 | 4 | Verification results and supported scope |
 
 ---
@@ -34,12 +36,12 @@ Written and checked: 2026-11-03
 | Role-specific rules | Planner breaks down the task; Reviewer checks requirements and tests |
 | Available tools | Coder can read and edit; Reviewer and Auditor have reading tools |
 | Model choice | The definition's `model` field or `--model` in the role's CLI arguments |
-| Completion criteria | Required tests, Reviewer and Auditor must pass |
+| Completion criteria | Definition management ends after deployment and format validation; optional workflow execution requires tests, Reviewer and Auditor to pass |
 
 ```mermaid
 flowchart LR
   S["Role definitions in Git<br/>base/agents/*.md"] --> A["agent-layers apply<br/>Deploy Claude definitions"]
-  A --> P["Planner<br/>al-wf-planner"]
+  A -. "Optional workflow integration" .-> P["Planner<br/>al-wf-planner"]
   P --> C["Coder<br/>al-wf-coder"]
   C --> T["The program runs tests"]
   T --> R["Reviewer<br/>al-wf-reviewer"]
@@ -55,9 +57,9 @@ flowchart LR
   style D fill:#1f4a30,stroke:#5ddb8f,color:#eafaf0
 ```
 
-Use `provider.roleArgs` to make the connection. For example, passing `--agent al-wf-reviewer` for the Reviewer call makes Claude Code use that definition as the session's main agent. The same definition can also be used as a subagent in a regular Claude session. [Explicit agent selection in Claude Code](https://code.claude.com/docs/en/sub-agents#invoke-subagents-explicitly)
+For optional workflow integration, use `provider.roleArgs` to make the connection. For example, passing `--agent al-wf-reviewer` for the Reviewer call makes Claude Code use that definition as the session's main agent. The option does not launch a child subagent. The same definition can also be used as a subagent in a regular Claude session. [Explicit agent selection in Claude Code](https://code.claude.com/docs/en/sub-agents#invoke-subagents-explicitly)
 
-Workflow starts a separate CLI session for each role. This example does not repeatedly spawn child agents inside Claude, and the current workflow runs sequentially. It **connects subagent definition deployment with workflow execution management**.
+If you choose PART 3, workflow starts a separate CLI session for each role. That example does not repeatedly spawn child agents inside Claude, and the current workflow runs sequentially. Definition deployment in PART 2 does not start workflow; you can stop there or use Claude directly.
 
 ---
 ---
@@ -163,10 +165,37 @@ CLAUDE_CONFIG_DIR="$AL_WF_HOME/.claude" claude plugin validate "$AL_WF_HOME/.cla
 
 The four definitions appear in `$AL_WF_HOME/.claude/agents/`. This stage does not call an AI model. `plugin validate` checks the definition files' format; it does not verify that a model follows their rules.
 
+**The four definitions have now been deployed and format-checked, completing the definition-management goal. You can stop here.** Neither Claude execution nor PART 3 is required to finish deployment.
+
+## Optional: use a deployed definition directly in Claude
+
+This path uses Claude's built-in agent selection without workflow. It does not require PART 3's policy, sum function or demo repository commit. In the same Bash shell, set `AL_WF_PROJECT` to the actual project folder you want to review, then change to that folder. Replace the placeholder path below before running it; `$AL_WF_REPO` is the separate sum demo, not your existing project.
+
+```bash
+AL_WF_PROJECT="/path/to/your/project"
+cd "$AL_WF_PROJECT"
+```
+
+Authenticate in the same configuration directory that contains the deployed definitions. This starts Claude's official login flow; do not put credentials in the source files.
+
+```sh
+CLAUDE_CONFIG_DIR="$AL_WF_HOME/.claude" claude auth login
+```
+
+The next command starts a real Claude session. Asking it to review the project calls AI and consumes your account's usage. `--agent` selects `al-wf-reviewer` as that session's main agent; it does not launch a child subagent.
+
+```sh
+CLAUDE_CONFIG_DIR="$AL_WF_HOME/.claude" claude --agent al-wf-reviewer
+```
+
+Previously checked Claude Code 2.1.312 command help documents `auth login` and `--agent`. This example's actual Claude behavior has not been verified. The command-help evidence does not establish review quality, execution time or token savings.
+
 ---
 ---
 
-# PART 3 — Connect the definitions to workflow roles
+# PART 3 — Optional: connect the definitions to workflow roles
+
+Continue only if you want repeated tasks to follow fixed checks, recorded results and a resumable procedure through workflow (preview). PART 2 already completed definition deployment. The sum example and policy below are needed only for this optional workflow demonstration.
 
 ## Prepare a small implementation goal and fixed tests
 
@@ -292,7 +321,7 @@ After completion, inspect the implementation and check results in the worktree s
 | Workflow role selection | Four mock calls received the expected `--agent` arguments for Planner, Coder, Reviewer and Auditor |
 | Required checks and completion | Exit code 1 before implementation, three tests passed afterward, final status `SUCCEEDED` |
 | Original files | The original repository and existing test files remained unchanged |
-| Real AI role execution | Not run |
+| Real AI role execution | Not run, including the direct Claude path in PART 2 |
 | Actual response models and token efficiency | Not measured |
 
 The mock provider returns a predefined plan, implementation and review responses. These results show that role routing and workflow checks worked. They do not show that Claude read and correctly followed the example rules.

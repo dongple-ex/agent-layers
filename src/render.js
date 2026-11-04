@@ -121,16 +121,16 @@ function instructionText(ins, vars) {
   return body.replace(/\s+$/, '');
 }
 
-function header(layers, opts) {
+function header(layers, opts, applyCommand) {
   if (!opts.instructions?.header) {
     return '';
   }
-  return `<!-- Managed by agent-layers (layers: ${layers.join(', ')}). Edit the source repository, then run "agent-layers apply". -->`;
+  return `<!-- Managed by agent-layers (layers: ${layers.join(', ')}). Edit the source repository, then run "${applyCommand}". -->`;
 }
 
-function blockContent(rules, vars, layers, opts) {
+function blockContent(rules, vars, layers, opts, applyCommand) {
   const parts = [];
-  const h = header(layers, opts);
+  const h = header(layers, opts, applyCommand);
   if (h) {
     parts.push(h);
   }
@@ -169,7 +169,7 @@ function dialectFile(dialect, { id, prefix = '', paths = [], description = '', a
 
 function ruleFileContent(dialect, rule, vars, layers, opts, always) {
   const { name, fm } = dialectFile(dialect, { id: rule.id, prefix: opts.prefix || '', paths: rule.paths, description: rule.description, always });
-  const h = header(layers, opts.manifestOptions);
+  const h = header(layers, opts.manifestOptions, opts.applyCommand);
   const body = `${h ? `${h}\n\n` : ''}${instructionText(rule, vars)}\n`;
   return { name, content: joinFrontmatter(fm, body) };
 }
@@ -494,6 +494,7 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
   const mode = project ? project.mode : null;
   const privateMode = mode === 'private';
   const blockId = scope === 'user' ? BLOCK_USER : `project.${project.name}`;
+  const applyCommand = scope === 'project' ? `agent-layers project apply ${project.name}` : 'agent-layers apply';
   const requiredEnv = new Set();
   const executables = new Set();
   const layerNames = merged.layers;
@@ -501,7 +502,7 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
   const notes = out.notes;
   const always = merged.instructions.filter((i) => !i.paths.length);
   const scoped = merged.instructions.filter((i) => i.paths.length);
-  const fileOpts = (prefix) => ({ prefix, manifestOptions: opts });
+  const fileOpts = (prefix) => ({ prefix, manifestOptions: opts, applyCommand });
   const agentsMdReaders = [];
   const forget = [];
   for (const f of merged.forget || []) {
@@ -529,7 +530,7 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
         const alwaysRules = hasScoped ? alwaysA : [...alwaysA, ...fallbackScoped];
         if (ins.always.kind === 'block') {
           if (alwaysRules.length) {
-            const content = blockContent(alwaysRules, vars, layerNames, opts);
+            const content = blockContent(alwaysRules, vars, layerNames, opts, applyCommand);
             checkCharLimit(notes, a, ins.always, ins.always.file(p, os), content);
             out.add({ type: 'block', path: ins.always.file(p, os), blockId, content, adapter: a.id, scope });
           }
@@ -568,16 +569,16 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
             }
           }
         } else if (projAlways.kind === 'block') {
-          out.add({ type: 'block', path: projAlways.file(root), blockId, content: blockContent(rules, vars, layerNames, opts), adapter: a.id, scope, exclude: true, privateOnly: true });
+          out.add({ type: 'block', path: projAlways.file(root), blockId, content: blockContent(rules, vars, layerNames, opts, applyCommand), adapter: a.id, scope, exclude: true, privateOnly: true });
         } else if (projAlways.kind === 'block-if-untracked') {
-          out.add({ type: 'block', path: projAlways.file(root), blockId, content: blockContent(rules, vars, layerNames, opts), adapter: a.id, scope, exclude: true, privateOnly: true, skipIfTracked: true });
+          out.add({ type: 'block', path: projAlways.file(root), blockId, content: blockContent(rules, vars, layerNames, opts, applyCommand), adapter: a.id, scope, exclude: true, privateOnly: true, skipIfTracked: true });
         } else if (projAlways.kind === 'file') {
-          const merged1 = { id: project.name, paths: [], description: project.description || `Project rules for ${project.name}`, body: blockContent(rules, vars, layerNames, { ...opts, instructions: { header: false } }), template: false, data: {} };
+          const merged1 = { id: project.name, paths: [], description: project.description || `Project rules for ${project.name}`, body: blockContent(rules, vars, layerNames, { ...opts, instructions: { header: false } }, applyCommand), template: false, data: {} };
           const f = ruleFileContent(projAlways.dialect, merged1, vars, layerNames, fileOpts(projAlways.prefix), true);
           checkCharLimit(notes, a, projAlways, path.join(projAlways.dir(root), f.name), f.content);
           out.add({ type: 'file', path: path.join(projAlways.dir(root), f.name), content: f.content, adapter: a.id, scope, exclude: true, skipIfTracked: true });
         } else if (projAlways.kind === 'toml-key') {
-          out.add({ type: 'toml', path: projAlways.file(root), values: { [projAlways.key[0]]: blockContent(rules, vars, layerNames, { ...opts, instructions: { header: false } }) }, tables: {}, adapter: a.id, scope, exclude: true, skipIfTracked: true });
+          out.add({ type: 'toml', path: projAlways.file(root), values: { [projAlways.key[0]]: blockContent(rules, vars, layerNames, { ...opts, instructions: { header: false } }, applyCommand) }, tables: {}, adapter: a.id, scope, exclude: true, skipIfTracked: true });
         }
       }
       if (spec.scoped) {
@@ -762,7 +763,7 @@ export function renderScope(ctx, { scope, manifest, merged, adapters, project = 
     if (targeted.length) {
       notes.push({ level: 'info', msg: `AGENTS.md is shared by ${agentsMdReaders.map((r) => r.id).join(', ')}; agent-targeted rules (${targeted.map((r) => r.id).join(', ')}) are visible to all of them` });
     }
-    const content = blockContent(rules, vars, layerNames, opts);
+    const content = blockContent(rules, vars, layerNames, opts, applyCommand);
     for (const reader of agentsMdReaders) {
       checkCharLimit(notes, reader.adapter, reader.spec, path.join(root, 'AGENTS.md'), content);
     }

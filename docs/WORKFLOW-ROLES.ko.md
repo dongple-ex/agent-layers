@@ -1,10 +1,12 @@
-# 서브에이전트의 규칙까지 관리하고 workflow에 연결하기
+# 역할 정의를 관리·배포하고 필요할 때 workflow에 연결하기
 
 [English](WORKFLOW-ROLES.en.md)
 
 “구현 담당은 `src/`만 고치고, 검토 담당은 테스트가 약해지지 않았는지 확인하고, 감사 담당은 불필요한 권한을 찾는다.” 이런 역할별 기준도 코드처럼 저장하고 공유할 수 있습니다.
 
-agent-layers는 **공통 지침뿐 아니라 Claude Code의 서브에이전트 정의도 설정 원본으로 관리**합니다. 역할마다 규칙·사용 도구·모델을 정해 배포하고, workflow의 Planner·Coder·Reviewer·Auditor에 해당 정의를 연결할 수 있습니다. 팀의 검토 기준을 바꿀 때는 원본을 수정해 다시 적용합니다.
+agent-layers의 중심 목적은 여러 AI 도구에서 팀의 규칙과 설정을 일관되게 사용하는 것입니다. **공통 지침뿐 아니라 Claude Code의 서브에이전트 정의도 설정 원본으로 관리**하는 것은 이 설정 관리의 확장입니다. 역할마다 규칙·사용 도구·모델을 원본에 정해 배포하고, 팀의 검토 기준을 바꿀 때는 원본을 수정해 다시 적용합니다. 이 목적은 workflow 없이 완료되며, 배포된 정의를 기본 Claude에서 바로 사용할 수 있습니다.
+
+사용하는 AI의 기본 작업 분배 기능으로 충분하면 그 기능을 사용합니다. workflow의 Planner·Coder·Reviewer·Auditor에 정의를 연결하는 것은 반복 작업에 고정된 검사·결과 기록·재개 절차가 필요할 때 선택하는 preview 경로입니다. 작업이 길다는 이유만으로 workflow를 추가할 필요는 없습니다.
 
 작성일·확인 기준일: 2026-11-03
 
@@ -14,14 +16,14 @@ agent-layers는 **공통 지침뿐 아니라 Claude Code의 서브에이전트 �
 | 준비물 | Node.js 18.17 이상, git 2.32 이상, Bash, 설치된 agent-layers와 Claude Code |
 | 확인 환경 | Linux ARM64, Node.js 24.15.0 |
 | 검증 범위 | 정의 배포·형식 검사와 모의 공급자를 사용한 workflow 실행 |
-| 실제 AI 호출 | 이 글 작성 시 실행하지 않음. PART 3의 실제 실행에는 인증과 사용량이 필요 |
+| 실제 AI 호출 | 이 글에 제시된 실제 Claude 예제(PART 2의 선택적 세션과 PART 3의 workflow)는 실행하지 않음. 두 경로 모두 인증이 필요하며 작업 처리 시 사용량 발생 |
 | 참고 | [공통 지침 예제](SHARED-RULES.ko.md), [workflow 가이드](GUIDE.ko.md#workflow로-작업-실행하기-preview), [정책 예시](../templates/workflow/policy.example.jsonc) |
 
 | PART | 내용 |
 | --- | --- |
 | 1 | 역할별 규칙을 관리하는 이점과 연결 구조 |
-| 2 | 서브에이전트 정의 4개를 가짜 홈에 배포 |
-| 3 | 합계 함수 구현을 workflow로 실행하는 정책 |
+| 2 | 서브에이전트 정의 4개 배포와 선택적인 기본 Claude 사용 |
+| 3 | 선택적 workflow 연결: 합계 함수 구현을 실행하는 정책 |
 | 4 | 검증 결과와 지원 범위 |
 
 ---
@@ -34,12 +36,12 @@ agent-layers는 **공통 지침뿐 아니라 Claude Code의 서브에이전트 �
 | 역할별 규칙 | Planner는 작업 분해, Reviewer는 요구사항·테스트 검토 |
 | 사용할 도구 | Coder는 읽기·편집, Reviewer와 Auditor는 읽기 도구 |
 | 모델 선택 | 정의의 `model` 또는 역할별 CLI 인자의 `--model` |
-| 완료 조건 | 필수 테스트와 Reviewer·Auditor 검토 통과 |
+| 완료 조건 | 정의 관리는 배포·형식 검사로 완료. 선택적 workflow 실행은 필수 테스트와 Reviewer·Auditor 검토 통과 |
 
 ```mermaid
 flowchart LR
   S["Git으로 관리하는 역할 정의<br/>base/agents/*.md"] --> A["agent-layers apply<br/>Claude 정의 배포"]
-  A --> P["Planner<br/>al-wf-planner"]
+  A -. "선택적 workflow 연결" .-> P["Planner<br/>al-wf-planner"]
   P --> C["Coder<br/>al-wf-coder"]
   C --> T["프로그램이 테스트 실행"]
   T --> R["Reviewer<br/>al-wf-reviewer"]
@@ -55,9 +57,9 @@ flowchart LR
   style D fill:#1f4a30,stroke:#5ddb8f,color:#eafaf0
 ```
 
-연결에는 `provider.roleArgs`를 사용합니다. 예를 들어 Reviewer 호출 인자에 `--agent al-wf-reviewer`를 지정하면, Claude Code가 그 정의를 해당 세션의 주 에이전트로 사용합니다. 같은 정의는 일반 Claude 세션의 서브에이전트로도 사용할 수 있습니다. [Claude Code의 명시적 에이전트 선택](https://code.claude.com/docs/en/sub-agents#invoke-subagents-explicitly)
+선택적으로 workflow에 연결할 때는 `provider.roleArgs`를 사용합니다. 예를 들어 Reviewer 호출 인자에 `--agent al-wf-reviewer`를 지정하면, Claude Code가 그 정의를 해당 세션의 주 에이전트로 사용합니다. 이 옵션은 자식 서브에이전트를 실행하는 옵션이 아닙니다. 같은 정의는 일반 Claude 세션의 서브에이전트로도 사용할 수 있습니다. [Claude Code의 명시적 에이전트 선택](https://code.claude.com/docs/en/sub-agents#invoke-subagents-explicitly)
 
-workflow는 역할마다 별도 CLI 세션을 실행합니다. 이 예제는 Claude 내부에서 자식 에이전트를 계속 생성하는 구성이 아니며, 현재 workflow는 순차 실행합니다. **서브에이전트 정의의 배포와 workflow의 실행 관리를 연결하는 예제**입니다.
+PART 3을 선택하면 workflow는 역할마다 별도 CLI 세션을 실행합니다. 그 예제는 Claude 내부에서 자식 에이전트를 계속 생성하는 구성이 아니며, 현재 workflow는 순차 실행합니다. PART 2의 정의 배포만으로 workflow가 시작되지는 않으며, 배포에서 끝내거나 기본 Claude에서 사용할 수 있습니다.
 
 ---
 ---
@@ -163,10 +165,37 @@ CLAUDE_CONFIG_DIR="$AL_WF_HOME/.claude" claude plugin validate "$AL_WF_HOME/.cla
 
 정의 네 개가 `$AL_WF_HOME/.claude/agents/`에 생성됩니다. 이 단계는 AI를 호출하지 않습니다. `plugin validate`는 정의 파일의 형식을 검사하며, 모델의 규칙 준수까지 검증하지는 않습니다.
 
+**정의 네 개의 배포·형식 검사가 끝났으므로 정의 관리 목적은 완료됐습니다. 여기서 끝내도 됩니다.** 배포를 마치기 위해 Claude를 실행하거나 PART 3을 진행할 필요는 없습니다.
+
+## 선택: 배포된 정의를 기본 Claude에서 사용하기
+
+이 경로는 workflow 없이 Claude의 기본 에이전트 선택 기능을 사용합니다. PART 3의 정책·합계 함수·실습 저장소 커밋은 필요하지 않습니다. 같은 Bash 셸에서 `AL_WF_PROJECT`를 검토할 실제 프로젝트 폴더로 정한 뒤 그 폴더로 이동합니다. 아래 예시 경로는 실행 전에 바꾸십시오. `$AL_WF_REPO`는 별도의 합계 함수 실습 폴더이며 기존 프로젝트가 아닙니다.
+
+```bash
+AL_WF_PROJECT="/path/to/your/project"
+cd "$AL_WF_PROJECT"
+```
+
+정의를 배포한 설정 디렉터리에서 인증합니다. 아래 명령은 Claude의 공식 로그인 절차를 시작하며, 인증값은 원본 파일에 적지 않습니다.
+
+```sh
+CLAUDE_CONFIG_DIR="$AL_WF_HOME/.claude" claude auth login
+```
+
+다음 명령은 실제 Claude 세션을 시작합니다. 이 세션에 프로젝트 검토를 요청하면 AI를 호출하고 계정의 사용량이 발생합니다. `--agent`는 `al-wf-reviewer`를 해당 세션의 주 에이전트로 선택하며 자식 서브에이전트를 실행하지 않습니다.
+
+```sh
+CLAUDE_CONFIG_DIR="$AL_WF_HOME/.claude" claude --agent al-wf-reviewer
+```
+
+기존에 확인한 Claude Code 2.1.312 명령 도움말에 `auth login`과 `--agent`가 안내되어 있습니다. 이 예제의 실제 Claude 동작은 검증하지 않았습니다. 도움말 확인은 검토 품질·실행 시간·토큰 절감의 근거가 아닙니다.
+
 ---
 ---
 
-# PART 3 — workflow 역할과 연결한다
+# PART 3 — 선택적으로 workflow 역할과 연결한다
+
+반복 작업에 고정된 검사·결과 기록·재개 절차가 필요해 workflow(preview)를 사용할 때만 이어서 진행합니다. 정의 배포는 PART 2에서 이미 완료됐습니다. 아래 합계 함수와 정책은 이 선택적 workflow 예제에만 필요합니다.
 
 ## 작은 구현 목표와 고정 테스트 준비
 
@@ -292,7 +321,7 @@ agent-layers workflow report <run-id> --home "$AL_WF_HOME"
 | workflow 역할 선택 | 모의 호출 4회에서 Planner·Coder·Reviewer·Auditor의 `--agent` 인자 확인 |
 | 필수 검사와 완료 | 구현 전 종료 코드 1, 구현 후 테스트 3개 통과, 최종 `SUCCEEDED` |
 | 원본 보존 | 원본 저장소와 기존 테스트 파일의 내용 유지 |
-| 실제 AI의 역할 수행 | 미실행 |
+| 실제 AI의 역할 수행 | PART 2의 기본 Claude 경로를 포함해 미실행 |
 | 실제 모델과 토큰 효율 | 미측정 |
 
 모의 공급자는 정해진 계획·구현·검토 응답을 돌려주는 실행기입니다. 이 결과는 역할 연결과 workflow의 검사 절차가 동작했다는 근거이며, Claude가 예제 규칙을 읽고 올바르게 수행했다는 근거는 아닙니다.

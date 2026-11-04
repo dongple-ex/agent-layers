@@ -460,6 +460,8 @@ Three ways to fix the target agents permanently:
 
 ## Running a task with workflow (preview)
 
+agent-layers primarily keeps your team's rules and settings consistent across AI tools. Shared settings and role definitions can be managed and deployed without workflow; role definitions extend that configuration management. If your AI tool's built-in task delegation is enough, use it. Choose workflow when repeated tasks need fixed checks, recorded results and a way to resume. Task length alone is not a reason to use it.
+
 `agent-layers workflow` runs the AI CLI named in a policy file: it turns a goal into a plan of steps and implements them in a separate git worktree. A run counts as complete only after the required checks and the Reviewer and Auditor roles pass. It is separate from the `plan`, `apply` and `sync` commands that deploy your setup. It is a preview, so commands and output can change in a later version.
 
 ### Getting started

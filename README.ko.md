@@ -341,6 +341,8 @@ agent-layers review --strict
 
 ## workflow (preview)
 
+agent-layers의 중심 목적은 여러 AI 도구에서 팀의 규칙과 설정을 일관되게 사용하는 것입니다. 공통 설정과 역할 정의는 workflow 없이 관리하고 배포할 수 있으며, 역할 정의는 이 설정 관리의 확장입니다. 사용하는 AI의 기본 작업 분배 기능으로 충분하면 그 기능을 사용합니다. 반복 작업에 고정된 검사·결과 기록·재개 절차가 필요할 때 workflow를 선택합니다. 작업이 길다는 이유만으로 선택할 필요는 없습니다.
+
 `agent-layers workflow`는 정책 파일에 적은 AI CLI를 실행해서, 목표를 단계별 계획으로 나누고 별도 git worktree에서 구현합니다. 필수 검사와 Reviewer, Auditor 역할의 검토를 모두 통과해야 실행을 완료로 판정합니다. preview 기능이므로 다음 버전에서 명령과 출력이 바뀔 수 있습니다.
 
 먼저 변경을 커밋하고, 목표 파일과 정책 파일은 저장소 밖에 둡니다. 정책은 [`templates/workflow/policy.example.jsonc`](templates/workflow/policy.example.jsonc)에서 시작합니다.
