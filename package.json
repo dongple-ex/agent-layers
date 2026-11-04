@@ -1,6 +1,6 @@
 {
   "name": "agent-layers",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "One git repo for your AI coding agents' rules, skills and MCP servers, rendered into native config for Claude Code, Codex, Gemini CLI and 15 more. Edits only its own keys, keeps secrets in the OS keychain, and removes a project's agent transcripts when it ends.",
   "type": "module",
   "bin": {

@@ -363,7 +363,7 @@ project tests and a TOML editor that preserves comments and foreign tables.
 
 ## Status
 
-Release 0.1.6. The npm package is `agent-layers`; run it without installing with
+Release 0.1.7. The npm package is `agent-layers`; run it without installing with
 `npx agent-layers`, or from a clone with `node bin/agent-layers.js`.
 
 What changed in each version is listed on
