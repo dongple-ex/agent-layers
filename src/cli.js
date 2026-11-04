@@ -1174,9 +1174,9 @@ async function cmdUninstall(ctx, flags) {
 }
 
 const HELP = `agent-layers ${PKG.version}
-Keep AI coding agent configuration (instructions, skills, commands, MCP servers, settings)
-in one repository, split into a base layer that follows you to every machine and project
-layers you can drop when a project ends.
+One git repo for your AI coding agents' rules, skills and MCP servers, rendered into
+native config for Claude Code, Codex, Gemini CLI and 15 more. Edits only its own keys,
+keeps secrets in the OS keychain, and removes a project's agent transcripts when it ends.
 
 Usage: agent-layers <command> [options]
 
