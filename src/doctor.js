@@ -246,10 +246,6 @@ export function runDoctor(ctx) {
       add('error', `codex: ${codexCfg} does not parse: ${err.message}`);
     }
   }
-  const ag = readText(path.join(ctx.paths.codexHome, 'AGENTS.md'));
-  if (ag && Buffer.byteLength(ag.text) > 32768) {
-    add('warn', `codex: ~/.codex/AGENTS.md is ${Buffer.byteLength(ag.text)} bytes; project_doc_max_bytes defaults to 32 KiB for all AGENTS.md files combined`);
-  }
   const grokRules = path.join(ctx.paths.grokHome, 'rules');
   const grokFiles = [['~/.grok/AGENTS.md', path.join(ctx.paths.grokHome, 'AGENTS.md')]];
   if (isDir(grokRules)) {

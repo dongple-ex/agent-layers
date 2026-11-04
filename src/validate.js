@@ -117,7 +117,7 @@ export function validateSource(sourceDir, { os = 'windows' } = {}) {
       }
       for (const ins of layer.instructions) {
         if (Buffer.byteLength(ins.body) > 24000) {
-          add('warn', ins.file, 'longer than 24,000 bytes; Antigravity truncates rule files above this size and Codex caps AGENTS.md at 32 KiB in total');
+          add('warn', ins.file, 'longer than 24,000 bytes; Antigravity truncates rule files above this size');
         }
       }
       for (const f of layer.forget) {

@@ -1077,6 +1077,18 @@ test('doctor warns when ~/.grok/AGENTS.md exceeds the 10,000 character limit of 
   assert.doesNotMatch(rules, /agent-layers-20-short\.md/);
 });
 
+test('doctor does not warn about a ~/.codex/AGENTS.md over 32 KiB, since project_doc_max_bytes covers project AGENTS.md files', () => {
+  const sb = sandbox();
+  write(path.join(sb.home, '.codex', 'AGENTS.md'), 'a'.repeat(40000));
+  const r = cli(sb, ['doctor', '--fast']);
+  assert.equal(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /codex: ~\/\.codex\/AGENTS\.md/);
+  if (HAS_GIT) {
+    const strict = cli(sb, ['doctor', '--fast', '--strict']);
+    assert.equal(strict.code, 0, strict.out);
+  }
+});
+
 test('plan warns when rendered grok instructions exceed the 10,000 character limit', { skip: !HAS_GIT }, () => {
   const sb = sandbox();
   manifest(sb, ['grok']);
