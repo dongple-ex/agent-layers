@@ -22,6 +22,7 @@
     "test": "node --test"
   },
   "keywords": [
+    "agent-layers",
     "ai",
     "agents",
     "agents.md",
