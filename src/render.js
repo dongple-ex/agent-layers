@@ -91,8 +91,9 @@ export function screenshotsDir(ctx, readLocation = () => run('defaults', ['read'
   if (!ctx.sandbox) {
     const r = readLocation();
     const loc = r && r.code === 0 ? String(r.stdout || '').trim() : '';
-    if (loc) {
-      return loc.replace(/^~(?=\/|$)/, home).replace(/\/+$/, '');
+    const dir = loc.replace(/^~(?=\/|$)/, () => home).replace(/\/+$/, '');
+    if (dir.startsWith('/')) {
+      return dir;
     }
   }
   return `${home}/Desktop`;

@@ -246,9 +246,6 @@ export function planImport(ctx, { from = ['claude', 'codex', 'gemini', 'copilot'
           const buf = fs.readFileSync(f.abs);
           add(`skills/${name}/${f.rel}`, isProbablyText(buf) ? buf.toString('utf8') : buf, `${label}/${name}`);
         }
-        if (base === codexSkills) {
-          notes.push(`skills/${name}: imported from ~/.codex/skills/${name}; apply also installs it in ~/.agents/skills, and Codex loads both folders, so remove ~/.codex/skills/${name} after applying`);
-        }
       }
     }
     const cfg = readText(path.join(p.codexHome, 'config.toml'));
@@ -347,6 +344,13 @@ export function planImport(ctx, { from = ['claude', 'codex', 'gemini', 'copilot'
       }
     }
     unique.push(w);
+  }
+  const codexSkillFiles = (list) => list.filter((w) => w.origin.startsWith('~/.codex/skills/')).reduce((m, w) => m.set(w.origin, (m.get(w.origin) || 0) + 1), new Map());
+  const kept = codexSkillFiles(unique);
+  for (const [origin, count] of codexSkillFiles(writes)) {
+    if (kept.get(origin) === count) {
+      notes.push(`skills/${origin.slice('~/.codex/skills/'.length)}: imported from ${origin}; apply also installs it in ~/.agents/skills, and Codex loads both folders, so remove ${origin} after applying`);
+    }
   }
   return { writes: unique, notes, secrets: [...new Set(secrets)] };
 }
