@@ -81,6 +81,31 @@ export function resolveTargets(ctx, manifest, { project = null, only = null, ski
   return ids.map((id) => getAdapter(id));
 }
 
+// macOS saves screenshots to the Desktop unless `defaults write com.apple.screencapture location` moved them.
+// The real preference is only read for the real home; a --home sandbox gets the plain default.
+export function screenshotsDir(ctx, readLocation = () => run('defaults', ['read', 'com.apple.screencapture', 'location'], { timeout: 5000 })) {
+  const home = ctx.paths.home.replace(/\\/g, '/');
+  if (ctx.os !== 'macos') {
+    return `${home}/Pictures/Screenshots`;
+  }
+  if (!ctx.sandbox) {
+    const r = readLocation();
+    const loc = r && r.code === 0 ? String(r.stdout || '').trim() : '';
+    if (loc) {
+      return loc.replace(/^~(?=\/|$)/, home).replace(/\/+$/, '');
+    }
+  }
+  return `${home}/Desktop`;
+}
+
+const SCREENSHOTS = new WeakMap();
+function cachedScreenshotsDir(ctx) {
+  if (!SCREENSHOTS.has(ctx)) {
+    SCREENSHOTS.set(ctx, screenshotsDir(ctx));
+  }
+  return SCREENSHOTS.get(ctx);
+}
+
 export function buildVars(ctx, manifest, project = null, root = null) {
   const builtin = {
     home: ctx.paths.home,
@@ -101,6 +126,7 @@ export function buildVars(ctx, manifest, project = null, root = null) {
     kimiHome: ctx.paths.kimiHome,
     grokHome: ctx.paths.grokHome,
     homeSlash: ctx.paths.home.replace(/\\/g, '/'),
+    screenshotsDir: cachedScreenshotsDir(ctx),
   };
   const raw = deepMerge(deepMerge(manifest.vars || {}, ctx.config.vars || {}), project ? project.vars || {} : {});
   const scope = { ...builtin };
