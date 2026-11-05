@@ -1354,3 +1354,39 @@ test('user plan and apply keep existing managed outputs when an instruction targ
     }
   }
 });
+
+test('screenshotsDir follows the macOS capture location and defaults to the Desktop', async () => {
+  const { screenshotsDir } = await import('../src/render.js');
+  const mac = { os: 'macos', sandbox: false, paths: { home: '/Users/me' } };
+  assert.equal(screenshotsDir(mac, () => ({ code: 1, stdout: '' })), '/Users/me/Desktop');
+  assert.equal(screenshotsDir(mac, () => ({ code: 0, stdout: '~/Pictures/Shots/\n' })), '/Users/me/Pictures/Shots');
+  assert.equal(screenshotsDir({ ...mac, sandbox: true }, () => { throw new Error('must not read real prefs'); }), '/Users/me/Desktop');
+  assert.equal(screenshotsDir({ os: 'windows', sandbox: false, paths: { home: 'C:\\Users\\me' } }), 'C:/Users/me/Pictures/Screenshots');
+});
+
+test('doctor warns when a skill is in both ~/.codex/skills and ~/.agents/skills', async () => {
+  const { duplicateSkillChecks } = await import('../src/doctor.js');
+  const sb = sandbox();
+  const paths = { agentsHome: path.join(sb.home, '.agents'), codexHome: path.join(sb.home, '.codex') };
+  write(path.join(paths.codexHome, 'skills', 'dup', 'SKILL.md'), '---\nname: dup\n---\n');
+  write(path.join(paths.codexHome, 'skills', 'solo', 'SKILL.md'), '---\nname: solo\n---\n');
+  write(path.join(paths.codexHome, 'skills', '.system', 'x', 'SKILL.md'), '---\nname: x\n---\n');
+  write(path.join(paths.agentsHome, 'skills', 'dup', 'SKILL.md'), '---\nname: dup\n---\n');
+  write(path.join(paths.agentsHome, 'skills', '.system', 'SKILL.md'), '---\nname: s\n---\n');
+  const checks = duplicateSkillChecks(paths);
+  assert.equal(checks.length, 1);
+  assert.equal(checks[0].level, 'warn');
+  assert.match(checks[0].msg, /^codex: dup exist in both/);
+  assert.deepEqual(duplicateSkillChecks({ agentsHome: path.join(sb.root, 'none'), codexHome: paths.codexHome }), []);
+});
+
+test('import from ~/.codex/skills notes the duplicate Codex will load after apply', async () => {
+  const { planImport } = await import('../src/importer.js');
+  const sb = sandbox();
+  const paths = { home: sb.home, agentsHome: path.join(sb.home, '.agents'), codexHome: path.join(sb.home, '.codex'), claudeHome: path.join(sb.home, '.claude') };
+  write(path.join(paths.codexHome, 'skills', 'plan', 'SKILL.md'), '---\nname: plan\ndescription: plan things\n---\nbody\n');
+  const plan = planImport({ paths, os: 'macos' }, { from: ['codex'], layerDir: path.join(sb.source, 'base') });
+  const w = plan.writes.find((x) => x.rel === 'skills/plan/SKILL.md');
+  assert.equal(w.origin, '~/.codex/skills/plan');
+  assert.ok(plan.notes.some((n) => /remove ~\/\.codex\/skills\/plan after applying/.test(n)));
+});
