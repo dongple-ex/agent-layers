@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 2,
+  "agents": {
+    "claude-lead": {
+      "description": "Plan, review and audit without editing files",
+      "allowedRoles": ["planner", "reviewer", "auditor"],
+      "command": "claude",
+      "args": ["-p", "--model", "{{model}}", "--output-format", "text", "--tools", "Read,Grep,Glob"],
+      "model": "SET_CLAUDE_MODEL",
+      "env": [],
+      "input": "stdin",
+      "output": "text"
+    },
+    "codex-dev": {
+      "description": "Implement repository code and integration fixes",
+      "allowedRoles": ["coder"],
+      "command": "codex",
+      "args": ["exec", "--model", "{{model}}", "-c", "approval_policy=never", "--sandbox", "workspace-write", "-"],
+      "model": "SET_CODEX_MODEL",
+      "env": [],
+      "input": "stdin",
+      "output": "text"
+    },
+    "gemini-dev": {
+      "description": "Implement assigned UI work using existing components",
+      "allowedRoles": ["coder"],
+      "command": "gemini",
+      "args": ["-p", "Follow the task on stdin.", "--model", "{{model}}", "--output-format", "text", "--approval-mode", "auto_edit"],
+      "model": "SET_GEMINI_MODEL",
+      "env": [],
+      "input": "stdin",
+      "output": "text"
+    },
+    "kimi-dev": {
+      "description": "Implement assigned contract tests",
+      "allowedRoles": ["coder"],
+      "command": "kimi",
+      "args": ["-p", "{{prompt}}", "--model", "{{model}}", "--output-format", "text"],
+      "model": "SET_KIMI_MODEL",
+      "env": [],
+      "input": "argument",
+      "output": "text"
+    }
+  },
+  "roleAgents": {
+    "planner": "claude-lead",
+    "coder": "codex-dev",
+    "reviewer": "claude-lead",
+    "auditor": "claude-lead"
+  },
+  "repairAgent": "codex-dev",
+  "contextLimits": { "maxPromptBytes": 262144, "maxDependencyBytes": 65536 },
+  "limits": { "maxConcurrent": 1, "maxSteps": 3, "maxAgentCalls": 8 },
+  "allowedWritePaths": ["src", "test"],
+  "protectedPaths": ["package.json"],
+  "checks": [
+    { "id": "unit", "command": "npm", "args": ["test"], "timeout": 600, "inputs": ["test"] }
+  ],
+  "requiredChecks": ["unit"]
+}

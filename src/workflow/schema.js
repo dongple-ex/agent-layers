@@ -2,10 +2,14 @@ import { posix } from 'node:path';
 import { stableStringify } from '../formats/jsonc.js';
 import { sha256 } from '../util/fsx.js';
 import { graphIssues } from './graph.js';
+import { normalizeAssignmentPolicy, validateAssignmentPlan, V2_PLAN_FIELDS } from './assignment.js';
 
 export const SCHEMA_VERSION = 1;
 export const RESERVED_STEP_IDS = ['review', 'audit', 'review-fix'];
 export const PROGRAM_PLAN_FIELDS = ['runId', 'baseCommit', 'policyHash', 'planHash', 'providerFingerprint', 'createdAt'];
+export function programPlanFields(version) {
+  return version === 2 ? [...PROGRAM_PLAN_FIELDS, ...V2_PLAN_FIELDS] : PROGRAM_PLAN_FIELDS;
+}
 export const RUNTIME_PROTECTED_PATHS = ['.git', '.codex', '.agents'];
 export const RESULT_STATUSES = ['completed', 'needs_changes', 'blocked'];
 export const DEFAULT_LIMITS = {
@@ -191,6 +195,9 @@ function checkDefinition(check, where, add) {
 }
 
 export function normalizePolicy(raw) {
+  if (raw?.schemaVersion === 2) {
+    return normalizeAssignmentPolicy(raw, normalizePolicy);
+  }
   const issues = [];
   const add = (where, msg) => issues.push({ where, msg });
   if (!isObject(raw)) {
@@ -387,6 +394,13 @@ export function normalizePolicy(raw) {
 }
 
 export function validatePlan(plan, policy, { usedAgentCalls }) {
+  if (policy.schemaVersion === 2) {
+    return validateAssignmentPlan(plan, policy, { usedAgentCalls }, validatePlanLegacy);
+  }
+  return validatePlanLegacy(plan, policy, { usedAgentCalls });
+}
+
+function validatePlanLegacy(plan, policy, { usedAgentCalls }) {
   const issues = [];
   const add = (where, msg) => issues.push({ where, msg });
   if (!Number.isSafeInteger(usedAgentCalls) || usedAgentCalls < 0) {

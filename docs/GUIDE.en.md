@@ -464,6 +464,27 @@ agent-layers primarily keeps your team's rules and settings consistent across AI
 
 `agent-layers workflow` runs the AI CLI named in a policy file: it turns a goal into a plan of steps and implements them in a separate git worktree. A run counts as complete only after the required checks and the Reviewer and Auditor roles pass. It is separate from the `plan`, `apply` and `sync` commands that deploy your setup. It is a preview, so commands and output can change in a later version.
 
+### Task-level AI assignments (schema v2, source checkout)
+
+Use [`policy.multi-agent.example.jsonc`](../templates/workflow/policy.multi-agent.example.jsonc) as an editable starting point. This is an optional source-checkout feature; the four real CLIs have not yet been tested together. Model ids, authentication and permissions are deployment-specific. Replace the `SET_*_MODEL` markers before running.
+
+| Setting | Contract |
+| --- | --- |
+| `agents.<id>` | `description`, `allowedRoles`, `command`, `args`, `model`, `env`, `input`, `output` |
+| Arguments | Exactly one whole `{{model}}` token; exactly one `{{prompt}}` only for `input: argument`. No shell evaluation |
+| Input/output | `stdin` or `argument`; `text` parses a final JSON block, `json-field` extracts `resultPath` object keys |
+| JSON envelopes | Optional `errorPath` rejects error payloads; `metadataPaths` selects reportedModel/inputTokens/outputTokens/cost paths. Missing or ill-typed metadata is unknown |
+| Role defaults | `roleAgents.planner/coder/reviewer/auditor`; step `agent` overrides the coder default |
+| Integration fixes | Required `repairAgent`, allowed for coder; ordinary step retries retain that step's agent |
+| Context | Required positive `contextLimits.maxPromptBytes` and `maxDependencyBytes`; oversized input is blocked, never truncated |
+| Budget | One shared `maxAgentCalls` across all tools, planning and retries; CLI-internal calls and money are not capped by it |
+
+Policy and plan use schema 2; role result bodies retain schema 1. The saved run includes immutable `assignments.json`, `context.json`, planning evidence and their hashes. Reviewer/auditor retain read-only checks. Assignments and original goal evidence are validated before execution or resume; a policy/model change requires a new plan. An `input-invalid` stop needs inspection and, when inputs must change, a new plan. There is no automatic fallback model.
+
+Kimi text transcripts can prefix their final output. V2 prompts ask for a final fenced JSON object, and malformed JSON is rejected rather than repaired. Kimi prompt mode has its own permission rules; do not copy another CLI's flags blindly. Prompt-argument input is subject to OS size limits and same-user process visibility. Secrets are not supported in prompts or arguments.
+
+V1 read, validation, command dispatch and report shapes remain unchanged, including existing limits on resuming old runs without baseline records. New v2 records cannot be downgraded. Older binaries may show incomplete reports or hash warnings instead of refusing every query, so use the new executor for all v2 commands. Mock coverage establishes routing and recovery, not model quality or real account compatibility.
+
 ### Getting started
 
 1. Commit the changes in the target repository. `plan` and `run` refuse uncommitted changes with exit code 2.

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { validateRoleResult, pathCovers, RESULT_STATUSES } from './schema.js';
 import { downstreamOf, REVIEW_STEP_ID, AUDIT_STEP_ID } from './graph.js';
+import { assignedAgent } from './assignment.js';
 import {
   readRun, commitRun, writeArtifact, readArtifact, chargeAgentCall, addActiveSeconds, addRepairAttempt,
   recordFailure, clearFailure, remainingBudget, sanitizeEventData, REVIEW_FIX_TARGET,
@@ -352,7 +353,7 @@ async function callRole(rt, req) {
     if (limit) {
       return stopStep(rt, req.statusId, 'FAILED', limit, `${limit} reached before the ${req.role} call`);
     }
-    const tag = { role: req.role, stepId: req.stepId, attempt: req.attempt, retry };
+    const tag = { role: req.role, stepId: req.stepId, attempt: req.attempt, retry, ...(rt.policy.schemaVersion === 2 ? { agentId: assignedAgent(rt.policy, req, rt.plan).agentId } : {}) };
     commit(rt, 'call.started', tag, (n) => {
       chargeAgentCall(n);
     });

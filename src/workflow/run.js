@@ -9,9 +9,10 @@ import { findLeftovers, TREE_KILL_SUPPORTED } from './process.js';
 import { commandVersion, createProvider, providerProblem } from './provider.js';
 import { formatReport, reportView } from './report.js';
 import { hashJson, normalizePolicy, validatePlan } from './schema.js';
-import { acquireRun, cancelRequested, commitRun, createRun, policySecretIssues, readArtifact, readRun, readRunOwner, releaseRun, requestCancel, sanitizeEventData, writeArtifact } from './store.js';
+import { acquireRun, cancelRequested, commitRun, createRun, policySecretIssues, findSecretAssignment, readArtifact, readRun, readRunOwner, releaseRun, requestCancel, sanitizeEventData, writeArtifact } from './store.js';
 import { checkCommandProblem, childEnv, runChecks, runSetup } from './verify.js';
 import { checkChanges, compareFingerprints, createWorktree, describeWorktree, inspectRepository, removeWorktree, resultPatch, sourceFingerprint, worktreePath } from './workspace.js';
+import { buildHandoff, parsePolicyText, fingerprintArtifacts } from './assignment.js';
 
 const READ_ONLY_ROLES = ['reviewer', 'auditor'];
 const ENDED_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELLED'];
@@ -54,7 +55,7 @@ function readPolicy(file) {
   const text = readInputFile(file, '--config');
   let raw;
   try {
-    raw = parseJsonc(text, file);
+    raw = parsePolicyText(text, (value) => parseJsonc(value, file));
   } catch (err) {
     throw invalid(`--config ${file} is not valid JSONC: ${err.message}`);
   }
@@ -198,11 +199,18 @@ async function planSteps(provider, policy, goal, count) {
     checks: policy.checks.map(({ id, command, args }) => ({ id, command, args })),
     requiredChecks: policy.requiredChecks,
     maxSteps: policy.limits.maxSteps,
+    ...(policy.schemaVersion === 2 ? { originalGoal: goal } : {}),
   };
   let issues = [];
   let previousAnswer = null;
   for (let planRepairs = 0; ; planRepairs += 1) {
     const plan = await callWithRetries(provider, { ...shared, attempt: planRepairs + 1, issues, previousAnswer }, policy.limits, count);
+    if (count.trace) {
+      count.trace.push({ type: 'planner.answer', attempt: planRepairs + 1, result: plan ?? null });
+    }
+    if (policy.schemaVersion === 2 && findSecretAssignment(JSON.stringify(plan) || '') !== null) {
+      throw plannerError('the v2 plan contains a secret-looking assignment; no run was created');
+    }
     issues = validatePlan(plan, policy, { usedAgentCalls: count.calls });
     if (issues.length === 0) {
       return { plan, planRepairs };
@@ -215,13 +223,16 @@ async function planSteps(provider, policy, goal, count) {
   }
 }
 
-async function planInTemporaryWorktree(ctx, repo, policy, goal, { signal, retryDelayMs }) {
+async function planInTemporaryWorktree(ctx, repo, policy, goal, { signal, retryDelayMs, planningTrace }) {
   const worktree = createWorktree(ctx, crypto.randomUUID(), { root: repo.root, baseCommit: repo.baseCommit });
   try {
     const before = sourceFingerprint(repo.root, { ownWorktree: worktree.name });
-    const provider = createProvider({ policy, cwd: worktree.path, signal, retryDelayMs, onDiagnostic: warnFailure });
-    const count = { calls: 0 };
+    const provider = createProvider({ policy, cwd: worktree.path, signal, retryDelayMs, onDiagnostic: warnFailure, onCall: (data) => planningTrace?.push({ type: 'call.started', ...data }), onResult: (data) => planningTrace?.push({ type: 'call.finished', ...data }) });
+    const count = { calls: 0, ...(planningTrace ? { trace: planningTrace } : {}) };
     const planned = await planSteps(provider, policy, goal, count);
+    if (policy.schemaVersion === 2 && resultPatch(worktree.path, worktree.baseCommit).length > 0) {
+      throw plannerError('the v2 planner changed files; no run was created');
+    }
     const changed = compareFingerprints(before, sourceFingerprint(repo.root, { ownWorktree: worktree.name }));
     if (changed.length > 0) {
       throw plannerError(`the source repository changed while planning, so no run was created: ${changed.slice(0, MAX_LISTED).join(', ')}`);
@@ -237,25 +248,48 @@ async function planInTemporaryWorktree(ctx, repo, policy, goal, { signal, retryD
 }
 
 export async function cmdPlan(ctx, flags, { confirm, signal = null, retryDelayMs } = {}) {
-  const goal = readInputFile(flags['goal-file'], '--goal-file').trim();
+  const goalText = readInputFile(flags['goal-file'], '--goal-file');
+  let goal = goalText.trim();
   if (goal === '') {
     throw invalid(`--goal-file ${flags['goal-file']} is empty`);
   }
   const { raw, policy } = readPolicy(flags.config);
+  if (policy.schemaVersion === 2) {
+    goal = goalText;
+  }
+  if (policy.schemaVersion === 2 && findSecretAssignment(goal) !== null) {
+    throw invalid('the original goal holds a secret');
+  }
   const repo = repository(flags);
   assertClean(repo);
   assertCommandsStart(policy);
-  progress(flags, `planner command: ${commandLine(policy.provider.command, policy.provider.roleArgs.planner || policy.provider.args)}`);
+  if (policy.schemaVersion === 2) {
+    for (const [id, profile] of Object.entries(policy.agents)) {
+      progress(flags, `agent ${id}: ${commandLine(profile.command, profile.args)}; model ${profile.model}; roles ${profile.allowedRoles.join(', ')}; env names ${profile.env.join(', ')}`);
+    }
+    progress(flags, `role assignments: ${JSON.stringify(policy.roleAgents)}; repair agent: ${policy.repairAgent}`);
+    progress(flags, `write paths: ${policy.allowedWritePaths.join(', ')}; checks: ${policy.checks.map(policyCommandLine).join('; ')}`);
+  } else {
+    progress(flags, `planner command: ${commandLine(policy.provider.command, policy.provider.roleArgs.planner || policy.provider.args)}`);
+  }
   progress(flags, `repository: ${repo.root} at ${repo.baseCommit}`);
   if (!(await confirm(`This calls an external AI CLI, at most ${policy.limits.maxAgentCalls} times. Continue?`, flags))) {
     return EXIT_WAITING;
   }
   const providerFingerprint = await commandVersion(policy);
+  const planningTrace = policy.schemaVersion === 2 ? [] : undefined;
   const abort = abortOnSignals(signal);
   let planned;
   try {
-    planned = await planInTemporaryWorktree(ctx, repo, policy, goal, { signal: abort.signal, retryDelayMs });
+    planned = await planInTemporaryWorktree(ctx, repo, policy, goal, { signal: abort.signal, retryDelayMs, planningTrace });
   } catch (err) {
+    if (planningTrace) {
+      const folder = path.join(ctx.paths.stateDir, 'workflow-preparation');
+      fs.mkdirSync(folder, { recursive: true, mode: 0o700 });
+      const file = path.join(folder, `${crypto.randomUUID()}.json`);
+      fs.writeFileSync(file, `${JSON.stringify(sanitizeEventData({ planningTrace, errorCode: err.code || 'planning-failed' }), null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+      warn(`planning evidence: ${file}`);
+    }
     if (err.cancelRequested) {
       if (err.cancelled) {
         progress(flags, 'planning was cancelled');
@@ -280,14 +314,19 @@ export async function cmdPlan(ctx, flags, { confirm, signal = null, retryDelayMs
     baseCommit: repo.baseCommit,
     providerFingerprint,
     workspaceKey: repo.workspaceKey,
+    ...(policy.schemaVersion === 2 ? { goalContext: goal, planningTrace } : {}),
   });
   const steps = planned.plan.steps.map((s) => s.id);
-  const view = { runId: run.runId, planHash: run.planHash, baseCommit: repo.baseCommit, steps, usedAgentCalls: planned.usedAgentCalls, planRepairs: planned.planRepairs };
+  const view = { runId: run.runId, planHash: run.planHash, baseCommit: repo.baseCommit, steps, usedAgentCalls: planned.usedAgentCalls, planRepairs: planned.planRepairs, ...(policy.schemaVersion === 2 ? { assignments: readRun(ctx, run.runId).assignments } : {}) };
   info(flags.json ? JSON.stringify(view, null, 2) : `run ${run.runId} planned with ${steps.length} step(s): ${steps.join(', ')}\nnext: agent-layers workflow run ${run.runId}`);
   return 0;
 }
 
 function assertRunnable(stored, repo, resume) {
+  const integrityIssues = stored.issues.filter((msg) => !/^events.jsonl ends with \d+ bytes of an unfinished event$|^state.json is behind events.jsonl/.test(msg));
+  if (stored.policy.schemaVersion === 2 && integrityIssues.length > 0) {
+    throw invalid('v2 run has damaged records', integrityIssues.map((msg) => ({ where: 'records', msg })));
+  }
   const { status, workspaceKey } = stored.state;
   if (repo.workspaceKey !== workspaceKey) {
     throw invalid(`run ${stored.runId} belongs to another repository; run this inside that repository or pass --path`);
@@ -316,8 +355,11 @@ function describeRun(flags, stored, repo) {
   progress(flags, [
     `run ${stored.runId}, plan ${stored.plan.planHash}`,
     `  repository: ${repo.root}, base commit ${stored.plan.baseCommit}`,
-    `  command: ${commandLine(provider.command, provider.args)}`,
-    ...Object.entries(provider.roleArgs).map(([role, args]) => `  command for ${role}: ${commandLine(provider.command, args)}`),
+    ...(stored.policy.schemaVersion === 2 ? Object.entries(stored.policy.agents).map(([id, p]) => `  agent ${id}: ${commandLine(p.command, p.args)}; model ${p.model}`) : [
+      `  command: ${commandLine(provider.command, provider.args)}`,
+      ...Object.entries(provider.roleArgs).map(([role, args]) => `  command for ${role}: ${commandLine(provider.command, args)}`),
+    ]),
+    ...(stored.policy.schemaVersion === 2 ? [`  assignments: ${JSON.stringify(stored.assignments)}`] : []),
     `  steps: ${stored.plan.steps.map((s) => s.id).join(', ')}`,
     `  write paths: ${allowedWritePaths.join(', ')}; protected: ${protectedPaths.join(', ')}`,
     ...setup.map((item) => `  setup ${item.id}: ${policyCommandLine(item)}`),
@@ -475,17 +517,32 @@ function guardedProvider({ provider, worktree, run, handle, logs, flags }) {
 
   async function callCoder(req) {
     const checkLogs = req.feedback && req.feedback.failures ? [...logs.values()] : [];
-    const soFar = req.feedback ? diffFields(resultPatch(worktree.path, worktree.baseCommit)) : {};
+    const soFar = req.feedback || run.policy.schemaVersion === 2 ? diffFields(resultPatch(worktree.path, worktree.baseCommit)) : {};
     const result = await provider.call({ ...req, ...shared, checks, checkLogs, ...soFar });
     const { violations } = scopeCheck(worktree, run, writePathsUpTo(run, req.stepId));
     if (violations.length > 0) {
       throw violationError(handle, req, violations);
+    }
+    if (run.policy.schemaVersion === 2 && Array.isArray(result?.artifacts)) {
+      const current = readRun(handle.ctx, handle.runId);
+      const previous = current.events.filter((e) => e.type === 'agent.files').at(-1)?.data.files || [];
+      const all = new Map(previous.map((item) => [item.path, item]));
+      for (const item of result.artifacts) {
+        all.set(item.path, item);
+      }
+      commitRun(handle, 'agent.files', { stepId: req.stepId, attempt: req.attempt, files: fingerprintArtifacts([...all.values()], worktree.path) });
     }
     return result;
   }
 
   return {
     call({ statusId, ...req }) {
+      if (run.policy.schemaVersion === 2) {
+        const current = readRun(handle.ctx, handle.runId);
+        const handoff = buildHandoff(current, req, worktree.path, hashJson);
+        req = { ...req, ...handoff, changedFiles: scopeCheck(worktree, run, writePathsUpTo(run, req.stepId)).changed };
+        commitRun(handle, 'handoff.prepared', { stepId: req.stepId, dependencyHash: handoff.dependencyHash, dependencies: handoff.dependencies.map(({ stepId, resultHash, artifacts }) => ({ stepId, resultHash, artifacts })) });
+      }
       progress(flags, `${req.role} ${req.stepId}, attempt ${req.attempt}`);
       return READ_ONLY_ROLES.includes(req.role) ? callReadOnly(req) : callCoder(req);
     },
@@ -602,6 +659,15 @@ export async function cmdRun(ctx, flags, runId, { confirm, resume = false, signa
     if (run.issues.length > 0) {
       throw Object.assign(new Error(`run ${runId} has damaged records: ${run.issues.join('; ')}`), { code: 'E_WORKFLOW_CORRUPT' });
     }
+    if (run.policy.schemaVersion === 2) {
+      const versions = await commandVersion(run.policy);
+      for (const [id, version] of Object.entries(versions)) {
+        if (run.plan.providerFingerprints[id] !== version) {
+          warn(`agent ${id} CLI version changed since planning`);
+        }
+      }
+      commitRun(handle, 'agent.versions', { versions });
+    }
     worktree = openWorkspace(ctx, handle, run, repo);
     baseline = sourceFingerprint(repo.root, { ownWorktree: worktree.name });
     startDigest = startDigestOf(handle, run, baseline);
@@ -611,7 +677,7 @@ export async function cmdRun(ctx, flags, runId, { confirm, resume = false, signa
     }
     const logs = resume ? restoreLogs(handle) : new Map();
     const track = processTracker(handle);
-    const provider = createProvider({ policy: run.policy, cwd: worktree.path, signal: abort.signal, retryDelayMs, onDiagnostic: recordDiagnostic(handle), track });
+    const provider = createProvider({ policy: run.policy, cwd: worktree.path, signal: abort.signal, retryDelayMs, onDiagnostic: recordDiagnostic(handle), track, plan: run.plan, onCall: (data) => commitRun(handle, 'agent.input', data), onResult: (data) => commitRun(handle, 'agent.output', data) });
     started = true;
     await runWorkflow(handle, {
       provider: guardedProvider({ provider, worktree, run, handle, logs, flags }),

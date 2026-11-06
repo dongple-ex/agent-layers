@@ -331,3 +331,7 @@ The benefit is that you can reuse both the configuration source and its role ass
 Native subagent deployment from `base/agents/*.md` currently targets **Claude Code**. The same definitions are not automatically applied to every tool, including Codex. Workflow itself can use another CLI selected in its policy, but you must use that CLI's role-specific options.
 
 Workflow is a preview feature. It checks path violations after calls finish and is not an OS sandbox. `SUCCEEDED` means the configured checks and review criteria passed. See [“What is not guaranteed” in the guide](GUIDE.en.md#what-is-not-guaranteed) for the remaining limits, including isolation and process cleanup.
+
+## Mixed CLI assignments (schema v2, source checkout)
+
+Role definitions distributed to Claude are separate from task-level CLI assignments. With the optional v2 policy, Claude can plan and audit while Codex, Gemini and Kimi handle different coder steps. Each is a separate CLI session selected by a fixed plan; this does not register other products as native Claude subagents. Execution is sequential. See [task-level assignments](GUIDE.en.md#task-level-ai-assignments-schema-v2-source-checkout) and [the v2 policy example](../templates/workflow/policy.multi-agent.example.jsonc). Set model ids and permissions first. V1 policies and runs are preserved. Only fake CLI routing/recovery is verified; real mixed inference remains untested.

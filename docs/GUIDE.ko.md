@@ -464,6 +464,27 @@ agent-layers의 중심 목적은 여러 AI 도구에서 팀의 규칙과 설정�
 
 `agent-layers workflow`는 정책 파일에 적은 AI CLI를 실행해서, 목표를 단계별 계획으로 나누고 별도 git worktree에서 구현합니다. 필수 검사와 Reviewer, Auditor 역할의 검토를 모두 통과해야 실행을 완료로 판정합니다. 설정을 배포하는 `plan`, `apply`, `sync`와는 별개의 기능입니다. preview 기능이므로 다음 버전에서 명령과 출력이 바뀔 수 있습니다.
 
+### 작업별 AI 배정 (schema v2, 소스 checkout)
+
+[`policy.multi-agent.example.jsonc`](../templates/workflow/policy.multi-agent.example.jsonc)를 수정해 사용합니다. 선택적인 소스 checkout 기능이며 실제 네 CLI를 함께 실행한 검증은 아직 없습니다. 모델 ID·인증·권한은 환경별로 정하고 `SET_*_MODEL` 표시를 채운 뒤 실행합니다.
+
+| 설정 | 계약 |
+| --- | --- |
+| `agents.<id>` | `description`, `allowedRoles`, `command`, `args`, `model`, `env`, `input`, `output` |
+| 인자 | 전체 인자 `{{model}}`이 정확히 1개. `input: argument`일 때만 `{{prompt}}`도 정확히 1개. 셸 평가 없음 |
+| 입력·출력 | `stdin` 또는 `argument`. `text`는 최종 JSON 코드 블록을 읽고 `json-field`는 `resultPath`의 객체 키로 최종 답변 추출 |
+| JSON 응답 | 선택 `errorPath`로 오류 응답 거부. `metadataPaths`는 reportedModel/inputTokens/outputTokens/cost의 키 경로. 없거나 타입이 다르면 미확인 |
+| 역할 기본값 | `roleAgents.planner/coder/reviewer/auditor`. 단계 `agent`가 coder 기본값보다 우선 |
+| 통합 수정 | coder가 허용된 `repairAgent` 필수. 일반 단계 재시도는 원래 담당 유지 |
+| 인계 크기 | 양의 정수 `contextLimits.maxPromptBytes`, `maxDependencyBytes` 필수. 초과하면 자르지 않고 중단 |
+| 예산 | 계획·재시도를 포함해 모든 도구가 `maxAgentCalls`를 공유. CLI 내부 호출·금액 상한은 보장하지 않음 |
+
+정책·계획은 schema 2를 쓰고 역할 결과 본문은 schema 1을 유지합니다. 배정 `assignments.json`, 원래 목표 `context.json`, 계획 근거와 해시를 저장합니다. Reviewer·Auditor의 읽기 역할 검사는 유지합니다. 실행·재개 전에 고정 배정과 목표 근거를 확인하며 정책·모델을 바꾸려면 새 계획이 필요합니다. `input-invalid` 중단은 근거를 점검하고 입력을 바꿔야 할 때 새 계획을 만듭니다. 자동 모델 대체는 없습니다.
+
+Kimi의 text 출력에는 접두 표시가 붙을 수 있습니다. v2 프롬프트는 마지막 JSON 코드 블록을 요구하며 손상된 JSON을 고쳐서 통과시키지 않습니다. Kimi prompt 모드의 권한 규칙을 확인하고 다른 CLI의 옵션을 그대로 붙이지 않습니다. prompt 인자 입력은 OS 크기 제한과 같은 사용자 권한의 프로세스 조회를 고려해야 합니다. 프롬프트·인자에 비밀값을 넣는 방식은 지원하지 않습니다.
+
+v1 조회·검증·명령 선택·보고 형식을 유지하며 baseline 기록이 없는 예전 실행의 제한도 유지합니다. v2 기록은 이전 버전으로 낮출 수 없습니다. 구버전은 일부 조회를 거부하는 대신 불완전한 보고나 해시 경고를 보일 수 있으므로 v2의 모든 명령은 새 실행기로 처리합니다. 가짜 CLI 검증은 배정·복구의 근거이며 모델 품질이나 실제 계정 호환성의 근거가 아닙니다.
+
 ### 시작 순서
 
 1. 대상 저장소의 변경을 커밋합니다. 커밋하지 않은 변경이 있으면 `plan`과 `run`이 종료 코드 2로 거부합니다.

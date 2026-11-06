@@ -1,5 +1,5 @@
 import { readRun, readRunOwner, stateIssues } from './store.js';
-import { validatePlan, normalizePolicy, hashJson, PROGRAM_PLAN_FIELDS } from './schema.js';
+import { validatePlan, normalizePolicy, hashJson, programPlanFields } from './schema.js';
 import { executionOrder } from './graph.js';
 import { statusView, reportView, formatStatus, formatReport } from './report.js';
 import { cmdCancel, cmdPlan, cmdRun } from './run.js';
@@ -126,7 +126,7 @@ function issueText(i) {
 function cmdValidate(ctx, flags, runId) {
   const run = readRun(ctx, runId);
   const issues = [...run.issues];
-  const model = Object.fromEntries(Object.entries(run.plan).filter(([k]) => !PROGRAM_PLAN_FIELDS.includes(k)));
+  const model = Object.fromEntries(Object.entries(run.plan).filter(([k]) => !programPlanFields(run.plan.schemaVersion).includes(k)));
   const created = run.events.find((e) => e.type === 'run.created');
   const { policy, issues: policyIssues } = normalizePolicy(withoutAddedChecks(run.policy));
   if (!policy) {

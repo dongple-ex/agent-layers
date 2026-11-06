@@ -4,8 +4,9 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { stringifyJson } from '../formats/jsonc.js';
 import { sha256, sleepSync } from '../util/fsx.js';
-import { normalizePolicy, validatePlan, hashJson, assertJsonValue, PROGRAM_PLAN_FIELDS, STEP_STATUSES, RUN_STATUSES, SCHEMA_VERSION } from './schema.js';
+import { normalizePolicy, validatePlan, hashJson, assertJsonValue, programPlanFields, STEP_STATUSES, RUN_STATUSES, SCHEMA_VERSION } from './schema.js';
 import { withProgramSteps, topologicalOrder } from './graph.js';
+import { canonicalAssignmentPlan, makeAssignments, policyInput } from './assignment.js';
 
 export const RUN_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export const SAME_FAILURE_LIMIT = 3;
@@ -242,6 +243,20 @@ export function sanitizeEventData(value, depth = 0) {
 }
 
 export function policySecretIssues(policy) {
+  if (policy.schemaVersion === 2) {
+    const issues = [];
+    for (const [id, agent] of Object.entries(policy.agents)) {
+      const nested = policySecretIssues({ provider: { args: agent.args, roleArgs: {} }, setup: [] });
+      issues.push(...nested.map((issue) => ({ ...issue, where: issue.where.replace('provider', `agents.${id}`) })));
+      for (const [key, value] of Object.entries(agent)) {
+        if (key !== 'args' && findSecretAssignment(JSON.stringify(value)) !== null) {
+          issues.push({ where: `agents.${id}.${key}`, msg: 'must not hold a secret' });
+        }
+      }
+    }
+    issues.push(...policySecretIssues({ provider: { args: [], roleArgs: {} }, setup: policy.setup }));
+    return issues;
+  }
   const { args, roleArgs } = policy.provider;
   const { setup = [] } = policy;
   const issues = [];
@@ -530,7 +545,7 @@ export function stateIssues(state, order) {
   return issues;
 }
 
-export function createRun(ctx, { plan, policy: rawPolicy, usedAgentCalls, planRepairs, baseCommit, providerFingerprint, workspaceKey }) {
+export function createRun(ctx, { plan, policy: rawPolicy, usedAgentCalls, planRepairs, baseCommit, providerFingerprint, workspaceKey, goalContext, planningTrace = [] }) {
   const { policy, issues: policyIssues } = normalizePolicy(rawPolicy);
   if (!policy) {
     throw storeError('E_WORKFLOW_INVALID', 'workflow policy is invalid', { issues: policyIssues });
@@ -543,13 +558,24 @@ export function createRun(ctx, { plan, policy: rawPolicy, usedAgentCalls, planRe
   if (planIssues.length > 0) {
     throw storeError('E_WORKFLOW_INVALID', 'workflow plan is invalid', { issues: planIssues });
   }
+  let assignmentRecords = null;
+  if (policy.schemaVersion === 2) {
+    if (typeof goalContext !== 'string' || goalContext.trim() === '' || findSecretAssignment(goalContext) !== null || findSecretAssignment(JSON.stringify(plan)) !== null) {
+      throw storeError('E_WORKFLOW_INVALID', 'v2 requires an original goal without secret assignments');
+    }
+    assignmentRecords = makeAssignments(plan, policy);
+    plan = canonicalAssignmentPlan(plan, policy);
+    if (providerFingerprint === null || typeof providerFingerprint !== 'object' || Array.isArray(providerFingerprint)) {
+      throw storeError('E_WORKFLOW_INVALID', 'v2 provider fingerprints must be an object');
+    }
+  }
   if (!Number.isSafeInteger(planRepairs) || planRepairs < 0 || planRepairs > policy.limits.maxPlanRepairs) {
     throw storeError('E_WORKFLOW_INVALID', `planRepairs must be an integer from 0 to maxPlanRepairs (${policy.limits.maxPlanRepairs})`);
   }
   if (typeof baseCommit !== 'string' || !COMMIT_RE.test(baseCommit)) {
     throw storeError('E_WORKFLOW_INVALID', 'baseCommit must be a full lowercase commit hash');
   }
-  for (const [name, v] of [['providerFingerprint', providerFingerprint], ['workspaceKey', workspaceKey]]) {
+  for (const [name, v] of [...(policy.schemaVersion === 2 ? [] : [['providerFingerprint', providerFingerprint]]), ['workspaceKey', workspaceKey]]) {
     if (typeof v !== 'string' || v.trim() === '') {
       throw storeError('E_WORKFLOW_INVALID', `${name} must be a non-empty string`);
     }
@@ -560,9 +586,16 @@ export function createRun(ctx, { plan, policy: rawPolicy, usedAgentCalls, planRe
   const planHash = hashJson(plan);
   const policyHash = hashJson(policy);
   const stored = { ...structuredClone(plan), runId, baseCommit, policyHash, planHash, providerFingerprint, createdAt };
+  if (policy.schemaVersion === 2) {
+    delete stored.providerFingerprint;
+    stored.providerFingerprints = providerFingerprint;
+    stored.assignmentHash = hashJson(assignmentRecords);
+    stored.contextHash = hashJson({ goal: goalContext });
+    stored.planningHash = hashJson(sanitizeEventData(planningTrace));
+  }
   const order = topologicalOrder(withProgramSteps(plan.steps));
   const state = {
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion: policy.schemaVersion,
     runId,
     workspaceKey,
     status: 'PLANNED',
@@ -584,6 +617,11 @@ export function createRun(ctx, { plan, policy: rawPolicy, usedAgentCalls, planRe
   writeDurable(path.join(dir, 'policy.json'), stringifyJson(policy));
   writeDurable(path.join(dir, 'plan.json'), stringifyJson(stored));
   writeDurable(path.join(dir, 'state.json'), stringifyJson(state));
+  if (policy.schemaVersion === 2) {
+    writeDurable(path.join(dir, 'assignments.json'), stringifyJson(assignmentRecords));
+    writeDurable(path.join(dir, 'context.json'), stringifyJson({ goal: goalContext }));
+    writeDurable(path.join(dir, 'artifacts', 'planning.json'), stringifyJson(sanitizeEventData(planningTrace)));
+  }
   fs.writeFileSync(path.join(dir, 'events.jsonl'), '', { flag: 'wx', mode: FILE_MODE });
   commitEvent(dir, state, 'run.created', { planHash, policyHash, baseCommit, providerFingerprint, usedAgentCalls, planRepairs });
   return { runId, dir, planHash, policyHash };
@@ -621,7 +659,7 @@ function scanEvents(dir) {
 
 function hashIssues(plan, policy) {
   const issues = [];
-  const modelPart = Object.fromEntries(Object.keys(plan).filter((k) => !PROGRAM_PLAN_FIELDS.includes(k)).map((k) => [k, plan[k]]));
+  const modelPart = Object.fromEntries(Object.keys(plan).filter((k) => !programPlanFields(plan.schemaVersion).includes(k)).map((k) => [k, plan[k]]));
   if (hashJson(modelPart) !== plan.planHash) {
     issues.push('plan.json does not match its planHash');
   }
@@ -646,6 +684,9 @@ export function readRun(ctx, runId) {
       throw storeError('E_WORKFLOW_CORRUPT', `${label} is not a JSON object`);
     }
   }
+  if (![1, 2].includes(plan.schemaVersion) || plan.schemaVersion !== policy.schemaVersion || (state.schemaVersion !== undefined && plan.schemaVersion !== state.schemaVersion) || (plan.schemaVersion === 2 && state.schemaVersion !== 2)) {
+    throw storeError('E_WORKFLOW_INVALID', 'unsupported or mixed workflow record versions');
+  }
   const scan = scanEvents(dir);
   const issues = [...hashIssues(plan, policy), ...scan.issues];
   if (scan.tail.length > 0) {
@@ -659,7 +700,49 @@ export function readRun(ctx, runId) {
   } else if (scan.events.length > 0 && !isSameJson(scan.events[scan.events.length - 1].state, state)) {
     issues.push(`state.json does not match the state saved with event ${scan.events.length}`);
   }
-  return { runId, dir, plan, policy, state, events: scan.events, issues };
+  let assignments = null;
+  let context = null;
+  let planningTrace = null;
+  if (policy.schemaVersion === 2) {
+    try {
+      assertRealDir(path.join(dir, 'artifacts'));
+      assignments = readJson(path.join(dir, 'assignments.json'), 'assignments.json');
+      context = readJson(path.join(dir, 'context.json'), 'context.json');
+      if (hashJson(assignments) !== plan.assignmentHash || hashJson(context) !== plan.contextHash || typeof context?.goal !== 'string') {
+        issues.push('assignment or original goal hash changed');
+      }
+      planningTrace = readJson(path.join(dir, 'artifacts', 'planning.json'), 'planning.json');
+      if (hashJson(planningTrace) !== plan.planningHash || !Array.isArray(planningTrace)) {
+        issues.push('planning evidence hash changed');
+      }
+      const normalized = normalizePolicy(policyInput(policy));
+      if (!normalized.policy || hashJson(normalized.policy) !== plan.policyHash) {
+        issues.push('v2 policy differs from its normalized form');
+      } else {
+        const expected = makeAssignments(plan, policy);
+        for (const [key, item] of Object.entries(expected)) {
+          if (key === 'steps') {
+            for (const [id, route] of Object.entries(item)) {
+              if (assignments?.steps?.[id]?.agentId !== route.agentId) {
+                issues.push(`step ${id} assignment changed`);
+              }
+              const saved = assignments?.steps?.[id];
+              if (!saved || !['step', 'role-default'].includes(saved.selectionSource) || (saved.selectionSource === 'role-default' && saved.agentId !== policy.roleAgents.coder)) {
+                issues.push(`step ${id} assignment source is invalid`);
+              }
+            }
+          } else if (assignments?.[key]?.agentId !== item.agentId) {
+            issues.push(`${key} assignment changed`);
+          }
+        }
+        const model = Object.fromEntries(Object.entries(plan).filter(([key]) => !programPlanFields(2).includes(key)));
+        issues.push(...validatePlan(model, policy, { usedAgentCalls: 0 }).map((issue) => `${issue.where}: ${issue.msg}`));
+      }
+    } catch (err) {
+      issues.push(`v2 records cannot be verified: ${err.code || 'invalid data'}`);
+    }
+  }
+  return { runId, dir, plan, policy, state, events: scan.events, issues, ...(policy.schemaVersion === 2 ? { assignments, context, planningTrace } : {}) };
 }
 
 function commitEvent(dir, state, type, data, mutate = null) {
@@ -704,6 +787,10 @@ function recover(handle, staleOwners) {
   const policy = readJson(path.join(dir, 'policy.json'), 'policy.json');
   let state = readJson(path.join(dir, 'state.json'), 'state.json');
   const integrity = hashIssues(plan, policy);
+  if (policy.schemaVersion === 2) {
+    const saved = readRun(handle.ctx, handle.runId);
+    integrity.push(...saved.issues.filter((msg) => !/^events.jsonl ends with \d+ bytes of an unfinished event$|^state.json is behind events.jsonl/.test(msg)));
+  }
   const scan = scanEvents(dir);
   if (integrity.length > 0 || scan.issues.length > 0) {
     throw storeError('E_WORKFLOW_CORRUPT', `run ${handle.runId} cannot be recovered automatically: ${[...integrity, ...scan.issues].join('; ')}`);

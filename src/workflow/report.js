@@ -11,6 +11,7 @@ const NOT_GUARANTEED = [
 const NEW_PLAN_NOTE = 'The worktree stays at the base commit, so a fix committed to the repository needs a new plan';
 const NEW_PLAN_ONLY_NOTE = 'workflow resume does not continue this run, so make a new plan. It starts from the repository HEAD, not from this worktree, so first see what this run left there';
 const STOP_HINTS = {
+  'input-invalid': 'The fixed input or dependency evidence is invalid. Inspect the evidence and make a new plan if the context, policy or assignment must change. This run does not replace its assigned agent.',
   transport: "the AI CLI call kept ending with an error; the step's last error has the code, and artifacts/call-failed-* in the run folder keep the output. Fix the cause, then run workflow resume, which continues in the same worktree; with the same error it stops again after one more call. A run keeps the policy it was planned with, so a wrong command or argument in the policy needs a new plan",
   'role-blocked': `an AI role needs an answer; see result.needsInput in its file in the artifacts list, and put the answer in the goal. ${NEW_PLAN_ONLY_NOTE}`,
   timeout: `an AI CLI call ran past limits.stepTimeoutSeconds; raise that limit in the policy or make the step smaller in the goal. ${NEW_PLAN_ONLY_NOTE}`,
@@ -108,7 +109,14 @@ export function reportView(run) {
     resultPatch: outcome ? { path: `artifacts/${outcome.data.patch}`, bytes: outcome.data.patchBytes, sha256: outcome.data.patchSha256 } : null,
     sourceChanges: [...new Set(outcomes.flatMap((e) => e.data.sourceChanges))],
     sourceChangedSinceStart: outcome ? outcome.data.sourceChangedSinceStart === true : false,
-    notGuaranteed: workspace ? NOT_GUARANTEED : [],
+    notGuaranteed: workspace ? NOT_GUARANTEED.map((item) => run.policy.schemaVersion === 2 && item.startsWith('model and usage:') ? 'model and usage: requested models are settings; CLI-reported identity and usage may be unavailable' : item) : [],
+    ...(run.policy.schemaVersion === 2 ? {
+      assignments: run.assignments,
+      providerFingerprints: run.plan.providerFingerprints,
+      agentCalls: [...(run.planningTrace || []).filter((e) => e.type === 'call.finished'), ...run.events.filter((e) => e.type === 'agent.output').map((e) => e.data)],
+      planningEvidence: 'artifacts/planning.json',
+      modelEvidence: 'requested models are settings; reported models are CLI claims when available; usage scope may be unknown',
+    } : {}),
   };
 }
 
@@ -167,6 +175,12 @@ function preflightLines(view) {
 
 export function formatReport(view) {
   const lines = [formatStatus(view)];
+  if (view.assignments) {
+    lines.push(`assignments: ${JSON.stringify(view.assignments)}`);
+    for (const call of view.agentCalls) {
+      lines.push(`  ${call.role} ${call.stepId}: ${call.agentId}, requested model ${call.requestedModel}, reported ${call.reportedModel ?? 'unknown'}, exit ${call.exitCode}`);
+    }
+  }
   if (view.stopHint) {
     lines.push(`next: ${view.stopHint}`);
   }
