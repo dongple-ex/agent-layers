@@ -110,6 +110,17 @@ export function projectSecretChecks(root) {
   return checks;
 }
 
+// Codex loads ~/.codex/skills and ~/.agents/skills together, so one name in both shows up twice.
+export function duplicateSkillChecks(paths) {
+  const names = (dir) => (isDir(dir) ? listDirs(dir).filter((n) => !n.startsWith('.')) : []);
+  const shared = new Set(names(path.join(paths.agentsHome, 'skills')));
+  const dup = names(path.join(paths.codexHome, 'skills')).filter((n) => shared.has(n)).sort();
+  if (!dup.length) {
+    return [];
+  }
+  return [{ level: 'warn', msg: `codex: ${dup.join(', ')} exist in both ~/.codex/skills and ~/.agents/skills; Codex loads both copies, so remove the ~/.codex/skills copy` }];
+}
+
 export function compareVersions(a, b) {
   const x = SEMVER.exec(a);
   const y = SEMVER.exec(b);
@@ -245,6 +256,9 @@ export function runDoctor(ctx) {
     } catch (err) {
       add('error', `codex: ${codexCfg} does not parse: ${err.message}`);
     }
+  }
+  if (detected.has('codex')) {
+    report.checks.push(...duplicateSkillChecks(ctx.paths));
   }
   const grokRules = path.join(ctx.paths.grokHome, 'rules');
   const grokFiles = [['~/.grok/AGENTS.md', path.join(ctx.paths.grokHome, 'AGENTS.md')]];

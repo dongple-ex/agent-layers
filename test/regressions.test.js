@@ -1354,3 +1354,79 @@ test('user plan and apply keep existing managed outputs when an instruction targ
     }
   }
 });
+
+test('screenshotsDir follows the macOS capture location and defaults to the Desktop', async () => {
+  const { screenshotsDir } = await import('../src/render.js');
+  const mac = { os: 'macos', sandbox: false, paths: { home: '/Users/me' } };
+  assert.equal(screenshotsDir(mac, () => ({ code: 1, stdout: '' })), '/Users/me/Desktop');
+  assert.equal(screenshotsDir(mac, () => ({ code: 0, stdout: '~/Pictures/Shots/\n' })), '/Users/me/Pictures/Shots');
+  assert.equal(screenshotsDir({ ...mac, sandbox: true }, () => { throw new Error('must not read real prefs'); }), '/Users/me/Desktop');
+  assert.equal(screenshotsDir({ os: 'windows', sandbox: false, paths: { home: 'C:\\Users\\me' } }), 'C:/Users/me/Pictures/Screenshots');
+});
+
+test('doctor warns when a skill is in both ~/.codex/skills and ~/.agents/skills', async () => {
+  const { duplicateSkillChecks } = await import('../src/doctor.js');
+  const sb = sandbox();
+  const paths = { agentsHome: path.join(sb.home, '.agents'), codexHome: path.join(sb.home, '.codex') };
+  write(path.join(paths.codexHome, 'skills', 'dup', 'SKILL.md'), '---\nname: dup\n---\n');
+  write(path.join(paths.codexHome, 'skills', 'solo', 'SKILL.md'), '---\nname: solo\n---\n');
+  write(path.join(paths.codexHome, 'skills', '.system', 'x', 'SKILL.md'), '---\nname: x\n---\n');
+  write(path.join(paths.agentsHome, 'skills', 'dup', 'SKILL.md'), '---\nname: dup\n---\n');
+  write(path.join(paths.agentsHome, 'skills', '.system', 'SKILL.md'), '---\nname: s\n---\n');
+  const checks = duplicateSkillChecks(paths);
+  assert.equal(checks.length, 1);
+  assert.equal(checks[0].level, 'warn');
+  assert.match(checks[0].msg, /^codex: dup exist in both/);
+  assert.deepEqual(duplicateSkillChecks({ agentsHome: path.join(sb.root, 'none'), codexHome: paths.codexHome }), []);
+});
+
+test('import from ~/.codex/skills notes the duplicate Codex will load after apply', async () => {
+  const { planImport } = await import('../src/importer.js');
+  const sb = sandbox();
+  const paths = { home: sb.home, agentsHome: path.join(sb.home, '.agents'), codexHome: path.join(sb.home, '.codex'), claudeHome: path.join(sb.home, '.claude') };
+  write(path.join(paths.codexHome, 'skills', 'plan', 'SKILL.md'), '---\nname: plan\ndescription: plan things\n---\nbody\n');
+  const plan = planImport({ paths, os: 'macos' }, { from: ['codex'], layerDir: path.join(sb.source, 'base') });
+  const w = plan.writes.find((x) => x.rel === 'skills/plan/SKILL.md');
+  assert.equal(w.origin, '~/.codex/skills/plan');
+  assert.ok(plan.notes.some((n) => /remove ~\/\.codex\/skills\/plan after applying/.test(n)));
+});
+
+test('import asks to remove a ~/.codex/skills copy only when every file of it was imported', async () => {
+  const { planImport } = await import('../src/importer.js');
+  const sb = sandbox();
+  const paths = { home: sb.home, agentsHome: path.join(sb.home, '.agents'), codexHome: path.join(sb.home, '.codex'), claudeHome: path.join(sb.home, '.claude'), claudeJson: path.join(sb.home, '.claude.json') };
+  write(path.join(paths.claudeHome, 'skills', 'col', 'SKILL.md'), '---\nname: col\n---\nclaude copy\n');
+  write(path.join(paths.codexHome, 'skills', 'col', 'SKILL.md'), '---\nname: col\n---\ncodex copy\n');
+  write(path.join(paths.codexHome, 'skills', 'sec', 'SKILL.md'), `---\nname: sec\n---\ntoken ghp_${'a'.repeat(36)}\n`);
+  write(path.join(paths.codexHome, 'skills', 'part', 'SKILL.md'), '---\nname: part\n---\nbody\n');
+  write(path.join(paths.codexHome, 'skills', 'part', 'notes.md'), `ghp_${'b'.repeat(36)}\n`);
+  write(path.join(paths.codexHome, 'skills', 'ok', 'SKILL.md'), '---\nname: ok\n---\nbody\n');
+  const plan = planImport({ paths, os: 'macos' }, { from: ['claude', 'codex'], layerDir: path.join(sb.source, 'base') });
+  const removal = (name) => plan.notes.some((n) => n.includes(`remove ~/.codex/skills/${name} after applying`));
+  assert.equal(plan.writes.find((x) => x.rel === 'skills/col/SKILL.md').origin, '~/.claude/skills/col');
+  assert.ok(!plan.writes.some((x) => x.rel.startsWith('skills/sec/')));
+  assert.ok(plan.writes.some((x) => x.rel === 'skills/part/SKILL.md'));
+  assert.ok(!plan.writes.some((x) => x.rel === 'skills/part/notes.md'));
+  assert.equal(removal('col'), false);
+  assert.equal(removal('sec'), false);
+  assert.equal(removal('part'), false);
+  assert.equal(removal('ok'), true);
+});
+
+test('screenshotsDir falls back to the Desktop for an unusable location and keeps special characters in home', async () => {
+  const { screenshotsDir } = await import('../src/render.js');
+  const mac = { os: 'macos', sandbox: false, paths: { home: '/Users/me' } };
+  assert.equal(screenshotsDir(mac, () => ({ code: 0, stdout: '/\n' })), '/Users/me/Desktop');
+  assert.equal(screenshotsDir(mac, () => ({ code: 0, stdout: 'Shots\n' })), '/Users/me/Desktop');
+  const odd = { ...mac, paths: { home: "/Users/a$&b$'c" } };
+  assert.equal(screenshotsDir(odd, () => ({ code: 0, stdout: '~/Shots\n' })), "/Users/a$&b$'c/Shots");
+  assert.equal(screenshotsDir(odd, () => ({ code: 1, stdout: '' })), "/Users/a$&b$'c/Desktop");
+});
+
+test('the init template uses only built-in variables that 0.1.7 engines know', () => {
+  const legacy = ['home', 'os', 'hostname', 'user', 'sep', 'source', 'node', 'agentLayers', 'appData', 'localAppData', 'xdgConfig', 'claudeHome', 'codexHome', 'geminiHome', 'copilotHome', 'kimiHome', 'grokHome', 'homeSlash'];
+  const text = read(new URL('../templates/init/agent-layers.jsonc', import.meta.url)).replace(/^\s*\/\/.*$/gm, '');
+  const used = [...text.matchAll(/\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g)].map((m) => m[1]);
+  assert.ok(used.length > 0);
+  assert.deepEqual(used.filter((v) => !legacy.includes(v)), []);
+});

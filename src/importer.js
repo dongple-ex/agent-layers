@@ -236,14 +236,15 @@ export function planImport(ctx, { from = ['claude', 'codex', 'gemini', 'copilot'
     if (md && stripManaged(md.text)) {
       add('instructions/51-imported-codex.md', `${stripManaged(md.text)}\n`, '~/.codex/AGENTS.md');
     }
-    for (const base of [path.join(p.agentsHome, 'skills'), path.join(p.codexHome, 'skills')]) {
+    const codexSkills = path.join(p.codexHome, 'skills');
+    for (const [base, label] of [[path.join(p.agentsHome, 'skills'), '~/.agents/skills'], [codexSkills, '~/.codex/skills']]) {
       for (const name of listDirs(base)) {
         if (name.startsWith('.')) {
           continue;
         }
         for (const f of listFiles(path.join(base, name))) {
           const buf = fs.readFileSync(f.abs);
-          add(`skills/${name}/${f.rel}`, isProbablyText(buf) ? buf.toString('utf8') : buf, `${base}/${name}`);
+          add(`skills/${name}/${f.rel}`, isProbablyText(buf) ? buf.toString('utf8') : buf, `${label}/${name}`);
         }
       }
     }
@@ -343,6 +344,13 @@ export function planImport(ctx, { from = ['claude', 'codex', 'gemini', 'copilot'
       }
     }
     unique.push(w);
+  }
+  const codexSkillFiles = (list) => list.filter((w) => w.origin.startsWith('~/.codex/skills/')).reduce((m, w) => m.set(w.origin, (m.get(w.origin) || 0) + 1), new Map());
+  const kept = codexSkillFiles(unique);
+  for (const [origin, count] of codexSkillFiles(writes)) {
+    if (kept.get(origin) === count) {
+      notes.push(`skills/${origin.slice('~/.codex/skills/'.length)}: imported from ${origin}; apply also installs it in ~/.agents/skills, and Codex loads both folders, so remove ${origin} after applying`);
+    }
   }
   return { writes: unique, notes, secrets: [...new Set(secrets)] };
 }

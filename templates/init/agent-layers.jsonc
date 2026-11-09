@@ -18,7 +18,7 @@
   "projects": "projects",
 
   // Variables for *.tmpl files, settings fragments and MCP definitions: {{vars.name}}.
-  // Built-ins: {{home}}, {{homeSlash}}, {{os}}, {{hostname}}, {{user}}, {{source}}, {{node}}, {{claudeHome}}, ...
+  // Built-ins: {{home}}, {{homeSlash}}, {{os}}, {{hostname}}, {{user}}, {{source}}, {{node}}, {{claudeHome}}, {{screenshotsDir}}, ...
   // Put machine-specific values in ~/.agent-layers/config.jsonc under "vars" instead of here.
   "vars": {
     "screenshots_dir": "{{homeSlash}}/Pictures/Screenshots"
