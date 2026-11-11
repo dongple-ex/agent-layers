@@ -272,6 +272,22 @@ test('toml editor: comments below the last key of a table survive table update a
   assert.equal(plain.toString(), 'model = "a"\n');
 });
 
+test('toml editor: the last line of a multi-line string that starts with # is not taken as a comment', () => {
+  const root = new TomlDocument('instructions = """\nFollow the rules.\n# Style"""\n[mcp_servers.x]\ncommand = "a"\n');
+  root.set(['model'], 'gpt-x');
+  assert.equal(root.toString(), 'instructions = """\nFollow the rules.\n# Style"""\nmodel = "gpt-x"\n\n[mcp_servers.x]\ncommand = "a"\n');
+  assert.deepEqual(parseTomlValue(root.toString()), { instructions: 'Follow the rules.\n# Style', model: 'gpt-x', mcp_servers: { x: { command: 'a' } } });
+  const table = new TomlDocument('[profiles.a]\nnotes = """\nline\n# tail"""\n[profiles.b]\nmodel = "m"\n');
+  table.set(['profiles', 'a', 'model'], 'gpt-x');
+  assert.deepEqual(parseTomlValue(table.toString()), { profiles: { a: { notes: 'line\n# tail', model: 'gpt-x' }, b: { model: 'm' } } });
+  const removed = new TomlDocument('[mcp_servers.x]\ncommand = "a"\nnote = """\nabc\n# tail"""\n[other]\nk = 1\n');
+  removed.removeTable(['mcp_servers', 'x']);
+  assert.equal(removed.toString(), '[other]\nk = 1\n');
+  const literal = new TomlDocument("[a]\nnote = '''\n# one\n# two'''\n# real comment\n[b]\nk = 1\n");
+  literal.removeTable(['a']);
+  assert.equal(literal.toString(), '# real comment\n[b]\nk = 1\n');
+});
+
 test('jsonmerge: a user value that is not an object is reported before a managed key replaces it', () => {
   const merge = planManagedMerge({ context: ['my-own.md'], ui: 'dark' }, { context: { fileName: ['AGENTS.md'], depth: 2 }, ui: { theme: { name: 'x' } } });
   const sets = merge.changes.filter((c) => c.op === 'set');

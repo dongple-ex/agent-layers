@@ -701,8 +701,9 @@ export class TomlDocument {
   }
 
   attachedCommentStart(headerLine) {
+    const insideValue = (line) => this.entries.some((e) => e.type === 'kv' && e.startLine <= line && line <= e.endLine);
     let k = headerLine;
-    while (k > 0 && this.lines[k - 1].trim().startsWith('#')) {
+    while (k > 0 && this.lines[k - 1].trim().startsWith('#') && !insideValue(k - 1)) {
       k -= 1;
     }
     return k;

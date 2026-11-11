@@ -848,6 +848,9 @@ function cmdExec(ctx, flags, rest) {
   }
   const pairs = (flags.env || []).map((e) => {
     const i = e.indexOf('=');
+    if (i < 1) {
+      throw new Error(`--env needs KEY=VALUE, got "${e}". usage: agent-layers exec [--env KEY=VALUE]... -- <command> [args...]`);
+    }
     return [e.slice(0, i), e.slice(i + 1)];
   });
   const token = /@@secret:([A-Za-z0-9_./-]+)@@/g;
@@ -1021,7 +1024,12 @@ async function cmdSync(ctx, flags) {
 
 async function cmdImport(ctx, flags) {
   const manifest = prepare(ctx);
-  const from = list(flags.from) || ['claude', 'codex', 'gemini', 'copilot'];
+  const supported = ['claude', 'codex', 'gemini', 'copilot'];
+  const from = list(flags.from) || supported;
+  const unknown = from.filter((name) => !supported.includes(name));
+  if (unknown.length) {
+    throw new Error(`cannot import from ${unknown.map((name) => `"${name}"`).join(', ')}. Supported names for --from: ${supported.join(', ')}`);
+  }
   const layerDir = flags.into ? path.resolve(String(flags.into)) : manifest.baseDir;
   const plan = planImport(ctx, { from, layerDir });
   info(c.bold(`Import from ${from.join(', ')} into ${short(ctx, layerDir)}`));

@@ -242,6 +242,28 @@ test('#1 purge keeps a Claude folder shared with another path that maps to the s
   assert.ok(!removable.includes(dir));
 });
 
+test('purge leaves backups of a folder whose name starts with the project folder name', async () => {
+  const { findAgentData } = await import('../src/project.js');
+  const { createContext } = await import('../src/context.js');
+  const sb = sandbox();
+  const ctx = createContext({ home: sb.home });
+  const app = path.join(sb.root, 'work', 'app');
+  const sibling = path.join(sb.root, 'work', 'app_v2');
+  const registered = path.join(sb.root, 'work', 'app_old');
+  fs.mkdirSync(app, { recursive: true });
+  fs.mkdirSync(sibling, { recursive: true });
+  const stamp = path.join(sb.home, '.agent-layers', 'backups', '20261111-000000');
+  const backupOf = (file) => path.join(stamp, path.resolve(file).replace(/^([A-Za-z]):/, '$1').replace(/[\\/:]+/g, '_'));
+  const own = [backupOf(path.join(app, 'AGENTS.md')), backupOf(path.join(app, '.claude', 'settings.json'))];
+  const foreign = [backupOf(path.join(sibling, 'AGENTS.md')), backupOf(path.join(registered, 'AGENTS.md'))];
+  for (const file of [...own, ...foreign]) {
+    write(file, 'backup\n');
+  }
+  const items = findAgentData(ctx, app, { otherRoots: [registered] }).filter((i) => i.agent === 'agent-layers');
+  assert.deepEqual(items.filter((i) => i.remove).map((i) => i.path).sort(), [...own].sort());
+  assert.deepEqual(items.filter((i) => !i.remove).map((i) => i.path).sort(), [...foreign].sort());
+});
+
 test('#6 purge removes the local memory folder and keeps exclude entries for files it leaves', { skip: !HAS_GIT }, () => {
   const sb = sandbox();
   manifest(sb, ['claude', 'cursor']);
@@ -471,6 +493,54 @@ test('plan --diff does not print plaintext secrets that already exist in a confl
   assert.match(r.out, /conflict/);
   assert.match(r.out, /SVC_PASSWORD/);
   assert.doesNotMatch(r.out, /plain-secret-123|nested-secret-789|keychain-value-456/);
+});
+
+test('auth headers, cookies, URL credentials and both sides of a changed value are masked in diff text', async () => {
+  const { maskSecretFields } = await import('../src/util/redact.js');
+  const masked = maskSecretFields([
+    '    +"Authorization": "Bearer fixture-auth-1"',
+    '    -Proxy-Authorization = "Basic fixture-auth-2"',
+    '    +"Cookie": "session=fixture-cookie-3"',
+    '    +"GITHUB_PAT": "fixture-pat-4"',
+    '    +"X-Auth": "fixture-auth-5", "SN_AUTH": "admin:fixture-auth-6"',
+    '    +"DATABASE_URL": "postgres://user:fixture-pw-7@db.internal/app"',
+    '    +url = "https://x.example/mcp?mode=a&key=fixture-key-8&sig=fixture-sig-9"',
+    '    ~ env.GITHUB_TOKEN: "fixture-old-10" -> "fixture-new-11"',
+    '    ~ headers.Authorization: "Bearer ${SVC_AUTH}" -> "Bearer fixture-new-12"',
+    `    ~ env.API_TOKEN: "fixture-long-13${'x'.repeat(62)}... -> "fixture-new-14"`,
+    '    ~ env.SVC_PASSWORD: "fixture-old-15" -> "${secret:svc/password}"',
+    '    SERVICENOW_AUTH_TYPE = "browser"',
+    '    +"url": "https://user@host.example:8443/path", "author": "someone"',
+    '    +"Authorization": "Bearer ${SVC_AUTH}"',
+  ].join('\n'));
+  assert.doesNotMatch(masked, /fixture-/);
+  assert.match(masked, /"DATABASE_URL": "postgres:\/\/user:\*\*\*@db\.internal\/app"/);
+  assert.match(masked, /https:\/\/x\.example\/mcp\?mode=a&key=\*\*\*"/);
+  assert.match(masked, /~ env\.GITHUB_TOKEN: "\*\*\*" -> "\*\*\*"/);
+  assert.match(masked, /~ headers\.Authorization: "Bearer \$\{SVC_AUTH\}" -> "\*\*\*"/);
+  assert.match(masked, /~ env\.API_TOKEN: "\*\*\*" -> "\*\*\*"/);
+  assert.match(masked, /~ env\.SVC_PASSWORD: "\*\*\*" -> "\$\{secret:svc\/password\}"/);
+  assert.match(masked, /SERVICENOW_AUTH_TYPE = "browser"/);
+  assert.match(masked, /"url": "https:\/\/user@host\.example:8443\/path", "author": "someone"/);
+  assert.match(masked, /\+"Authorization": "Bearer \$\{SVC_AUTH\}"$/);
+  assert.equal(masked.split('\n').length, 14);
+});
+
+test('plan --diff does not print an Authorization header, a cookie or a URL password from a conflicting file', () => {
+  const sb = sandbox();
+  manifest(sb, ['claude']);
+  write(path.join(sb.source, 'base', 'mcp', 'svc.jsonc'), JSON.stringify({ url: 'https://svc.example/mcp', headers: { Authorization: 'Bearer ${SVC_AUTH}' } }));
+  write(path.join(sb.home, '.claude.json'), JSON.stringify({
+    mcpServers: {
+      svc: { type: 'http', url: 'https://svc.example/mcp', headers: { Authorization: 'Bearer fixture-header-1', Cookie: 'session=fixture-cookie-2' } },
+      db: { command: 'db-mcp', env: { DATABASE_URL: 'postgres://user:fixture-pw-3@db.internal/app' } },
+    },
+  }, null, 2));
+  const r = cli(sb, ['plan', '--diff']);
+  assert.match(r.out, /conflict/);
+  assert.match(r.out, /Authorization/);
+  assert.match(r.out, /Bearer \$\{SVC_AUTH\}/);
+  assert.doesNotMatch(r.out, /fixture-/);
 });
 
 test('doctor finds plaintext secrets in project .codex/config.toml and inside JSON strings', async () => {
@@ -1545,4 +1615,39 @@ test('plan says that environment variables for remote servers are not exported f
   manifest(local, ['claude']);
   write(path.join(local.source, 'base', 'mcp', 'svc.jsonc'), JSON.stringify({ command: 'node', args: ['s.js'], env: { API_TOKEN: '${secret:svc/token}' } }));
   assert.doesNotMatch(cli(local, ['plan']).out, /does not export/);
+});
+
+test('exec refuses an --env value without a name and a value instead of setting a wrong variable', () => {
+  const sb = sandbox();
+  manifest(sb, ['claude']);
+  const probe = ['--', process.execPath, '-e', 'process.stdout.write(`ran:${process.env.FO || ""}`)'];
+  for (const bad of ['FOO', '=value']) {
+    const r = cli(sb, ['exec', '--env', bad, ...probe]);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /--env needs KEY=VALUE/);
+    assert.doesNotMatch(r.out, /ran:/);
+  }
+  const ok = cli(sb, ['exec', '--env', 'FO=a=b', ...probe]);
+  assert.equal(ok.code, 0, ok.out);
+  assert.equal(ok.out, 'ran:a=b');
+});
+
+test('import names the supported agents when --from has an unknown name', () => {
+  const sb = sandbox();
+  manifest(sb, ['claude']);
+  write(path.join(sb.home, '.claude', 'CLAUDE.md'), '# mine\n');
+  const r = cli(sb, ['import', '--from', 'claude,cursor', '--yes']);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /cannot import from "cursor"/);
+  assert.match(r.out, /claude, codex, gemini, copilot/);
+  assert.doesNotMatch(r.out, /Nothing to import|Wrote/);
+});
+
+test('the README of a new setup repository links to the agent-layers repository', () => {
+  const pkg = JSON.parse(read(fileURLToPath(new URL('../package.json', import.meta.url))));
+  const repository = pkg.repository.url.replace(/^git\+/, '').replace(/\.git$/, '');
+  const sb = sandbox();
+  const r = cli(sb, ['init', sb.source]);
+  assert.equal(r.code, 0, r.out);
+  assert.ok(read(path.join(sb.source, 'README.md')).includes(`[agent-layers](${repository})`));
 });

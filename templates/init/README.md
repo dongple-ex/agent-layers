@@ -1,6 +1,6 @@
 # My agent setup
 
-This repository holds my AI coding agent configuration for [agent-layers](https://github.com/).
+This repository holds my AI coding agent configuration for [agent-layers](https://github.com/dongple-ex/agent-layers).
 
 | Folder | Applied to | Lifetime |
 |---|---|---|

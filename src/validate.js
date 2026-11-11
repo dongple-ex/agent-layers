@@ -6,6 +6,9 @@ import { deepMerge, flattenLeaves, isPathPrefix } from './formats/jsonmerge.js';
 import { ADAPTERS } from './adapters/registry.js';
 import { listFiles, isProbablyText, isDir } from './util/fsx.js';
 import { findSecretRefs } from './template.js';
+import { AUTH_NAME, URL_PASSWORD, URL_QUERY_SECRET } from './util/redact.js';
+
+export { AUTH_NAME, URL_PASSWORD, URL_QUERY_SECRET };
 
 export const TOKEN_PATTERNS = [
   [/ghp_[A-Za-z0-9]{36}/, 'GitHub token'],
@@ -19,10 +22,7 @@ export const TOKEN_PATTERNS = [
 ];
 export const SECRET_FIELD = /"(?:[A-Za-z_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY)[A-Za-z_]*)"\s*:\s*"(?!\$\{)([^"]{4,})"/i;
 export const SECRET_TOML_FIELD = /^\s*[A-Za-z0-9_.-]*(?:password|passwd|secret|token|api_?key)[A-Za-z0-9_-]*\s*=\s*["'](?!\$\{)[^"'\n]{4,}["']/im;
-export const AUTH_NAME = /(?:^|[_-])auth(?:orization)?$|^cookie$/i;
 export const FLAG_VALUE = /^(?:true|false|yes|no|on|off|[01])$/i;
-export const URL_PASSWORD = /([a-z][a-z0-9+.-]*:\/\/[^\s/?#@:"'${}]*:)(?!\$\{|\{\{)([^\s/?#@"']+)(?=@)/i;
-export const URL_QUERY_SECRET = /([a-z][a-z0-9+.-]*:\/\/[^\s"']*?[?&]((?:[a-z0-9_.-]*(?:api[_-]?key|token|secret|passw(?:or)?d|signature|credential)|key|sig|auth))=)(?!\$\{|\{\{)([^&#\s"']+)/i;
 const SKILL_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export function unknownTargetIssues(layer) {

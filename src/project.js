@@ -400,11 +400,19 @@ export function findAgentData(ctx, root, { otherRoots = [] } = {}) {
     items.push({ agent: 'agent-layers', kind: 'local project folder (Claude memory written there by the memory option)', path: localDir, bytes: dirSize(localDir), remove: 'dir' });
   }
   const backups = path.join(p.stateDir, 'backups');
-  const mangled = path.resolve(root).replace(/^([A-Za-z]):/, '$1').replace(/[\\/:]+/g, '_').toLowerCase();
+  const mangle = (dir) => path.resolve(dir).replace(/^([A-Za-z]):/, '$1').replace(/[\\/:]+/g, '_').toLowerCase();
+  const mangled = mangle(root);
+  const parent = path.dirname(path.resolve(root));
+  const lookalikes = [...otherRoots, ...listDirs(parent).map((name) => path.join(parent, name))].map(mangle).filter((o) => o.startsWith(`${mangled}_`));
   for (const stamp of listDirs(backups)) {
     for (const entry of fs.readdirSync(path.join(backups, stamp))) {
       const e = entry.toLowerCase();
-      if (e === mangled || e.startsWith(`${mangled}_`)) {
+      if (e !== mangled && !e.startsWith(`${mangled}_`)) {
+        continue;
+      }
+      if (lookalikes.some((o) => e === o || e.startsWith(`${o}_`))) {
+        items.push({ agent: 'agent-layers', kind: 'backup that may belong to another folder whose name starts with this folder name; check manually', path: path.join(backups, stamp, entry), remove: null });
+      } else {
         items.push({ agent: 'agent-layers', kind: 'backup of a project file', path: path.join(backups, stamp, entry), remove: 'dir' });
       }
     }
