@@ -1,0 +1,64 @@
+{
+  "passed": true,
+  "scope": "document static validation only",
+  "sourceHead": "5f2ec4c4a72847cc7314e207ae5e9930deb0b9c3",
+  "documents": {
+    "SPEC.md": "be6fde95a52c876e8add0c754bcf5eaa984107346b267ff4c66e89c9960867a6",
+    "PLAN.md": "fa929c52b2d599584bf1f5813a1aad5e8d65ce18fb698f5dbf2451886de1655d"
+  },
+  "validLocalLinks": 20,
+  "mermaid": [
+    {
+      "document": "SPEC.md",
+      "nodes": 6,
+      "staticChecksPassed": true,
+      "rendered": false
+    },
+    {
+      "document": "PLAN.md",
+      "nodes": 5,
+      "staticChecksPassed": true,
+      "rendered": false
+    }
+  ],
+  "budget": {
+    "cells": 6,
+    "pilotWorkflows": 18,
+    "reviewCalls": 54,
+    "pilotNormal": 144,
+    "pilotMax": 180,
+    "expandedWorkflowsTotal": 54,
+    "expandedNormalTotal": 324,
+    "expandedMaxTotal": 432
+  },
+  "methodPositions": {
+    "A": [
+      3,
+      3,
+      3
+    ],
+    "B": [
+      3,
+      3,
+      3
+    ],
+    "C": [
+      3,
+      3,
+      3
+    ]
+  },
+  "modelFirstPositions": {
+    "Luna": 14,
+    "Terra": 13
+  },
+  "sourceAndSettingsUnchanged": true,
+  "actualAIInvocations": 0,
+  "notExecuted": [
+    "adapter implementation",
+    "sample generation",
+    "offline behavioral tests",
+    "model calls",
+    "Mermaid rendering"
+  ]
+}

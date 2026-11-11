@@ -1,0 +1,19 @@
+{
+  "head": "5f2ec4c4a72847cc7314e207ae5e9930deb0b9c3",
+  "status": "?? workspace/",
+  "diff": "",
+  "cachedDiff": "",
+  "sourceHashes": {
+    "src/workflow/assignment.js": "f6d5f0a3501d1e724d0918fad6e8713aea605b8bc64564890e9eb8b362362cab",
+    "src/workflow/schema.js": "45edb6ae0d296dad3f7118bcfc907571bdd36cced152896876c596d6a6046c9d",
+    "src/workflow/store.js": "4a5e8200388bd43651f00bf223e506dd180cb9abbd533bed62d632a1e98d70b6",
+    "src/workflow/provider.js": "1b36d8f9b803966574686d2c7706899daa884b2a687f2ea39f9eca1caa9c22f5",
+    "templates/workflow/result-format-v2.md": "db16539c64e826afa1e0bde656d5cffd3b1e4acd09675d25730b8aa071d7c2c1",
+    "templates/workflow/roles/planner-v2.md": "75c1d2d1ced95d06eb3c1ccb6462771e89cfc3a62d92c9a299943fa48746fc11"
+  },
+  "settingsHashes": {
+    ".codex/config.toml": "fd2237e65d3cb13fddc7175b44cf8e400d78a7b7b660db371b2fea32909e9ab5",
+    ".codex/AGENTS.md": "b15884616ecfa23f4ebfcaf8ab7647ff6e4ced26024c3356dc7722d64a77c3d9",
+    "workspace/agent-layers/.git/config": "809fdb7068cf7da9744a7fe8b22ee57ee2ca387f7511964a0572913d8fb4adce"
+  }
+}

@@ -1,0 +1,577 @@
+{
+  "passed": true,
+  "scope": "Original validation retained in sourceValidation; repository copy checked separately in repositoryValidation",
+  "sourceValidation": {
+    "passed": true,
+    "checkedAt": "2026-11-10T14:51:55.962628+00:00",
+    "scope": "document static validation only; no adapter implementation or inference",
+    "sourceHead": "5f2ec4c4a72847cc7314e207ae5e9930deb0b9c3",
+    "documentsBefore": {
+      "SPEC.md": "be6fde95a52c876e8add0c754bcf5eaa984107346b267ff4c66e89c9960867a6",
+      "PLAN.md": "fa929c52b2d599584bf1f5813a1aad5e8d65ce18fb698f5dbf2451886de1655d"
+    },
+    "documentsAfter": {
+      "SPEC.md": "87fd52eef5302a51f2cf4f65d9c5280ca90460e633ceaa3736c4db9c82d020ff",
+      "PLAN.md": "67b07408ef982333e8e95e08b70a5a7bef2a320aaf7f363da11ef8ccb5c463dd"
+    },
+    "preservedHistoricalValidationSha256": "4bd7b881fbbe06f72c8098e2111ef46afae02f96c4e117dd7eee095b8615f0aa",
+    "validLocalLinksIncludingNewRecord": 22,
+    "mermaid": [
+      {
+        "document": "SPEC.md",
+        "nodes": 6,
+        "staticChecksPassed": true,
+        "rendered": false
+      },
+      {
+        "document": "PLAN.md",
+        "nodes": 5,
+        "staticChecksPassed": true,
+        "rendered": false
+      }
+    ],
+    "confirmedPlanContract": {
+      "staticDocumentAssertionsPassed": true,
+      "allArmsAndDownstreamRoles": true,
+      "nativeHashAndFileHashDistinguished": true,
+      "integrityFailureBeforeCallRequired": true,
+      "sharedInputBudgetIncludesFullPlan": true,
+      "adapterBehaviorExecuted": false
+    },
+    "schedule": {
+      "methodOrder": "[ABC,BCA,CAB][(q+r)%3]",
+      "modelFirstRule": "Luna iff (q+r+m+d)%2==0; m=A:0,B:1,C:2; d=1 iff q=0 and r in {1,2}",
+      "beforeModelFirstByMethod": {
+        "A": {
+          "Luna": 2,
+          "Terra": 7
+        },
+        "B": {
+          "Luna": 6,
+          "Terra": 3
+        },
+        "C": {
+          "Luna": 6,
+          "Terra": 3
+        }
+      },
+      "afterModelFirstByMethod": {
+        "A": {
+          "Luna": 5,
+          "Terra": 4
+        },
+        "B": {
+          "Luna": 4,
+          "Terra": 5
+        },
+        "C": {
+          "Luna": 5,
+          "Terra": 4
+        }
+      },
+      "pilotModelFirstByMethod": {
+        "A": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "B": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "C": {
+          "Luna": 2,
+          "Terra": 1
+        }
+      },
+      "afterModelFirstByMethodAndTask": {
+        "A:T1": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "A:T2": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "A:T3": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "B:T1": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "B:T2": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "B:T3": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "C:T1": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "C:T2": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "C:T3": {
+          "Luna": 2,
+          "Terra": 1
+        }
+      },
+      "afterModelFirstByMethodAndPosition": {
+        "A:position1": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "A:position2": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "A:position3": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "B:position1": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "B:position2": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "B:position3": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "C:position1": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "C:position2": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "C:position3": {
+          "Luna": 1,
+          "Terra": 2
+        }
+      },
+      "afterModelFirstByMethodAndRepeat": {
+        "A:repeat0": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "A:repeat1": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "A:repeat2": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "B:repeat0": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "B:repeat1": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "B:repeat2": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "C:repeat0": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "C:repeat1": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "C:repeat2": {
+          "Luna": 1,
+          "Terra": 2
+        }
+      },
+      "methodPositionCounts": {
+        "A": {
+          "1": 3,
+          "3": 3,
+          "2": 3
+        },
+        "B": {
+          "2": 3,
+          "1": 3,
+          "3": 3
+        },
+        "C": {
+          "3": 3,
+          "2": 3,
+          "1": 3
+        }
+      },
+      "allCheckedConditionalFirstCountDifferencesAtMostOne": true
+    },
+    "budget": {
+      "pilotWorkflows": 18,
+      "reviewCalls": 54,
+      "pilotNormal": 144,
+      "pilotMax": 180,
+      "expandedWorkflowsTotal": 54,
+      "expandedNormalTotal": 324,
+      "expandedMaxTotal": 432
+    },
+    "sourceAndSettingsUnchanged": true,
+    "repositoryStateMatchesOrigin": true,
+    "actualAIInvocations": 0,
+    "notExecuted": [
+      "adapter implementation",
+      "sample generation",
+      "offline adapter behavioral tests",
+      "model calls",
+      "Mermaid rendering"
+    ]
+  },
+  "repositoryValidation": {
+    "passed": true,
+    "checkedAt": "2026-11-11T00:59:28.474797+00:00",
+    "scope": "document relocation, references, hashes, schedule and budget static checks only",
+    "sourceHead": "5f2ec4c4a72847cc7314e207ae5e9930deb0b9c3",
+    "sourceFileHashes": {
+      "validation.json": "4bd7b881fbbe06f72c8098e2111ef46afae02f96c4e117dd7eee095b8615f0aa",
+      "origin.json": "4ff3cecdf1ee36e1f1754fee2b3a1be393dd3ff16da6a6df455542335b216ea4",
+      "SPEC.md": "87fd52eef5302a51f2cf4f65d9c5280ca90460e633ceaa3736c4db9c82d020ff",
+      "PLAN.md": "67b07408ef982333e8e95e08b70a5a7bef2a320aaf7f363da11ef8ccb5c463dd",
+      "validation-review-fixes.json": "54a830933f307b015fe988f5546e1b6995262fc958ecab87750904bc355aecf0",
+      "HANDOFF.md": "4131ec08e1d05cfd1bf2423279bd5e859aedc236ed4a223ccb30e121d82decbd"
+    },
+    "documents": {
+      "SPEC.md": "1f260d613096bbaba1b842c437fa6ff3c977606afa12e1fcec2adfdd41f484a4",
+      "PLAN.md": "3e147d55187773b4d566c9d0a2fcb671415da3ca41f1a044dde14e5c18567211",
+      "HANDOFF.md": "2ab8afe89964717acef3dec3e178298a773bf9546538cbde584cd964b2ba3aa8"
+    },
+    "preservedHistoricalFiles": {
+      "origin.json": "4ff3cecdf1ee36e1f1754fee2b3a1be393dd3ff16da6a6df455542335b216ea4",
+      "validation.json": "4bd7b881fbbe06f72c8098e2111ef46afae02f96c4e117dd7eee095b8615f0aa"
+    },
+    "validRepositoryLinks": 18,
+    "links": [
+      {
+        "document": "SPEC.md",
+        "target": "PLAN.md"
+      },
+      {
+        "document": "SPEC.md",
+        "target": "../../../../templates/workflow/roles/planner-v2.md"
+      },
+      {
+        "document": "SPEC.md",
+        "target": "../../../../templates/workflow/result-format-v2.md"
+      },
+      {
+        "document": "SPEC.md",
+        "target": "../../../../src/workflow/schema.js"
+      },
+      {
+        "document": "SPEC.md",
+        "target": "../../../../src/workflow/assignment.js"
+      },
+      {
+        "document": "SPEC.md",
+        "target": "../../../../src/workflow/store.js"
+      },
+      {
+        "document": "SPEC.md",
+        "target": "PLAN.md"
+      },
+      {
+        "document": "SPEC.md",
+        "target": "validation-review-fixes.json"
+      },
+      {
+        "document": "SPEC.md",
+        "target": "validation.json"
+      },
+      {
+        "document": "PLAN.md",
+        "target": "SPEC.md"
+      },
+      {
+        "document": "PLAN.md",
+        "target": "SPEC.md"
+      },
+      {
+        "document": "PLAN.md",
+        "target": "validation-review-fixes.json"
+      },
+      {
+        "document": "PLAN.md",
+        "target": "validation.json"
+      },
+      {
+        "document": "HANDOFF.md",
+        "target": "SPEC.md"
+      },
+      {
+        "document": "HANDOFF.md",
+        "target": "PLAN.md"
+      },
+      {
+        "document": "HANDOFF.md",
+        "target": "validation-review-fixes.json"
+      },
+      {
+        "document": "HANDOFF.md",
+        "target": "validation.json"
+      },
+      {
+        "document": "HANDOFF.md",
+        "target": "origin.json"
+      }
+    ],
+    "externalReferences": [
+      {
+        "path": "2026-11/2026-11-09/workflow-expanded-defect-kit/checks/t3-symbol-input-fix/README.md",
+        "sha256": "58c31571d0cb5d964049ebec83756ce2f65ac3dd208a1180050bb4d730766983",
+        "includedInRepositoryCopy": false
+      },
+      {
+        "path": "2026-11/2026-11-09/workflow-expanded-defect-kit/checks/t3-symbol-live/README.md",
+        "sha256": "a73f21d210c7b023c64a0cbfca63666f2368ad206c6e9661e89f117ab2da4ac7",
+        "includedInRepositoryCopy": false
+      },
+      {
+        "path": "2026-11/2026-11-09/workflow-expanded-defect-test-plan/PLAN.md",
+        "sha256": "edc2d1cc8c8fb0244915fcad97e15c9da0ed3020d69c2310a1a597bec7430eb0",
+        "includedInRepositoryCopy": false
+      },
+      {
+        "path": "2026-11/2026-11-09/workflow-expanded-defect-kit/contracts/T1.md",
+        "sha256": "9a669bdf8b8077f771360612eba8b551a18168fd3399786cd6edb926569fffb1",
+        "includedInRepositoryCopy": false
+      },
+      {
+        "path": "2026-11/2026-11-09/workflow-expanded-defect-kit/contracts/T2.md",
+        "sha256": "d03b9ceb1a5d0aca765f72567ff7ca6b018cd4caf2118f67685b5c01b61cb1ea",
+        "includedInRepositoryCopy": false
+      },
+      {
+        "path": "2026-11/2026-11-09/workflow-expanded-defect-kit/checks/luna-terra-live/contract-clarification/T3-v2.md",
+        "sha256": "4ff226aca4d4832551611a9ef90c369219b422e33e1a180fbb06759df3714c1e",
+        "includedInRepositoryCopy": false
+      },
+      {
+        "path": "2026-11/2026-11-09/workflow-expanded-defect-kit/evaluate.mjs",
+        "sha256": "737e36cb709729857c2389a661e380022b4f69aad3b07e006ae1ff1b33f4591a",
+        "includedInRepositoryCopy": false
+      },
+      {
+        "path": "2026-11/2026-11-09/workflow-expanded-defect-kit/checks/t3-symbol-input-fix/evaluate-symbol.mjs",
+        "sha256": "92ae15178e6451f4add1a2859723f6a503a5247a772b2f10fe0eed06afbef472",
+        "includedInRepositoryCopy": false
+      }
+    ],
+    "originalFilesUnchanged": true,
+    "allSevenScheduleDistributionsRecomputed": true,
+    "schedule": {
+      "methodOrder": "[ABC,BCA,CAB][(q+r)%3]",
+      "modelFirstRule": "Luna iff (q+r+m+d)%2==0; m=A:0,B:1,C:2; d=1 iff q=0 and r in {1,2}",
+      "beforeModelFirstByMethod": {
+        "A": {
+          "Luna": 2,
+          "Terra": 7
+        },
+        "B": {
+          "Luna": 6,
+          "Terra": 3
+        },
+        "C": {
+          "Luna": 6,
+          "Terra": 3
+        }
+      },
+      "afterModelFirstByMethod": {
+        "A": {
+          "Luna": 5,
+          "Terra": 4
+        },
+        "B": {
+          "Luna": 4,
+          "Terra": 5
+        },
+        "C": {
+          "Luna": 5,
+          "Terra": 4
+        }
+      },
+      "pilotModelFirstByMethod": {
+        "A": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "B": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "C": {
+          "Luna": 2,
+          "Terra": 1
+        }
+      },
+      "afterModelFirstByMethodAndTask": {
+        "A:T1": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "A:T2": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "A:T3": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "B:T1": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "B:T2": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "B:T3": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "C:T1": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "C:T2": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "C:T3": {
+          "Luna": 2,
+          "Terra": 1
+        }
+      },
+      "afterModelFirstByMethodAndPosition": {
+        "A:position1": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "A:position2": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "A:position3": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "B:position1": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "B:position2": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "B:position3": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "C:position1": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "C:position2": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "C:position3": {
+          "Luna": 1,
+          "Terra": 2
+        }
+      },
+      "afterModelFirstByMethodAndRepeat": {
+        "A:repeat0": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "A:repeat1": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "A:repeat2": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "B:repeat0": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "B:repeat1": {
+          "Luna": 1,
+          "Terra": 2
+        },
+        "B:repeat2": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "C:repeat0": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "C:repeat1": {
+          "Luna": 2,
+          "Terra": 1
+        },
+        "C:repeat2": {
+          "Luna": 1,
+          "Terra": 2
+        }
+      },
+      "methodPositionCounts": {
+        "A": {
+          "1": 3,
+          "3": 3,
+          "2": 3
+        },
+        "B": {
+          "2": 3,
+          "1": 3,
+          "3": 3
+        },
+        "C": {
+          "3": 3,
+          "2": 3,
+          "1": 3
+        }
+      },
+      "allCheckedConditionalFirstCountDifferencesAtMostOne": true
+    },
+    "budget": {
+      "pilotWorkflows": 18,
+      "reviewCalls": 54,
+      "pilotNormal": 144,
+      "pilotMax": 180,
+      "expandedWorkflowsTotal": 54,
+      "expandedNormalTotal": 324,
+      "expandedMaxTotal": 432
+    },
+    "actualAIInvocations": 0,
+    "notExecuted": [
+      "adapter implementation",
+      "sample generation",
+      "offline adapter behavioral tests",
+      "model calls",
+      "Mermaid rendering"
+    ],
+    "sourceAndSettingsMatchOriginBeforeCommit": true
+  }
+}
