@@ -1119,3 +1119,39 @@ test('workflow engine: a coder resumed after a failed check gets the failures wi
   assert.deepEqual(third.calls[0].feedback, { failures: [{ id: 'unit', exitCode: 1, failedTests: ['a'] }], interrupted: true, changedFiles: ['src/a.js'] });
   releaseRun(h2);
 });
+
+test('workflow engine: a review-fix whose result is stored is not called again when its recheck was interrupted', async (t) => {
+  const { ctx, run, handle } = setup(t);
+  const finding = { code: 'F1', severity: 'high', path: 'src/a.js', evidence: 'wrong' };
+  const provider = fakeProvider({ 'reviewer:review': [{ status: 'needs_changes', findings: [finding] }] });
+  const inner = fakeVerifier();
+  let runs = 0;
+  const verifier = {
+    ...inner,
+    async run(req) {
+      runs += 1;
+      if (runs === 4) {
+        throw new Error('the manager stopped during the review-fix checks');
+      }
+      return inner.run(req);
+    },
+  };
+  await assert.rejects(runWorkflow(handle, { provider, verifier }), /stopped during the review-fix checks/);
+  assert.equal(handle.state.status, 'INTERRUPTED');
+  assert.equal(handle.state.reviewFix.attempt, 1);
+  const callsBefore = handle.state.budget.agentCalls;
+  releaseRun(handle);
+
+  const again = acquireRun(ctx, run.runId);
+  const resumed = fakeProvider();
+  const recheck = fakeVerifier();
+  const state = await runWorkflow(again, { provider: resumed, verifier: recheck, resume: true, recovery: PASSED });
+  assert.equal(state.status, 'SUCCEEDED');
+  assert.deepEqual(callKeys(resumed), ['reviewer:review:2', 'auditor:audit:1']);
+  assert.deepEqual(recheck.runs.map((r) => r.stepId), ['review']);
+  assert.equal(state.budget.agentCalls, callsBefore + 2);
+  assert.equal(state.budget.repairAttempts['review-fix'], 1);
+  assert.deepEqual(fs.readdirSync(path.join(run.dir, 'artifacts')).filter((f) => f.includes('review-fix')), ['02-review-fix-1.json']);
+  assert.equal(state.reviewFix, undefined);
+  releaseRun(again);
+});

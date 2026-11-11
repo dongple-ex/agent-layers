@@ -329,6 +329,7 @@ agent-layers secrets delete example/api-token
 - `secrets check`는 설정 저장소가 참조하는데 이 PC에 아직 없는 비밀값을 보여 줍니다.
 - PC에서 실행하는 서버는 `agent-layers exec`로 감싸서 등록됩니다. 서버가 시작될 때 exec가 키체인에서 값을 읽어 환경 변수로 넘깁니다.
 - 원격 서버는 환경 변수 참조로 등록됩니다. 환경 변수 참조를 지원하지 않는 에이전트에는 그 서버를 쓰지 않고 경고를 출력합니다.
+- 원격 서버에는 agent-layers가 키체인 값을 전달하지 않습니다. `plan`이 `GITHUB_TOKEN <- secret:github/token`처럼 보여 주는 환경 변수가 에이전트를 시작하는 환경에 있어야 합니다. 직접 설정하거나, exec로 에이전트를 시작합니다: `agent-layers exec --env GITHUB_TOKEN=@@secret:github/token@@ -- claude`
 
 키체인이 필요 없는 경우도 있습니다.
 

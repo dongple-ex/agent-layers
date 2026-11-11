@@ -19,6 +19,10 @@ export const TOKEN_PATTERNS = [
 ];
 export const SECRET_FIELD = /"(?:[A-Za-z_]*(?:PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY)[A-Za-z_]*)"\s*:\s*"(?!\$\{)([^"]{4,})"/i;
 export const SECRET_TOML_FIELD = /^\s*[A-Za-z0-9_.-]*(?:password|passwd|secret|token|api_?key)[A-Za-z0-9_-]*\s*=\s*["'](?!\$\{)[^"'\n]{4,}["']/im;
+export const AUTH_NAME = /(?:^|[_-])auth(?:orization)?$|^cookie$/i;
+export const FLAG_VALUE = /^(?:true|false|yes|no|on|off|[01])$/i;
+export const URL_PASSWORD = /([a-z][a-z0-9+.-]*:\/\/[^\s/?#@:"'${}]*:)(?!\$\{|\{\{)([^\s/?#@"']+)(?=@)/i;
+export const URL_QUERY_SECRET = /([a-z][a-z0-9+.-]*:\/\/[^\s"']*?[?&]((?:[a-z0-9_.-]*(?:api[_-]?key|token|secret|passw(?:or)?d|signature|credential)|key|sig|auth))=)(?!\$\{|\{\{)([^&#\s"']+)/i;
 const SKILL_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 export function unknownTargetIssues(layer) {
@@ -112,6 +116,29 @@ export function validateSource(sourceDir, { os = 'windows' } = {}) {
         for (const [k, v] of Object.entries(d.env || {})) {
           if (/(PASS|SECRET|TOKEN|KEY)/i.test(k) && typeof v === 'string' && v && !v.includes('${')) {
             add('error', m.file, `env ${k} looks like a plaintext secret; use "\${secret:NAME}"`);
+          }
+        }
+        const literal = (v) => typeof v === 'string' && v !== '' && !v.includes('${') && !v.includes('{{') && !FLAG_VALUE.test(v);
+        const fields = [
+          ...(Array.isArray(d.args) ? d.args : []).map((v) => ['args', '', v]),
+          ...Object.entries(d.env || {}).map(([k, v]) => ['env', k, v]),
+          ['url', '', d.url],
+          ...Object.entries(d.headers || {}).map(([k, v]) => ['header', k, v]),
+        ];
+        for (const [kind, k, v] of fields) {
+          const where = k ? `${kind} ${k}` : kind;
+          if (k && AUTH_NAME.test(k) && literal(v) && !(kind === 'env' && /(PASS|SECRET|TOKEN|KEY)/i.test(k))) {
+            add('error', m.file, `${where} looks like a plaintext credential; use "\${secret:NAME}"`);
+          }
+          if (typeof v !== 'string') {
+            continue;
+          }
+          if (URL_PASSWORD.test(v)) {
+            add('error', m.file, `${where} has a plaintext password inside a URL; write that part as "\${secret:NAME}"`);
+          }
+          const query = URL_QUERY_SECRET.exec(v);
+          if (query) {
+            add('error', m.file, `${where} has a plaintext value for the URL query parameter "${query[2]}"; write it as "\${secret:NAME}"`);
           }
         }
       }

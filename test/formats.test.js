@@ -254,3 +254,29 @@ test('diff and eol helpers', () => {
   assert.equal(normalizeEol('x\r\r\ny\r\n'), 'x\ny\n');
   assert.equal(encodeText('a\nb\n', { eol: 'crlf' }), 'a\r\nb\r\n');
 });
+
+test('toml editor: comments below the last key of a table survive table update and removal', () => {
+  const src = 'model = "a"\n\n[mcp_servers.svc]\ncommand = "x"\n# note right below the keys\n\n# detached note\n\n[b]\nk = 1\n';
+  const doc = new TomlDocument(src);
+  assert.equal(doc.setTable(['mcp_servers', 'svc'], { command: 'y', args: [] }), 'updated');
+  assert.equal(doc.toString(), 'model = "a"\n\n[mcp_servers.svc]\ncommand = "y"\nargs = []\n# note right below the keys\n\n# detached note\n\n[b]\nk = 1\n');
+  doc.removeTable(['mcp_servers', 'svc']);
+  assert.equal(doc.toString(), 'model = "a"\n\n# note right below the keys\n\n# detached note\n\n[b]\nk = 1\n');
+  const last = new TomlDocument('model = "a"\n\n[mcp_servers.svc]\ncommand = "x"\n\n# trailing note\n');
+  last.setTable(['mcp_servers', 'svc'], { command: 'y' });
+  assert.equal(last.toString(), 'model = "a"\n\n[mcp_servers.svc]\ncommand = "y"\n\n# trailing note\n');
+  last.removeTable(['mcp_servers', 'svc']);
+  assert.equal(last.toString(), 'model = "a"\n\n# trailing note\n');
+  const plain = new TomlDocument('model = "a"\n\n[mcp_servers.svc]\ncommand = "x"\n');
+  plain.removeTable(['mcp_servers', 'svc']);
+  assert.equal(plain.toString(), 'model = "a"\n');
+});
+
+test('jsonmerge: a user value that is not an object is reported before a managed key replaces it', () => {
+  const merge = planManagedMerge({ context: ['my-own.md'], ui: 'dark' }, { context: { fileName: ['AGENTS.md'], depth: 2 }, ui: { theme: { name: 'x' } } });
+  const sets = merge.changes.filter((c) => c.op === 'set');
+  assert.deepEqual(sets.map((c) => [c.path, c.before]), [[['context'], ['my-own.md']], [['ui'], 'dark']]);
+  assert.deepEqual(merge.changes.filter((c) => c.op === 'add').map((c) => c.path), [['context', 'fileName'], ['context', 'depth'], ['ui', 'theme', 'name']]);
+  const relinked = planManagedMerge({ context: ['my-own.md'] }, { context: { fileName: ['AGENTS.md'] } }, { previous: [{ path: ['context', 'fileName'], hash: 'x' }] });
+  assert.deepEqual(relinked.changes.filter((c) => c.op === 'set').map((c) => c.path), [['context']]);
+});

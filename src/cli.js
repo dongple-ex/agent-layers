@@ -246,9 +246,13 @@ function printPlan(ctx, plan, rendered, flags, title) {
     }
   }
   if (rendered.requiredEnv.length) {
-    info(c.bold('\nEnvironment variables the rendered configs expect'));
+    info(c.bold('\nEnvironment variables to set before starting the agent'));
     for (const e of rendered.requiredEnv) {
       info(`  ${printable(e)}`);
+    }
+    if (rendered.requiredEnv.some((e) => e.includes('<- secret:'))) {
+      info(c.gray('  agent-layers does not export these. For "VAR <- secret:NAME", set VAR to that secret yourself,'));
+      info(c.gray('  or start the agent with: agent-layers exec --env VAR=@@secret:NAME@@ -- <agent>'));
     }
   }
   if (counts.conflict || counts.drift) {

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { isUtf8 } from 'node:buffer';
 
 const BOM = '﻿';
 const RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'ENOTEMPTY']);
@@ -9,10 +10,27 @@ export function normalizeEol(text) {
   return text.replace(/\r+\n/g, '\n');
 }
 
-export function readText(file) {
+function encodingError(why) {
+  return Object.assign(new Error(`the file is not UTF-8 text (${why}), so agent-layers left it unchanged. Convert it to UTF-8 and run the command again`), { code: 'E_ENCODING' });
+}
+
+function decodeUtf8Strict(buf) {
+  if (buf.length >= 2 && ((buf[0] === 0xff && buf[1] === 0xfe) || (buf[0] === 0xfe && buf[1] === 0xff))) {
+    throw encodingError('it starts with a UTF-16 byte order mark');
+  }
+  if (buf.includes(0)) {
+    throw encodingError('it contains NUL bytes');
+  }
+  if (!isUtf8(buf)) {
+    throw encodingError('it contains bytes that are not valid UTF-8');
+  }
+  return buf.toString('utf8');
+}
+
+export function readText(file, { strict = false } = {}) {
   let raw;
   try {
-    raw = fs.readFileSync(file, 'utf8');
+    raw = strict ? decodeUtf8Strict(fs.readFileSync(file)) : fs.readFileSync(file, 'utf8');
   } catch (err) {
     if (err.code === 'ENOENT' || err.code === 'ENOTDIR') {
       return null;

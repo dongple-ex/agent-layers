@@ -1,6 +1,8 @@
 {
   // Neutral MCP server definition. agent-layers converts it into each agent's own format.
   // Secrets: "${secret:NAME}" (store with "agent-layers secrets set NAME"). Environment variables: "${env:NAME}".
+  // A remote (http/sse) server gets an environment variable reference only; the keychain value is not exported.
+  // Set the variable that "agent-layers plan" lists yourself before starting the agent.
   // Remove "enabled": false to activate this example.
   "enabled": false,
   "transport": "http",

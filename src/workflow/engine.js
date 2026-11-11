@@ -745,6 +745,11 @@ async function resumeReviewFix(rt, pending) {
   return fixLoop(rt, pending.stepId, pending.role, findings, scope.owners, { ...(failures.length > 0 ? { findings, failures } : { findings }), ...interruptionNote(rt) });
 }
 
+function fixResultStored(rt, attempt) {
+  const { events } = readRun(rt.handle.ctx, rt.handle.runId);
+  return events.some((e) => e.type === 'role.result' && e.data.stepId === REVIEW_FIX_TARGET && e.data.attempt === attempt && e.data.valid === true && e.data.status !== 'blocked');
+}
+
 async function fixLoop(rt, id, role, findings, owners, firstFeedback = { findings }) {
   const writePaths = [...new Set(owners.flatMap((o) => rt.byId.get(o).writePaths))];
   const affected = downstreamOf(rt.nodes, owners);
@@ -752,8 +757,9 @@ async function fixLoop(rt, id, role, findings, owners, firstFeedback = { finding
   let feedback = firstFeedback;
   for (;;) {
     let attempt = rt.handle.state.reviewFix.attempt;
+    const stored = attempt !== null && fixResultStored(rt, attempt);
     if (attempt !== null) {
-      commit(rt, 'review-fix.resumed', { stepId: id, attempt }, (n) => {
+      commit(rt, 'review-fix.resumed', { stepId: id, attempt, ...(stored ? { resultStored: true } : {}) }, (n) => {
         n.steps[id].status = 'RUNNING';
       });
     } else {
@@ -765,18 +771,20 @@ async function fixLoop(rt, id, role, findings, owners, firstFeedback = { finding
         n.steps[id].status = 'RUNNING';
       });
     }
-    const instruction = findings.length > 0 ? `Apply the ${role} findings` : 'Fix the failing required checks';
-    const req = { role: 'coder', stepId: REVIEW_FIX_TARGET, statusId: id, attempt, goal: rt.plan.goal, instruction, acceptance: rt.work.filter((s) => owners.includes(s.id)).flatMap((s) => s.acceptance), writePaths, feedback };
-    const call = await callRole(rt, req);
-    if (!call) {
-      return false;
-    }
-    const { issues } = recordResult(rt, req, call.result);
-    if (issues.length > 0) {
-      return stopStep(rt, id, 'BLOCKED', 'invalid-result', `invalid ${REVIEW_FIX_TARGET} result: ${issues.join('; ')}`);
-    }
-    if (call.result.status === 'blocked') {
-      return stopStep(rt, id, 'BLOCKED', 'role-blocked', `${REVIEW_FIX_TARGET} needs input (${call.result.needsInput.length} items)`);
+    if (!stored) {
+      const instruction = findings.length > 0 ? `Apply the ${role} findings` : 'Fix the failing required checks';
+      const req = { role: 'coder', stepId: REVIEW_FIX_TARGET, statusId: id, attempt, goal: rt.plan.goal, instruction, acceptance: rt.work.filter((s) => owners.includes(s.id)).flatMap((s) => s.acceptance), writePaths, feedback };
+      const call = await callRole(rt, req);
+      if (!call) {
+        return false;
+      }
+      const { issues } = recordResult(rt, req, call.result);
+      if (issues.length > 0) {
+        return stopStep(rt, id, 'BLOCKED', 'invalid-result', `invalid ${REVIEW_FIX_TARGET} result: ${issues.join('; ')}`);
+      }
+      if (call.result.status === 'blocked') {
+        return stopStep(rt, id, 'BLOCKED', 'role-blocked', `${REVIEW_FIX_TARGET} needs input (${call.result.needsInput.length} items)`);
+      }
     }
     commit(rt, 'review-fix.verifying', { stepId: id, attempt }, (n) => {
       n.steps[id].status = 'VERIFYING';

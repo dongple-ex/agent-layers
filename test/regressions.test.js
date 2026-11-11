@@ -1430,3 +1430,119 @@ test('the init template uses only built-in variables that 0.1.7 engines know', (
   assert.ok(used.length > 0);
   assert.deepEqual(used.filter((v) => !legacy.includes(v)), []);
 });
+
+test('existing files that are not UTF-8 are reported and left byte for byte unchanged', () => {
+  const sb = sandbox();
+  manifest(sb, ['codex', 'gemini']);
+  const cp949 = Buffer.concat([Buffer.from('# '), Buffer.from([0xb1, 0xd4, 0xc4, 0xa2]), Buffer.from('\n\n- keep\n')]);
+  const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('# Mine\n\n- keep\n', 'utf16le')]);
+  const agents = path.join(sb.home, '.codex', 'AGENTS.md');
+  const gemini = path.join(sb.home, '.gemini', 'GEMINI.md');
+  fs.mkdirSync(path.dirname(agents), { recursive: true });
+  fs.mkdirSync(path.dirname(gemini), { recursive: true });
+  fs.writeFileSync(agents, cp949);
+  fs.writeFileSync(gemini, utf16);
+  for (const args of [['plan'], ['apply', '--yes'], ['apply', '--yes', '--force']]) {
+    const r = cli(sb, args);
+    assert.match(r.out, /not valid UTF-8/, r.out);
+    assert.match(r.out, /UTF-16 byte order mark/, r.out);
+    assert.doesNotMatch(r.out, /AGENTS\.md[^\n]*rest of the file is preserved/, r.out);
+    assert.ok(fs.readFileSync(agents).equals(cp949), `${args.join(' ')} rewrote the CP949 file`);
+    assert.ok(fs.readFileSync(gemini).equals(utf16), `${args.join(' ')} rewrote the UTF-16 file`);
+  }
+});
+
+test('a managed JSON key does not replace a user value of another type without --force', () => {
+  const sb = sandbox();
+  manifest(sb, ['gemini']);
+  const settings = path.join(sb.home, '.gemini', 'settings.json');
+  const mine = '{\n  "context": ["my-own.md"]\n}\n';
+  write(settings, mine);
+  let r = cli(sb, ['apply', '--yes']);
+  assert.match(r.out, /conflict[^\n]*settings\.json/, r.out);
+  assert.match(r.out, /would overwrite existing unmanaged values: context\n/, r.out);
+  assert.equal(read(settings), mine);
+  r = cli(sb, ['apply', '--yes', '--force']);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(JSON.parse(read(settings)).context, { fileName: ['AGENTS.md', 'GEMINI.md'] });
+});
+
+test('removing managed JSON keys leaves a file with comments in place and keeps its record', () => {
+  const sb = sandbox();
+  manifest(sb, ['gemini']);
+  const settings = path.join(sb.home, '.gemini', 'settings.json');
+  write(settings, '{\n  "ui": { "theme": "dark" }\n}\n');
+  let r = cli(sb, ['apply', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  const commented = read(settings).replace('{\n', '{\n  // my note\n');
+  assert.match(commented, /\/\/ my note/);
+  write(settings, commented);
+  for (let i = 0; i < 2; i += 1) {
+    r = cli(sb, ['uninstall', '--yes']);
+    assert.match(r.out, /comments or trailing commas[^\n]*left in place[^\n]*context\.fileName/, r.out);
+    assert.equal(read(settings), commented);
+  }
+  write(settings, commented.replace('  // my note\n', ''));
+  r = cli(sb, ['uninstall', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(JSON.parse(read(settings)), { ui: { theme: 'dark' } });
+});
+
+test('import replaces URL passwords, URL query keys and auth-named values, and validate reports them', () => {
+  const sb = sandbox();
+  manifest(sb, ['claude']);
+  const servers = {
+    pg: { command: 'npx', args: ['-y', 'server-postgres', 'postgresql://app:FIXTUREpw123@db.internal:5432/app'] },
+    dburl: { command: 'node', args: ['server.js'], env: { DATABASE_URL: 'postgres://app:FIXTUREpw123@db.internal/app', LOG_URL: 'http://localhost:8080/log' } },
+    basic: { command: 'node', args: ['server.js'], env: { SN_INSTANCE: 'dev1', SN_AUTH: 'admin:FIXTUREpw123', USE_AUTH: 'true' } },
+    query: { type: 'http', url: 'https://mcp.example.com/mcp?region=kr&api_key=FIXTUREkey123456&token=FIXTUREtok654321' },
+    hdr: { type: 'http', url: 'https://mcp.example.com/mcp', headers: { 'X-Auth': 'FIXTUREkey123456', 'Proxy-Authorization': 'Basic FIXTUREb64value', Accept: 'application/json' } },
+  };
+  write(path.join(sb.home, '.claude.json'), JSON.stringify({ mcpServers: servers }));
+  write(path.join(sb.home, '.claude', 'settings.json'), JSON.stringify({ model: 'opus', env: { DATABASE_URL: 'postgres://app:FIXTUREpw123@db.internal/app', SAFE: '1' } }));
+  const r = cli(sb, ['import', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.doesNotMatch(r.out, /FIXTURE/, 'import printed a credential');
+  assert.deepEqual(JSON.parse(read(path.join(sb.source, 'base', 'settings', 'claude.json'))).env, { SAFE: '1' });
+  assert.match(r.out, /left out DATABASE_URL/);
+  const mcp = (name) => JSON.parse(read(path.join(sb.source, 'base', 'mcp', `${name}.jsonc`)));
+  for (const name of Object.keys(servers)) {
+    assert.doesNotMatch(read(path.join(sb.source, 'base', 'mcp', `${name}.jsonc`)), /FIXTURE/, `${name} kept a plaintext credential`);
+  }
+  assert.equal(mcp('pg').args[2], 'postgresql://app:${secret:pg/arg-3-password}@db.internal:5432/app');
+  assert.deepEqual(mcp('dburl').env, { DATABASE_URL: 'postgres://app:${secret:dburl/database-url-password}@db.internal/app', LOG_URL: 'http://localhost:8080/log' });
+  assert.deepEqual(mcp('basic').env, { SN_INSTANCE: 'dev1', SN_AUTH: '${secret:basic/sn-auth}', USE_AUTH: 'true' });
+  assert.equal(mcp('query').url, 'https://mcp.example.com/mcp?region=kr&api_key=${secret:query/url-api-key}&token=${secret:query/url-token}');
+  assert.deepEqual(mcp('hdr').headers, { 'X-Auth': '${secret:hdr/header-x-auth}', 'Proxy-Authorization': 'Basic ${secret:hdr/header-proxy-authorization}', Accept: 'application/json' });
+  for (const name of ['pg/arg-3-password', 'dburl/database-url-password', 'basic/sn-auth', 'query/url-api-key', 'query/url-token', 'hdr/header-x-auth', 'hdr/header-proxy-authorization']) {
+    assert.ok(r.out.includes(name), `import did not list the secret ${name}`);
+  }
+  assert.equal(cli(sb, ['validate']).code, 0);
+  write(path.join(sb.source, 'base', 'mcp', 'pg.jsonc'), JSON.stringify(servers.pg));
+  write(path.join(sb.source, 'base', 'mcp', 'basic.jsonc'), JSON.stringify(servers.basic));
+  write(path.join(sb.source, 'base', 'mcp', 'query.jsonc'), JSON.stringify({ transport: 'http', url: servers.query.url }));
+  write(path.join(sb.source, 'base', 'mcp', 'hdr.jsonc'), JSON.stringify({ transport: 'http', url: servers.hdr.url, headers: servers.hdr.headers }));
+  const v = cli(sb, ['validate']);
+  assert.equal(v.code, 1, v.out);
+  assert.doesNotMatch(v.out, /FIXTURE/, 'validate printed a credential');
+  assert.match(v.out, /pg\.jsonc[^\n]*args[^\n]*password inside a URL/, v.out);
+  assert.match(v.out, /basic\.jsonc[^\n]*env SN_AUTH/, v.out);
+  assert.match(v.out, /query\.jsonc[^\n]*url[^\n]*query/, v.out);
+  assert.match(v.out, /hdr\.jsonc[^\n]*header X-Auth/, v.out);
+  assert.doesNotMatch(v.out, /USE_AUTH|Accept/, v.out);
+});
+
+test('plan says that environment variables for remote servers are not exported from the keychain', () => {
+  const sb = sandbox();
+  manifest(sb, ['claude']);
+  write(path.join(sb.source, 'base', 'mcp', 'github.jsonc'), JSON.stringify({ transport: 'http', url: 'https://api.example.com/mcp/', headers: { Authorization: 'Bearer ${secret:github/token}' } }));
+  const r = cli(sb, ['plan']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /Environment variables to set before starting the agent\n\s+GITHUB_TOKEN <- secret:github\/token\n/, r.out);
+  assert.match(r.out, /agent-layers does not export these/, r.out);
+  assert.match(r.out, /agent-layers exec --env VAR=@@secret:NAME@@ -- <agent>/, r.out);
+  const local = sandbox();
+  manifest(local, ['claude']);
+  write(path.join(local.source, 'base', 'mcp', 'svc.jsonc'), JSON.stringify({ command: 'node', args: ['s.js'], env: { API_TOKEN: '${secret:svc/token}' } }));
+  assert.doesNotMatch(cli(local, ['plan']).out, /does not export/);
+});

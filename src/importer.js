@@ -5,7 +5,7 @@ import { listBlockIds, removeBlock } from './formats/mdblock.js';
 import { parseJsonc, stringifyJson } from './formats/jsonc.js';
 import { parseTomlValue, TomlDocument } from './formats/toml.js';
 import { joinFrontmatter } from './formats/frontmatter.js';
-import { TOKEN_PATTERNS, SECRET_FIELD, SECRET_TOML_FIELD } from './validate.js';
+import { TOKEN_PATTERNS, SECRET_FIELD, SECRET_TOML_FIELD, AUTH_NAME, FLAG_VALUE, URL_PASSWORD, URL_QUERY_SECRET } from './validate.js';
 
 const SECRET_KEY = /(pass(word|wd)?|pwd|secret|token|api[_-]?key|credential|private[_-]?key)(?!.*helper$)/i;
 const SECRET_FLAG = /^--?(?:[a-z0-9-]*-)?(password|passwd|pwd|secret|token|api-?key|key|auth|bearer|credential)s?$/i;
@@ -72,6 +72,25 @@ function homeTemplating(ctx, value) {
   return value;
 }
 
+function secretizeUrl(serverName, label, value, found) {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  let count = 0;
+  let out = value.replace(new RegExp(URL_PASSWORD.source, 'gi'), (_, head) => {
+    count += 1;
+    const name = `${serverName}/${slug(label)}-password${count > 1 ? `-${count}` : ''}`;
+    found.push(name);
+    return `${head}\${secret:${name}}`;
+  });
+  for (let m = URL_QUERY_SECRET.exec(out); m; m = URL_QUERY_SECRET.exec(out)) {
+    const name = `${serverName}/${slug(label)}-${slug(m[2])}`;
+    found.push(name);
+    out = `${out.slice(0, m.index)}${m[1]}\${secret:${name}}${out.slice(m.index + m[0].length)}`;
+  }
+  return out;
+}
+
 function secretizeMap(serverName, map, found, kind) {
   const out = {};
   for (const [k, v] of Object.entries(map || {})) {
@@ -80,15 +99,15 @@ function secretizeMap(serverName, map, found, kind) {
       continue;
     }
     const name = `${serverName}/${slug(kind === 'headers' ? `header-${k}` : k)}`;
-    if (kind === 'headers' && k.toLowerCase() === 'authorization') {
+    if (kind === 'headers' && /^(?:proxy-)?authorization$/i.test(k)) {
       const m = /^(\S+)\s+(.+)$/.exec(v);
       out[k] = m ? `${m[1]} \${secret:${name}}` : `\${secret:${name}}`;
       found.push(name);
-    } else if (SECRET_KEY.test(k) || looksLikeToken(v)) {
+    } else if (SECRET_KEY.test(k) || looksLikeToken(v) || (AUTH_NAME.test(k) && !FLAG_VALUE.test(v))) {
       out[k] = `\${secret:${name}}`;
       found.push(name);
     } else {
-      out[k] = v;
+      out[k] = secretizeUrl(serverName, kind === 'headers' ? `header-${k}` : k, v, found);
     }
   }
   return out;
@@ -128,7 +147,7 @@ function secretizeArgs(serverName, args, found) {
       found.push(name);
       return;
     }
-    out.push(a);
+    out.push(secretizeUrl(serverName, `arg-${i + 1}`, a, found));
   });
   return out;
 }
@@ -145,7 +164,7 @@ function neutralFromMcp(name, cfg, found) {
     }
   } else {
     def.transport = cfg.type === 'sse' ? 'sse' : 'http';
-    def.url = cfg.url || cfg.httpUrl || cfg.serverUrl;
+    def.url = secretizeUrl(name, 'url', cfg.url || cfg.httpUrl || cfg.serverUrl, found);
     if (cfg.headers || cfg.http_headers) {
       def.headers = secretizeMap(name, cfg.headers || cfg.http_headers, found, 'headers');
     }
@@ -160,7 +179,7 @@ function dropSecretSettings(obj, label, notes, prefix = []) {
   const out = {};
   for (const [k, v] of Object.entries(obj)) {
     const p = [...prefix, k];
-    if (typeof v === 'string' && v && !isReference(v) && (SECRET_KEY.test(k) || looksLikeToken(v))) {
+    if (typeof v === 'string' && v && !isReference(v) && (SECRET_KEY.test(k) || looksLikeToken(v) || URL_PASSWORD.test(v) || URL_QUERY_SECRET.test(v))) {
       notes.push(`${label}: left out ${p.join('.')} because it looks like a secret; provide it through the environment or a secret manager`);
       continue;
     }
@@ -338,8 +357,9 @@ export function planImport(ctx, { from = ['claude', 'codex', 'gemini', 'copilot'
     if (typeof w.content === 'string') {
       const hit = TOKEN_PATTERNS.find(([re]) => re.test(w.content));
       const field = /\.jsonc?$/.test(w.rel) ? SECRET_FIELD.test(w.content) : /\.toml$/.test(w.rel) ? SECRET_TOML_FIELD.test(w.content) : false;
-      if (hit || field) {
-        notes.push(`${w.rel}: not imported because it still contains ${hit ? `something that looks like a ${hit[1]}` : 'a secret-looking field with a literal value'}; copy it by hand after removing the secret`);
+      const url = /^mcp\/[^/]+\.jsonc$/.test(w.rel) && (URL_PASSWORD.test(w.content) || URL_QUERY_SECRET.test(w.content));
+      if (hit || field || url) {
+        notes.push(`${w.rel}: not imported because it still contains ${hit ? `something that looks like a ${hit[1]}` : field ? 'a secret-looking field with a literal value' : 'a URL with a literal password or key'}; copy it by hand after removing the secret`);
         continue;
       }
     }

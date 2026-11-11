@@ -76,7 +76,7 @@ function backupFile(ctx, plan, file) {
 }
 
 function textState(file) {
-  const r = readText(file);
+  const r = readText(file, { strict: true });
   return r || null;
 }
 
@@ -522,8 +522,12 @@ function planRemoval(rec, forget = []) {
       }
       const current = parseJsonc(ts.text, o.path);
       const merge = planManagedMerge(current, {}, { previous: rec.managed || [], forget });
-      if (!merge.changes.some((ch) => ch.op === 'remove')) {
+      const removed = merge.changes.filter((ch) => ch.op === 'remove');
+      if (!removed.length) {
         return null;
+      }
+      if (hasJsonComments(ts.text)) {
+        return { action: 'drift', reason: `the file contains comments or trailing commas that rewriting it would drop; left in place. Remove these keys by hand: ${removed.map((ch) => pathKey(ch.path)).join(', ')}` };
       }
       const drop = rec.created === true && Object.keys(merge.result).length === 0;
       return {

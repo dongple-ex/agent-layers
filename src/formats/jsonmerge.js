@@ -93,6 +93,20 @@ export function forgetEntryFor(forget, p) {
   return (forget || []).find((f) => isPathPrefix(f.path, p));
 }
 
+function blockingAncestor(obj, path) {
+  let cur = obj;
+  for (let i = 0; i < path.length - 1; i += 1) {
+    if (!isPlainObject(cur) || !(path[i] in cur)) {
+      return null;
+    }
+    cur = cur[path[i]];
+    if (!isPlainObject(cur)) {
+      return { path: path.slice(0, i + 1), value: cur };
+    }
+  }
+  return null;
+}
+
 export function planManagedMerge(current, fragment, { atomic = [], previous = [], forget = [] } = {}) {
   const result = clone(current) || {};
   const leaves = flattenLeaves(fragment, atomic);
@@ -102,6 +116,10 @@ export function planManagedMerge(current, fragment, { atomic = [], previous = []
   const prevByKey = new Map(previous.map((m) => [pathKey(m.path), m]));
   for (const leaf of leaves) {
     const key = pathKey(leaf.path);
+    const blocked = blockingAncestor(result, leaf.path);
+    if (blocked) {
+      changes.push({ op: 'set', path: blocked.path, before: blocked.value, after: {} });
+    }
     const before = getAt(result, leaf.path);
     const prev = prevByKey.get(key);
     if (prev && before !== undefined && valueHash(before) !== prev.hash && valueHash(before) !== valueHash(leaf.value)) {

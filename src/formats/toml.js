@@ -713,6 +713,17 @@ export class TomlDocument {
     return next ? Math.max(headerIndexInLines + 1, this.attachedCommentStart(next.startLine)) : this.lines.length;
   }
 
+  tableBodyEnd(headerLine) {
+    const end = this.sectionEnd(headerLine);
+    let last = headerLine + 1;
+    for (const e of this.entries) {
+      if (e.type === 'kv' && e.startLine > headerLine && e.startLine < end) {
+        last = Math.max(last, e.endLine + 1);
+      }
+    }
+    return last;
+  }
+
   rootEnd() {
     const first = this.headers()[0];
     return first ? this.attachedCommentStart(first.startLine) : this.lines.length;
@@ -876,7 +887,7 @@ export class TomlDocument {
       if (!header) {
         break;
       }
-      const end = this.sectionEnd(header.startLine);
+      const end = this.tableBodyEnd(header.startLine);
       let start = header.startLine;
       while (start > 0 && this.lines[start - 1].trim() === '') {
         start -= 1;
@@ -910,9 +921,7 @@ export class TomlDocument {
       lines.push(`${tomlKey(k)} = ${tomlValue(v)}`);
     }
     if (header && !this.entries.some((e) => e.type === 'table' && e.path.length > path.length && startsWithPath(e.path, path))) {
-      const end = this.sectionEnd(header.startLine);
-      const last = this.lastContentLine(header.startLine + 1, end);
-      this.lines.splice(header.startLine, Math.max(last, header.startLine + 1) - header.startLine, ...lines);
+      this.lines.splice(header.startLine, this.tableBodyEnd(header.startLine) - header.startLine, ...lines);
       this.reparse();
       return 'updated';
     }

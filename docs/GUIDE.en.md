@@ -329,6 +329,7 @@ agent-layers secrets delete example/api-token
 - `secrets check` lists secrets the setup repository refers to that this machine does not have yet.
 - Servers that run on your machine are registered wrapped in `agent-layers exec`. When the server starts, exec reads the values from the keychain and passes them as environment variables.
 - Remote servers are registered with environment variable references. Agents that cannot reference environment variables get a warning and the server is not written for them.
+- agent-layers does not pass keychain values to remote servers. The variable that `plan` lists, such as `GITHUB_TOKEN <- secret:github/token`, must exist in the environment the agent starts in. Set it yourself, or start the agent through exec: `agent-layers exec --env GITHUB_TOKEN=@@secret:github/token@@ -- claude`.
 
 Sometimes you do not need the keychain at all:
 
