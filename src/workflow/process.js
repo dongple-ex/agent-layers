@@ -1,8 +1,10 @@
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import path from 'node:path';
 import { firstLine, which } from '../util/proc.js';
 
 export const TREE_KILL_SUPPORTED = process.platform === 'linux';
+export const TREE_KILL_METHOD = process.platform === 'linux' ? 'process-group' : process.platform === 'win32' ? 'taskkill' : 'direct-child';
 
 const DEFAULT_MAX_LINE_BYTES = 4 * 1024 * 1024;
 const DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
@@ -19,6 +21,7 @@ const RELAY_NAME = 'agent-layers-relay';
 const RELAY_SCRIPT = 'set -o pipefail; { "$@" 2>&1 1>&4 4>&- | cat >&2 4>&-; } 4>&1 | cat';
 const RELAY_PROBE = 'printf out; printf err >&2; exit 7';
 const RELAY_PROBE_TIMEOUT_MS = 10000;
+const TASKKILL_TIMEOUT_MS = 10000;
 
 function spawnError(file, reason, cause) {
   const err = new Error(`cannot start ${file}: ${reason}`, cause ? { cause } : undefined);
@@ -179,7 +182,36 @@ async function terminateTree(tracker, graceMs, signalErrors) {
   }
 }
 
-async function terminateChild(child, graceMs, exit) {
+function taskkillTree(pid) {
+  const root = process.env.SystemRoot;
+  if (!root) {
+    return Promise.resolve('no-systemroot');
+  }
+  return new Promise((resolve) => {
+    let killer;
+    try {
+      killer = spawn(path.join(root, 'System32', 'taskkill.exe'), ['/T', '/F', '/PID', String(pid)], { env: { SystemRoot: root }, shell: false, windowsHide: true, stdio: 'ignore', timeout: TASKKILL_TIMEOUT_MS });
+    } catch (err) {
+      resolve(err.code || 'spawn-failed');
+      return;
+    }
+    killer.once('error', (err) => resolve(err.code || 'spawn-failed'));
+    killer.once('exit', (code) => resolve(code === 0 ? null : code === null ? 'timeout' : `exit-${code}`));
+  });
+}
+
+async function terminateChild(child, graceMs, exit, signalErrors) {
+  if (TREE_KILL_METHOD === 'taskkill' && child.exitCode === null && child.signalCode === null) {
+    const failure = await taskkillTree(child.pid);
+    if (failure === null) {
+      return [];
+    }
+    signalErrors.push({ target: child.pid, signal: 'taskkill', code: failure });
+    if (failure === 'no-systemroot' || !(await settlesWithin(exit, graceMs))) {
+      child.kill('SIGKILL');
+    }
+    return [];
+  }
   child.kill('SIGTERM');
   if (!(await settlesWithin(exit, graceMs))) {
     child.kill('SIGKILL');
@@ -355,7 +387,7 @@ export async function runProcess({
     return {
       owner: null, exitCode: null, signal: null, timedOut: false, cancelled: true, started: false,
       stdout: stdout.result(), stderr: stderr.result(), jsonl: lines ? lines.result() : null, stdinError: null,
-      tree: { supported: TREE_KILL_SUPPORTED, confirmed: TREE_KILL_SUPPORTED, remaining: [], leftovers: 0, outputHeldOpen: false, signalErrors: [] },
+      tree: { supported: TREE_KILL_SUPPORTED, method: TREE_KILL_METHOD, confirmed: TREE_KILL_SUPPORTED, remaining: [], leftovers: 0, outputHeldOpen: false, signalErrors: [] },
     };
   }
 
@@ -398,7 +430,7 @@ export async function runProcess({
     if (stopping) {
       return stopping;
     }
-    const work = tracker ? terminateTree(tracker, graceMs, signalErrors) : terminateChild(child, graceMs, exit);
+    const work = tracker ? terminateTree(tracker, graceMs, signalErrors) : terminateChild(child, graceMs, exit, signalErrors);
     stopping = work.catch((err) => {
       trackingFailed = true;
       if (!failed) {
@@ -511,6 +543,7 @@ export async function runProcess({
     stdinError,
     tree: {
       supported: TREE_KILL_SUPPORTED,
+      method: TREE_KILL_METHOD,
       confirmed: TREE_KILL_SUPPORTED && owner.startTime !== null && !trackingFailed && drained && ended !== null && remaining !== null && remaining.length === 0,
       remaining,
       leftovers,

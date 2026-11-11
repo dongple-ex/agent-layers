@@ -46,11 +46,14 @@ export function checkCommandProblem(checks, env = childEnv(), label = 'check') {
   return null;
 }
 
-function unconfirmedEnd({ remaining, supported }) {
+function unconfirmedEnd({ remaining, supported, method }) {
   if (remaining.length > 0) {
     return `${remaining.length} process(es) could not be ended`;
   }
-  return supported ? 'the end of the processes it started could not be confirmed' : 'on this system only the direct child is ended, so its descendants may keep running';
+  if (supported) {
+    return 'the end of the processes it started could not be confirmed';
+  }
+  return method === 'taskkill' ? 'on Windows its descendants were ended with taskkill /T, but their end cannot be confirmed, and descendants of a process that had already exited are not found' : 'on this system only the direct child is ended, so its descendants may keep running';
 }
 
 export function cancelError(what, result) {

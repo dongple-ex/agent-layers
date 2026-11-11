@@ -15,6 +15,8 @@ import { acquireRun, commitRun, readRun, releaseRun, requestCancel } from '../sr
 
 const CANCEL_STATUS = TREE_KILL_SUPPORTED ? 'CANCELLED' : 'INTERRUPTED';
 const CANCEL_EXIT = TREE_KILL_SUPPORTED ? 130 : 3;
+const STOP_NOTE = process.platform === 'win32' ? /its descendants were ended with taskkill \/T, but their end cannot be confirmed/ : /only the direct child is ended/;
+const REPORT_WARNING = process.platform === 'win32' ? /warning: on Windows descendants are ended with taskkill \/T when a call is stopped, but their end is not confirmed/ : /warning: on this OS only the direct child is ended/;
 const CLEAN = () => ({ confirmed: true, leftovers: [] });
 const BIN = fileURLToPath(new URL('../bin/agent-layers.js', import.meta.url));
 const FAKE_AI = fileURLToPath(new URL('./fixtures/workflow/fake-ai.mjs', import.meta.url));
@@ -224,7 +226,8 @@ test('workflow run: plan, then run, ends SUCCEEDED with the change only in the w
   assert.ok(text.includes(`worktree: ${rep.worktree}`), text);
   assert.match(text, /result patch: artifacts\/result-patch-/);
   assert.match(text, /not guaranteed:/);
-  assert.equal(/only the direct child is ended/.test(text), process.platform !== 'linux');
+  assert.equal(REPORT_WARNING.test(text), process.platform !== 'linux');
+  assert.equal(/only the direct child is ended/.test(text), !['linux', 'win32'].includes(process.platform));
 
   assert.equal(runCli(s, plan.runId).code, 2);
   assert.match(cli(s, ['resume', plan.runId, '--path', s.repo, '--yes']).stderr, /already ended as SUCCEEDED/);
@@ -395,7 +398,7 @@ test('workflow run: cancelling during a call ends the child and keeps the record
   if (TREE_KILL_SUPPORTED) {
     await assert.rejects(cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, resume: true }), /already ended as CANCELLED/);
   } else {
-    assert.match(done.events.find((e) => e.type === 'run.interrupted').data.error, /only the direct child is ended/);
+    assert.match(done.events.find((e) => e.type === 'run.interrupted').data.error, STOP_NOTE);
     assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, resume: true }), 3);
     assert.equal(state(s, runId).stopReason, 'process-unconfirmed');
     assert.equal(s.calls().length, 2);
@@ -506,7 +509,7 @@ test('workflow cancel: a request from another process stops the run, and both co
     assert.equal(again.code, 2);
     assert.match(again.stderr, /already ended as CANCELLED/);
   } else {
-    assert.match(view.message, /only the direct child is ended/);
+    assert.match(view.message, STOP_NOTE);
     const again = cli(s, ['cancel', runId, '--json']);
     assert.equal(again.code, 3);
     assert.match(JSON.parse(again.stdout).message, /nothing is running/);

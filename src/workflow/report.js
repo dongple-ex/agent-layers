@@ -106,6 +106,7 @@ export function reportView(run) {
     remaining: view.steps.filter((s) => s.status !== 'SUCCEEDED').map((s) => s.id),
     worktree: workspace ? workspace.data.path : null,
     treeKillSupported: workspace ? workspace.data.treeKillSupported : null,
+    treeKillMethod: workspace && workspace.data.treeKillMethod !== undefined ? workspace.data.treeKillMethod : null,
     resultPatch: outcome ? { path: `artifacts/${outcome.data.patch}`, bytes: outcome.data.patchBytes, sha256: outcome.data.patchSha256 } : null,
     sourceChanges: [...new Set(outcomes.flatMap((e) => e.data.sourceChanges))],
     sourceChangedSinceStart: outcome ? outcome.data.sourceChangedSinceStart === true : false,
@@ -212,7 +213,7 @@ export function formatReport(view) {
     lines.push('warning: the source repository changed since the run started');
   }
   if (view.treeKillSupported === false) {
-    lines.push('warning: on this OS only the direct child is ended, so its descendants may keep running');
+    lines.push(view.treeKillMethod === 'taskkill' ? 'warning: on Windows descendants are ended with taskkill /T when a call is stopped, but their end is not confirmed; descendants of a process that already exited are not found' : 'warning: on this OS only the direct child is ended, so its descendants may keep running');
   }
   if (view.notGuaranteed.length > 0) {
     lines.push('not guaranteed:', ...view.notGuaranteed.map((n) => `  ${n}`));

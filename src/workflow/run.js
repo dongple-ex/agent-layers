@@ -5,7 +5,7 @@ import { parseJsonc } from '../formats/jsonc.js';
 import { sha256 } from '../util/fsx.js';
 import { error, info, printable, warn } from '../util/log.js';
 import { runWorkflow, wasInterrupted } from './engine.js';
-import { findLeftovers, TREE_KILL_SUPPORTED } from './process.js';
+import { findLeftovers, TREE_KILL_METHOD, TREE_KILL_SUPPORTED } from './process.js';
 import { commandVersion, createProvider, providerProblem } from './provider.js';
 import { formatReport, reportView } from './report.js';
 import { hashJson, normalizePolicy, validatePlan } from './schema.js';
@@ -383,7 +383,7 @@ function openWorkspace(ctx, handle, run, repo) {
   }
   const worktree = createWorktree(ctx, run.runId, { root: repo.root, baseCommit: run.plan.baseCommit });
   const artifact = writeArtifact(handle, 'workspace', { name: worktree.name, baseCommit: worktree.baseCommit, gitFileHash: worktree.gitFileHash });
-  commitRun(handle, 'workspace.created', { artifact: artifact.name, path: worktree.path, treeKillSupported: TREE_KILL_SUPPORTED });
+  commitRun(handle, 'workspace.created', { artifact: artifact.name, path: worktree.path, treeKillSupported: TREE_KILL_SUPPORTED, treeKillMethod: TREE_KILL_METHOD });
   return worktree;
 }
 

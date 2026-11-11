@@ -315,8 +315,8 @@ worktree, and your repository does not change until you take it from there.
 | OS | What has been run | Ctrl+C or `workflow cancel` after a process started |
 |---|---|---|
 | Linux | full test suite, package install, 1 run with a real AI CLI | `CANCELLED`, exit code 130; descendant processes are ended too |
-| Windows | full test suite, 5 runs with a real AI CLI | `INTERRUPTED`, exit code 3; only the direct child is ended, and the run needs a new plan |
-| macOS | nothing | not confirmed by running it; the code behaves as on Windows |
+| Windows | full test suite, 5 runs with a real AI CLI | `INTERRUPTED`, exit code 3; descendants are ended with `taskkill /T /F` but their end is not confirmed, and the run needs a new plan |
+| macOS | nothing | not confirmed by running it; the code ends only the direct child, with the same result as on Windows (`INTERRUPTED`, exit code 3) |
 
 Exit codes mean something different from the other commands: 2 is bad input and 3 is waiting for
 a person. See the [guide](docs/GUIDE.en.md#running-a-task-with-workflow-preview) for the policy

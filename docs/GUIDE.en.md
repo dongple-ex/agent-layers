@@ -557,8 +557,8 @@ Node.js 18.17 or later is required. No operating system is refused, but they beh
 | OS | What has been run | Ctrl+C, `workflow cancel` | Resuming a stopped run |
 | --- | --- | --- | --- |
 | Linux | Full test suite, package install, 1 run with a real AI CLI (Codex CLI) | `CANCELLED`, exit code 130. Descendant processes are ended too | If the managing process is killed, the children it left are not ended automatically and resume is refused. End those processes, then run `resume` again |
-| Windows | Full test suite, 5 runs with a real AI CLI (Codex CLI 3, Claude Code 2) | `INTERRUPTED`, exit code 3. Only the direct child is ended, so descendant processes may keep running | Stops with `process-unconfirmed` and does not continue. A new plan is needed |
-| macOS | Nothing has been run | Treated as a non-Linux OS, so the code behaves as on Windows. Not confirmed by running it | The code behaves as on Windows. Not confirmed by running it |
+| Windows | Full test suite, 5 runs with a real AI CLI (Codex CLI 3, Claude Code 2) | `INTERRUPTED`, exit code 3. Descendants are ended with `taskkill /T /F`, but their end is not confirmed. Descendants of a process that already exited are not found | Stops with `process-unconfirmed` and does not continue. A new plan is needed |
+| macOS | Nothing has been run | Treated as a non-Linux OS, so the code ends with `INTERRUPTED`, exit code 3, and ends only the direct child. Not confirmed by running it | The code behaves as on Windows. Not confirmed by running it |
 
 The table covers a stop after at least one process has started. A cancel before any process starts ends as `CANCELLED` with exit code 130 on every OS.
 

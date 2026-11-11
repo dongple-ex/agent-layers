@@ -84,6 +84,8 @@ test('workflow verify: a cancel counts as finished only when the end of the proc
     ['left behind', result(true, { remaining: [{ pid: 1 }, { pid: 2 }] }), false, /but 2 process\(es\) could not be ended/],
     ['not confirmed', result(true, {}), false, /could not be confirmed/],
     ['not supported', result(true, { supported: false }), false, /only the direct child is ended/],
+    ['not supported, direct child', result(true, { supported: false, method: 'direct-child' }), false, /only the direct child is ended/],
+    ['not supported, taskkill', result(true, { supported: false, method: 'taskkill' }), false, /^it was cancelled, but on Windows its descendants were ended with taskkill \/T, but their end cannot be confirmed, and descendants of a process that had already exited are not found$/],
   ];
   for (const [name, r, cancelled, message] of cases) {
     const err = cancelError('it', r);

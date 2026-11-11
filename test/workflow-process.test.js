@@ -325,6 +325,7 @@ test('workflow process: outside Linux the result says tree termination is not gu
   const r = await node('process.exitCode = 0;');
   assert.equal(TREE_KILL_SUPPORTED, false);
   assert.equal(r.tree.supported, false);
+  assert.equal(r.tree.method, process.platform === 'win32' ? 'taskkill' : 'direct-child');
   assert.equal(r.tree.confirmed, false);
 });
 
@@ -636,4 +637,98 @@ test('workflow process: on Linux a bash that fails the relay probe is refused', 
     assert.equal(r.ok, false, name);
     assert.match(r.reason, /the relay probe returned exit/, name);
   }
+});
+
+const WINDOWS_ONLY = process.platform === 'win32' ? false : 'Windows only: descendants are ended with taskkill /T';
+
+function isRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    if (err.code === 'ESRCH') {
+      return false;
+    }
+    throw err;
+  }
+}
+
+async function stillRunningAfter(pids, ms) {
+  const end = Date.now() + ms;
+  for (;;) {
+    const left = pids.filter(isRunning);
+    if (left.length === 0 || Date.now() >= end) {
+      return left;
+    }
+    await new Promise((resolve) => {
+      setTimeout(resolve, 50);
+    });
+  }
+}
+
+function windowsTree(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-layers-treekill-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3 }));
+  const leaf = path.join(dir, 'leaf.cjs');
+  fs.writeFileSync(leaf, `console.log(JSON.stringify({ pid: process.pid })); ${SLEEP};`);
+  const cmd = path.join(process.env.SystemRoot, 'System32', 'cmd.exe');
+  const line = `""${process.execPath}" "${leaf}""`;
+  return `const c = require('node:child_process').spawn(${JSON.stringify(cmd)}, ['/d', '/s', '/c', ${JSON.stringify(line)}], { stdio: ['ignore', 'inherit', 'ignore'], windowsHide: true, shell: false, windowsVerbatimArguments: true }); console.log(JSON.stringify({ pid: c.pid })); c.on('exit', (code) => process.exit(code ?? 1)); ${SLEEP};`;
+}
+
+test('workflow process: on Windows a cancel ends the child, the cmd.exe under it and the grandchild', { skip: WINDOWS_ONLY, ...HANG_LIMIT }, async (t) => {
+  const pids = [];
+  killAll(t, pids);
+  const abort = new AbortController();
+  const r = await node(windowsTree(t), {
+    signal: abort.signal,
+    graceMs: 2000,
+    drainMs: 500,
+    onSpawn: endsWithTest(t),
+    onEvent: (e) => {
+      pids.push(e.pid);
+      if (pids.length === 2) {
+        abort.abort();
+      }
+    },
+  });
+  assert.equal(pids.length, 2);
+  assert.equal(r.cancelled, true);
+  assert.deepEqual(await stillRunningAfter([r.owner.pid, ...pids], 5000), []);
+  assert.equal(r.tree.method, 'taskkill');
+  assert.equal(r.tree.supported, false);
+  assert.equal(r.tree.confirmed, false);
+  assert.deepEqual(r.tree.signalErrors, []);
+});
+
+test('workflow process: on Windows a timeout ends the grandchild too', { skip: WINDOWS_ONLY, ...HANG_LIMIT }, async (t) => {
+  const pids = [];
+  killAll(t, pids);
+  const r = await node(windowsTree(t), { timeoutMs: 3000, graceMs: 2000, drainMs: 500, onSpawn: endsWithTest(t), onEvent: (e) => pids.push(e.pid) });
+  assert.equal(pids.length, 2);
+  assert.equal(r.timedOut, true);
+  assert.deepEqual(await stillRunningAfter([r.owner.pid, ...pids], 5000), []);
+  assert.equal(r.tree.confirmed, false);
+  assert.deepEqual(r.tree.signalErrors, []);
+});
+
+test('workflow process: on Windows without SystemRoot the direct child is ended and the reason is recorded', { skip: WINDOWS_ONLY, ...HANG_LIMIT }, async (t) => {
+  const saved = process.env.SystemRoot;
+  t.after(() => {
+    process.env.SystemRoot = saved;
+  });
+  const abort = new AbortController();
+  const r = await node(`console.log('{"ready":true}'); ${SLEEP}`, {
+    signal: abort.signal,
+    graceMs: 2000,
+    onSpawn: endsWithTest(t),
+    onEvent: () => {
+      delete process.env.SystemRoot;
+      abort.abort();
+    },
+  });
+  process.env.SystemRoot = saved;
+  assert.equal(r.cancelled, true);
+  assert.deepEqual(await stillRunningAfter([r.owner.pid], 5000), []);
+  assert.deepEqual(r.tree.signalErrors, [{ target: r.owner.pid, signal: 'taskkill', code: 'no-systemroot' }]);
 });

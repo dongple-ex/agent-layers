@@ -367,8 +367,8 @@ agent-layers workflow report <run-id>
 | 운영체제 | 실행한 기록 | 프로세스를 시작한 뒤의 Ctrl+C, `workflow cancel` |
 |---|---|---|
 | Linux | 전체 시험, 패키지 설치, 실제 AI CLI로 실행 1건 | `CANCELLED`, 종료 코드 130. 자손 프로세스까지 끝낸다 |
-| Windows | 전체 시험, 실제 AI CLI로 실행 5건 | `INTERRUPTED`, 종료 코드 3. 직접 실행한 자식만 끝내고, 이 실행은 새 계획이 필요하다 |
-| macOS | 없음 | 실행으로 확인하지 않았다. 코드상 Windows와 같다 |
+| Windows | 전체 시험, 실제 AI CLI로 실행 5건 | `INTERRUPTED`, 종료 코드 3. `taskkill /T /F`로 자손까지 끝내지만 종료를 확인하지 못하고, 이 실행은 새 계획이 필요하다 |
+| macOS | 없음 | 실행으로 확인하지 않았다. 코드상 직접 실행한 자식만 끝내고, 결과는 Windows와 같다(`INTERRUPTED`, 종료 코드 3) |
 
 종료 코드의 뜻은 다른 명령과 다릅니다. 2는 잘못된 입력이고 3은 사람을 기다리는 상태입니다. 정책 파일, 보장하지 않는 범위, 종료 코드는 [가이드](docs/GUIDE.ko.md#workflow로-작업-실행하기-preview)에 있습니다.
 
