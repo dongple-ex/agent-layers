@@ -197,6 +197,26 @@ test('v2: final review findings use the configured integration repair agent', as
   assert.equal(s.calls().find((c) => c.request.stepId === 'review-fix').actor, 'kimi');
 });
 
+test('v2: a ruling on a blocked coder runs on the planner agent, also for a review-fix', async (t) => {
+  const s = setup(t, { 'coder:two': { result: { status: 'blocked', needsInput: ['May I change a file of step three?'] } }, 'arbiter:two': { result: { status: 'completed' } } });
+  s.raw.limits.maxBlockedRulings = 1; s.raw.repairAgent = 'kimi'; s.save();
+  await cmdPlan(s.ctx, s.flags, YES); const id = s.runId();
+  assert.equal(await cmdRun(s.ctx, s.flags, id, YES), 0);
+  assert.deepEqual(s.calls().map((c) => `${c.actor}:${c.request.role}:${c.request.stepId}`), ['claude:planner:plan', 'codex:coder:one', 'gemini:coder:two', 'claude:arbiter:two', 'kimi:coder:three', 'claude:reviewer:review', 'claude:auditor:audit']);
+  const ruling = s.calls()[3];
+  assert.equal(ruling.model, 'claude-fixture-model');
+  assert.match(ruling.prompt, /^Keep the role result body at schemaVersion 1\..*\n\n# Arbiter\n/);
+  assert.equal(ruling.request.originalGoal, fs.readFileSync(s.goalFile, 'utf8'));
+  assert.deepEqual(ruling.request.blocked.needsInput, ['May I change a file of step three?']);
+  assert.deepEqual(ruling.request.laterSteps.map((l) => l.id), ['three']);
+  const run = readRun(s.ctx, id);
+  assert.deepEqual(run.issues, []);
+  assert.equal(run.state.budget.agentCalls, 7);
+  assert.equal(run.events.find((e) => e.type === 'call.started' && e.data.role === 'arbiter').data.agentId, 'claude');
+  assert.equal(assignedAgent(s.policy(), { role: 'arbiter', stepId: 'review-fix', attempt: 1 }).agentId, 'claude');
+  assert.equal(assignedAgent(s.policy(), { role: 'coder', stepId: 'review-fix', attempt: 1 }).agentId, 'kimi');
+});
+
 test('v2: dependency context limit stops downstream calls without truncating the goal', async (t) => {
   const s = setup(t); s.raw.contextLimits.maxDependencyBytes = 1; s.save();
   await cmdPlan(s.ctx, s.flags, YES); const id = s.runId();

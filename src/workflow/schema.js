@@ -22,6 +22,10 @@ export const DEFAULT_LIMITS = {
   stepTimeoutSeconds: 900,
   runTimeoutSeconds: 3600,
 };
+export const OPTIONAL_LIMITS = ['maxBlockedRulings'];
+export function blockedRulingLimit(limits) {
+  return own(limits, 'maxBlockedRulings') ? limits.maxBlockedRulings : 0;
+}
 export const DEFAULT_REQUIRED_ROLES = ['reviewer', 'auditor'];
 export const STEP_STATUSES = ['PENDING', 'READY', 'RUNNING', 'VERIFYING', 'RETRY_PENDING', 'SUCCEEDED', 'BLOCKED', 'FAILED', 'CANCELLED', 'INTERRUPTED'];
 export const RUN_STATUSES = ['PLANNED', 'RUNNING', 'BLOCKED', 'SUCCEEDED', 'FAILED', 'CANCELLED', 'INTERRUPTED'];
@@ -248,7 +252,7 @@ export function normalizePolicy(raw) {
       add('limits', 'must be an object');
     } else {
       for (const k of Object.keys(raw.limits)) {
-        if (!own(DEFAULT_LIMITS, k)) {
+        if (!own(DEFAULT_LIMITS, k) && !OPTIONAL_LIMITS.includes(k)) {
           add(`limits.${k}`, 'unknown field');
           continue;
         }
@@ -348,7 +352,7 @@ export function normalizePolicy(raw) {
           for (const k of unknownKeys(e, ['id', 'kind', 'limit', 'value'])) {
             add(`${where}.${k}`, 'unknown field');
           }
-          if (typeof e.limit !== 'string' || !own(DEFAULT_LIMITS, e.limit)) {
+          if (typeof e.limit !== 'string' || (!own(DEFAULT_LIMITS, e.limit) && !OPTIONAL_LIMITS.includes(e.limit))) {
             add(`${where}.limit`, 'must name a known limit');
             return;
           }

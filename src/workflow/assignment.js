@@ -178,11 +178,15 @@ export function makeAssignments(plan, policy) {
   };
 }
 
+export function commandRole(role) {
+  return role === 'arbiter' ? 'planner' : role;
+}
+
 export function assignedAgent(policy, request, plan = null) {
-  const id = request.stepId === 'review-fix' ? policy.repairAgent : request.role === 'coder'
-    ? (plan?.steps.find((s) => s.id === request.stepId)?.agent ?? request.agent ?? policy.roleAgents.coder)
-    : policy.roleAgents[request.role];
-  if (!Object.hasOwn(policy.agents, id) || !policy.agents[id].allowedRoles.includes(request.role)) {
+  const role = commandRole(request.role);
+  const id = role !== 'coder' ? policy.roleAgents[role] : request.stepId === 'review-fix' ? policy.repairAgent
+    : (plan?.steps.find((s) => s.id === request.stepId)?.agent ?? request.agent ?? policy.roleAgents.coder);
+  if (!Object.hasOwn(policy.agents, id) || !policy.agents[id].allowedRoles.includes(role)) {
     throw assignmentError('the assigned agent is missing or does not allow this role');
   }
   if (request.agent !== undefined && request.agent !== id) {

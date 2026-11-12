@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { validateRoleResult, pathCovers, RESULT_STATUSES } from './schema.js';
+import { validateRoleResult, pathCovers, blockedRulingLimit, RESULT_STATUSES } from './schema.js';
 import { downstreamOf, REVIEW_STEP_ID, AUDIT_STEP_ID } from './graph.js';
 import { assignedAgent } from './assignment.js';
 import {
@@ -12,6 +12,7 @@ const ROLE_RESULT_STATUSES = {
   coder: ['completed', 'blocked'],
   reviewer: ['completed', 'needs_changes', 'blocked'],
   auditor: ['completed', 'needs_changes', 'blocked'],
+  arbiter: ['completed', 'needs_changes', 'blocked'],
 };
 const REVIEW_ROLES = [[REVIEW_STEP_ID, 'reviewer'], [AUDIT_STEP_ID, 'auditor']];
 const ACTIVE_STEP_STATUSES = ['RUNNING', 'VERIFYING'];
@@ -497,6 +498,36 @@ function resumedFeedback(rt, id) {
   return failures.length > 0 ? { failures, ...note } : note;
 }
 
+async function ruleOnBlocked(rt, { id, stepId, attempt, instruction, acceptance, writePaths, checkIds, feedback, blocked }) {
+  const uphold = (why) => stopStep(rt, id, 'BLOCKED', 'role-blocked', `${stepId === id ? 'the coder' : stepId} needs input (${blocked.needsInput.length} items)${why}`);
+  const used = readRun(rt.handle.ctx, rt.handle.runId).events.filter((e) => e.type === 'blocked.ruled').length;
+  if (used >= blockedRulingLimit(rt.limits) || limitReached(rt)) {
+    return uphold('');
+  }
+  const checks = await runChecks(rt, id, checkIds);
+  if (!checks) {
+    return false;
+  }
+  const laterSteps = rt.work.filter((s) => s.id !== stepId && rt.handle.state.steps[s.id].status !== 'SUCCEEDED').map((s) => ({ id: s.id, writePaths: s.writePaths, acceptance: s.acceptance }));
+  const req = { role: 'arbiter', stepId, statusId: id, attempt, goal: rt.plan.goal, instruction, acceptance, writePaths, blocked: { summary: blocked.summary, findings: blocked.findings, needsInput: blocked.needsInput }, checkFailures: checks.failures, laterSteps, feedback };
+  const call = await callRole(rt, req);
+  if (!call) {
+    return false;
+  }
+  const valid = resultIssues(rt, req, call.result).length === 0;
+  const status = valid ? call.result.status : null;
+  const ruling = status === 'needs_changes' ? 'retry' : status === 'completed' && checks.failures.length === 0 ? 'proceed' : 'uphold';
+  const artifact = writeArtifact(rt.handle, `ruling-${rt.handle.state.lastSeq}`, { role: 'arbiter', stepId, attempt, result: call.result === undefined ? null : call.result });
+  commit(rt, 'blocked.ruled', { role: 'arbiter', stepId, attempt, valid, status, ruling, artifact: artifact.name, sha256: artifact.sha256 });
+  if (ruling === 'uphold') {
+    return uphold(`; ${!valid ? 'the arbiter result was not valid' : status === 'blocked' ? 'the arbiter agreed' : `the arbiter saw the step as done, but ${failureText(checks.failures)}`}; see artifacts/${artifact.name}`);
+  }
+  if (ruling === 'retry' && remainingBudget(rt.handle.state, rt.limits).repairAttempts(stepId) <= 0) {
+    return uphold(`; the arbiter asked for another attempt, but maxRepairAttempts is used up; see artifacts/${artifact.name}`);
+  }
+  return { ruling, checks, findings: call.result.findings };
+}
+
 async function runWorkStep(rt, step) {
   const id = step.id;
   let feedback = resumedFeedback(rt, id);
@@ -524,7 +555,20 @@ async function runWorkStep(rt, step) {
       return stopStep(rt, id, 'BLOCKED', 'invalid-result', `invalid coder result: ${issues.join('; ')}`);
     }
     if (call.result.status === 'blocked') {
-      return stopStep(rt, id, 'BLOCKED', 'role-blocked', `the coder needs input (${call.result.needsInput.length} items)`);
+      const ruled = await ruleOnBlocked(rt, { id, stepId: id, attempt, instruction: step.instruction, acceptance: step.acceptance, writePaths: step.writePaths, checkIds: step.checkIds, feedback, blocked: call.result });
+      if (!ruled) {
+        return false;
+      }
+      if (ruled.ruling === 'proceed') {
+        succeedStep(rt, id);
+        return true;
+      }
+      commit(rt, 'step.retry', { stepId: id, attempt }, (n) => {
+        addRepairAttempt(n, id);
+        n.steps[id].status = 'RETRY_PENDING';
+      });
+      feedback = ruled.checks.failures.length > 0 ? { findings: ruled.findings, failures: ruled.checks.failures } : { findings: ruled.findings };
+      continue;
     }
     commit(rt, 'step.verifying', { stepId: id, attempt }, (n) => {
       n.steps[id].status = 'VERIFYING';
@@ -771,6 +815,7 @@ async function fixLoop(rt, id, role, findings, owners, firstFeedback = { finding
         n.steps[id].status = 'RUNNING';
       });
     }
+    let checks = null;
     if (!stored) {
       const instruction = findings.length > 0 ? `Apply the ${role} findings` : 'Fix the failing required checks';
       const req = { role: 'coder', stepId: REVIEW_FIX_TARGET, statusId: id, attempt, goal: rt.plan.goal, instruction, acceptance: rt.work.filter((s) => owners.includes(s.id)).flatMap((s) => s.acceptance), writePaths, feedback };
@@ -783,15 +828,29 @@ async function fixLoop(rt, id, role, findings, owners, firstFeedback = { finding
         return stopStep(rt, id, 'BLOCKED', 'invalid-result', `invalid ${REVIEW_FIX_TARGET} result: ${issues.join('; ')}`);
       }
       if (call.result.status === 'blocked') {
-        return stopStep(rt, id, 'BLOCKED', 'role-blocked', `${REVIEW_FIX_TARGET} needs input (${call.result.needsInput.length} items)`);
+        const ruled = await ruleOnBlocked(rt, { id, stepId: REVIEW_FIX_TARGET, attempt, instruction, acceptance: req.acceptance, writePaths, checkIds, feedback, blocked: call.result });
+        if (!ruled) {
+          return false;
+        }
+        if (ruled.ruling === 'retry') {
+          commit(rt, 'review-fix.retry', { stepId: id, attempt }, (n) => {
+            n.reviewFix.attempt = null;
+            n.steps[id].status = 'RETRY_PENDING';
+          });
+          feedback = ruled.checks.failures.length > 0 ? { findings: [...findings, ...ruled.findings], failures: ruled.checks.failures } : { findings: [...findings, ...ruled.findings] };
+          continue;
+        }
+        checks = ruled.checks;
       }
     }
-    commit(rt, 'review-fix.verifying', { stepId: id, attempt }, (n) => {
-      n.steps[id].status = 'VERIFYING';
-    });
-    const checks = await runChecks(rt, id, checkIds);
     if (!checks) {
-      return false;
+      commit(rt, 'review-fix.verifying', { stepId: id, attempt }, (n) => {
+        n.steps[id].status = 'VERIFYING';
+      });
+      checks = await runChecks(rt, id, checkIds);
+      if (!checks) {
+        return false;
+      }
     }
     if (checks.failures.length === 0) {
       const seal = rt.verifier.seal();

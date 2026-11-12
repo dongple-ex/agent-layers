@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { createRun, acquireRun, releaseRun, commitRun } from '../src/workflow/store.js';
+import { createRun, acquireRun, releaseRun, commitRun, readRun } from '../src/workflow/store.js';
 import { runWorkflow } from '../src/workflow/engine.js';
+import { reportView } from '../src/workflow/report.js';
 import { POLICY, PLAN, fakeClock, fakeProvider, fakeVerifier } from './fixtures/workflow/fakes.js';
 
 function setup(t, { policy = POLICY, plan = PLAN } = {}) {
@@ -424,6 +425,176 @@ test('workflow engine: invalid results, role timeouts and blocked roles stop the
     }
     releaseRun(handle);
   }
+});
+
+test('workflow engine: a blocked coder is ruled on only when the policy sets maxBlockedRulings', async (t) => {
+  const script = { 'coder:impl': [{ status: 'blocked', needsInput: ['which file?'] }], 'arbiter:impl': [{ status: 'completed' }] };
+  for (const limits of [{}, { maxBlockedRulings: 0 }]) {
+    const { run, handle } = setup(t, { policy: withLimits(limits) });
+    const provider = fakeProvider(script);
+    const verifier = fakeVerifier();
+    const state = await runWorkflow(handle, { provider, verifier });
+    assert.equal(state.status, 'BLOCKED');
+    assert.equal(state.stopReason, 'role-blocked');
+    assert.equal(state.steps.impl.lastError, 'the coder needs input (1 items)');
+    assert.deepEqual(callKeys(provider), ['coder:impl:1']);
+    assert.deepEqual(verifier.runs, []);
+    assert.equal(events(run).some((e) => e.type === 'blocked.ruled'), false);
+    releaseRun(handle);
+  }
+});
+
+test('workflow engine: an arbiter that sees a blocked step as done lets the run continue when the checks pass', async (t) => {
+  const { ctx, run, handle } = setup(t, { policy: withLimits({ maxBlockedRulings: 1 }) });
+  const provider = fakeProvider({ 'coder:impl': [{ status: 'blocked', summary: 'the tests are missing', needsInput: ['may I add test/a.test.js?'] }], 'arbiter:impl': [{ status: 'completed' }] });
+  const verifier = fakeVerifier();
+  const state = await runWorkflow(handle, { provider, verifier });
+  assert.equal(state.status, 'SUCCEEDED');
+  assert.deepEqual(callKeys(provider), ['coder:impl:1', 'arbiter:impl:1', 'coder:tests:1', 'reviewer:review:1', 'auditor:audit:1']);
+  assert.deepEqual(verifier.runs.map((r) => r.stepId), ['impl', 'tests', 'review']);
+  assert.equal(state.budget.agentCalls, 6);
+  assert.equal(state.steps.impl.attempts, 1);
+  assert.equal(state.budget.repairAttempts.impl, undefined);
+  const { statusId, ...request } = provider.calls[1];
+  assert.equal(statusId, 'impl');
+  assert.deepEqual(request, {
+    role: 'arbiter',
+    stepId: 'impl',
+    attempt: 1,
+    goal: PLAN.goal,
+    instruction: 'Implement validation',
+    acceptance: ['Rejects bad input'],
+    writePaths: ['src/a.js'],
+    blocked: { summary: 'the tests are missing', findings: [], needsInput: ['may I add test/a.test.js?'] },
+    checkFailures: [],
+    laterSteps: [{ id: 'tests', writePaths: ['test/a.test.js'], acceptance: ['Covers bad input'] }],
+    feedback: null,
+  });
+  const ruled = events(run).filter((e) => e.type === 'blocked.ruled');
+  assert.equal(ruled.length, 1);
+  assert.match(ruled[0].data.artifact, /^ruling-\d+\.json$/);
+  assert.deepEqual({ ...ruled[0].data, artifact: null, sha256: null }, { role: 'arbiter', stepId: 'impl', attempt: 1, valid: true, status: 'completed', ruling: 'proceed', artifact: null, sha256: null });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(run.dir, 'artifacts', ruled[0].data.artifact), 'utf8')).result.status, 'completed');
+  assert.deepEqual(events(run).filter((e) => e.type === 'role.result').map((e) => e.data.role), ['coder', 'coder', 'reviewer', 'auditor']);
+  const listed = reportView(readRun(ctx, run.runId)).artifacts.find((a) => a.role === 'arbiter');
+  assert.deepEqual(listed, { role: 'arbiter', stepId: 'impl', attempt: 1, valid: true, status: 'completed', path: `artifacts/${ruled[0].data.artifact}`, sha256: ruled[0].data.sha256 });
+  releaseRun(handle);
+});
+
+test('workflow engine: a blocked step stays BLOCKED when the arbiter agrees, answers badly, or the checks fail', async (t) => {
+  const failing = { exitCode: 1, failedTests: ['t1'] };
+  const cases = [
+    ['the arbiter agrees', { status: 'blocked', needsInput: ['a decision on the file name'] }, {}, /^the coder needs input \(1 items\); the arbiter agreed; see artifacts\/ruling-\d+\.json$/, [true, 'blocked']],
+    ['an unreadable result', { raw: 'not json' }, {}, /^the coder needs input \(1 items\); the arbiter result was not valid; see artifacts\/ruling-\d+\.json$/, [false, null]],
+    ['a result for another step', { stepId: 'tests' }, {}, /the arbiter result was not valid/, [false, null]],
+    ['done, but a check fails', { status: 'completed' }, { unit: [failing] }, /^the coder needs input \(1 items\); the arbiter saw the step as done, but check unit exited 1 \(1 failing tests\); see artifacts\/ruling-\d+\.json$/, [true, 'completed']],
+  ];
+  for (const [name, answer, checks, lastError, [valid, status]] of cases) {
+    const { run, handle } = setup(t, { policy: withLimits({ maxBlockedRulings: 1 }) });
+    const provider = fakeProvider({ 'coder:impl': [{ status: 'blocked', needsInput: ['which file?'] }], 'arbiter:impl': [answer] });
+    const state = await runWorkflow(handle, { provider, verifier: fakeVerifier(checks) });
+    assert.equal(state.status, 'BLOCKED', name);
+    assert.equal(state.stopReason, 'role-blocked', name);
+    assert.equal(state.steps.impl.status, 'BLOCKED', name);
+    assert.match(state.steps.impl.lastError, lastError, name);
+    assert.deepEqual(callKeys(provider), ['coder:impl:1', 'arbiter:impl:1'], name);
+    const { data } = events(run).find((e) => e.type === 'blocked.ruled');
+    assert.deepEqual([data.valid, data.status, data.ruling], [valid, status, 'uphold'], name);
+    assert.deepEqual(provider.calls[1].checkFailures, checks.unit ? [{ id: 'unit', ...failing }] : [], name);
+    releaseRun(handle);
+  }
+});
+
+test('workflow engine: an arbiter that asks for another attempt sends its findings to the coder, within both limits', async (t) => {
+  const finding = { code: 'stay-local', severity: 'low', path: 'src/a.js', evidence: 'validate in src/a.js without the helper' };
+  const blocked = { status: 'blocked', needsInput: ['may I edit src/helper.js?'] };
+  const retry = { status: 'needs_changes', findings: [finding] };
+  const failing = { exitCode: 1, failedTests: ['t1'] };
+
+  const first = setup(t, { policy: withLimits({ maxBlockedRulings: 1 }) });
+  const provider = fakeProvider({ 'coder:impl': [blocked, {}], 'arbiter:impl': [retry] });
+  const s1 = await runWorkflow(first.handle, { provider, verifier: fakeVerifier({ unit: [failing] }) });
+  assert.equal(s1.status, 'SUCCEEDED');
+  assert.deepEqual(callKeys(provider).slice(0, 4), ['coder:impl:1', 'arbiter:impl:1', 'coder:impl:2', 'coder:tests:1']);
+  assert.deepEqual(provider.calls[2].feedback, { findings: [finding], failures: [{ id: 'unit', ...failing }] });
+  assert.equal(s1.budget.repairAttempts.impl, 1);
+  assert.equal(events(first.run).find((e) => e.type === 'blocked.ruled').data.ruling, 'retry');
+  releaseRun(first.handle);
+
+  const again = setup(t, { policy: withLimits({ maxBlockedRulings: 1 }) });
+  const twice = fakeProvider({ 'coder:impl': [blocked, blocked], 'arbiter:impl': [retry, { status: 'completed' }] });
+  const s2 = await runWorkflow(again.handle, { provider: twice, verifier: fakeVerifier() });
+  assert.equal(s2.status, 'BLOCKED');
+  assert.equal(s2.steps.impl.lastError, 'the coder needs input (1 items)');
+  assert.deepEqual(callKeys(twice), ['coder:impl:1', 'arbiter:impl:1', 'coder:impl:2']);
+  assert.deepEqual(twice.calls[2].feedback, { findings: [finding] });
+  releaseRun(again.handle);
+
+  const spent = setup(t, { policy: withLimits({ maxBlockedRulings: 1, maxRepairAttempts: 0 }) });
+  const once = fakeProvider({ 'coder:impl': [blocked], 'arbiter:impl': [retry] });
+  const s3 = await runWorkflow(spent.handle, { provider: once, verifier: fakeVerifier() });
+  assert.equal(s3.status, 'BLOCKED');
+  assert.equal(s3.stopReason, 'role-blocked');
+  assert.match(s3.steps.impl.lastError, /the arbiter asked for another attempt, but maxRepairAttempts is used up/);
+  assert.deepEqual(callKeys(once), ['coder:impl:1', 'arbiter:impl:1']);
+  releaseRun(spent.handle);
+});
+
+test('workflow engine: with no agent call left, a blocked coder stops as before and no ruling is asked for', async (t) => {
+  const { run, handle } = setup(t, { policy: withLimits({ maxSteps: 2, maxAgentCalls: 5, maxBlockedRulings: 1 }) });
+  const provider = fakeProvider({ 'coder:tests': [{ status: 'blocked', needsInput: ['which case?'] }] });
+  const verifier = fakeVerifier({ unit: [{ exitCode: 1, failedTests: ['a'] }, { exitCode: 1, failedTests: ['b'] }] });
+  const state = await runWorkflow(handle, { provider, verifier });
+  assert.deepEqual(callKeys(provider), ['coder:impl:1', 'coder:impl:2', 'coder:impl:3', 'coder:tests:1']);
+  assert.equal(state.budget.agentCalls, 5);
+  assert.equal(state.status, 'BLOCKED');
+  assert.equal(state.stopReason, 'role-blocked');
+  assert.equal(state.steps.tests.lastError, 'the coder needs input (1 items)');
+  assert.equal(verifier.runs.length, 3);
+  assert.equal(events(run).some((e) => e.type === 'blocked.ruled'), false);
+  releaseRun(handle);
+});
+
+test('workflow engine: a blocked review-fix is ruled on with the findings it was given, and the review runs again', async (t) => {
+  const finding = { code: 'bug', severity: 'high', path: 'src/a.js', evidence: 'wrong branch' };
+  const extra = { code: 'narrow', severity: 'low', path: 'src/a.js', evidence: 'change only the branch' };
+  const review = { status: 'needs_changes', findings: [finding] };
+  const blocked = { status: 'blocked', needsInput: ['may I rewrite the tests?'] };
+
+  const done = setup(t, { policy: withLimits({ maxBlockedRulings: 1 }) });
+  const provider = fakeProvider({ 'reviewer:review': [review], 'coder:review-fix': [blocked], 'arbiter:review-fix': [{ status: 'completed' }] });
+  const verifier = fakeVerifier();
+  const s1 = await runWorkflow(done.handle, { provider, verifier });
+  assert.equal(s1.status, 'SUCCEEDED');
+  assert.deepEqual(callKeys(provider), ['coder:impl:1', 'coder:tests:1', 'reviewer:review:1', 'coder:review-fix:1', 'arbiter:review-fix:1', 'reviewer:review:2', 'auditor:audit:1']);
+  const ruling = provider.calls[4];
+  assert.equal(ruling.statusId, 'review');
+  assert.equal(ruling.instruction, 'Apply the reviewer findings');
+  assert.deepEqual(ruling.writePaths, ['src/a.js']);
+  assert.deepEqual(ruling.feedback, { findings: [finding] });
+  assert.deepEqual(ruling.laterSteps, []);
+  assert.deepEqual(verifier.runs.map((r) => r.stepId), ['impl', 'tests', 'review', 'review']);
+  assert.equal(events(done.run).filter((e) => e.type === 'steps.rechecked').length, 1);
+  assert.equal(s1.reviewFix, undefined);
+  releaseRun(done.handle);
+
+  const more = setup(t, { policy: withLimits({ maxBlockedRulings: 1 }) });
+  const second = fakeProvider({ 'reviewer:review': [review], 'coder:review-fix': [blocked, {}], 'arbiter:review-fix': [{ status: 'needs_changes', findings: [extra] }] });
+  const s2 = await runWorkflow(more.handle, { provider: second, verifier: fakeVerifier() });
+  assert.equal(s2.status, 'SUCCEEDED');
+  assert.deepEqual(callKeys(second).slice(3), ['coder:review-fix:1', 'arbiter:review-fix:1', 'coder:review-fix:2', 'reviewer:review:2', 'auditor:audit:1']);
+  assert.deepEqual(second.calls[5].feedback, { findings: [finding, extra] });
+  assert.equal(s2.budget.repairAttempts['review-fix'], 2);
+  assert.equal(events(more.run).filter((e) => e.type === 'review-fix.retry').length, 1);
+  releaseRun(more.handle);
+
+  const kept = setup(t, { policy: withLimits({ maxBlockedRulings: 1 }) });
+  const third = fakeProvider({ 'reviewer:review': [review], 'coder:review-fix': [blocked], 'arbiter:review-fix': [{ status: 'blocked', needsInput: ['a decision on the tests'] }] });
+  const s3 = await runWorkflow(kept.handle, { provider: third, verifier: fakeVerifier() });
+  assert.equal(s3.status, 'BLOCKED');
+  assert.equal(s3.stopReason, 'role-blocked');
+  assert.match(s3.steps.review.lastError, /^review-fix needs input \(1 items\); the arbiter agreed; see artifacts\/ruling-\d+\.json$/);
+  releaseRun(kept.handle);
 });
 
 test('workflow engine: a failing required check after the work steps is repaired before review', async (t) => {

@@ -8,13 +8,13 @@ import { runWorkflow, wasInterrupted } from './engine.js';
 import { findLeftovers, TREE_KILL_METHOD, TREE_KILL_SUPPORTED } from './process.js';
 import { commandVersion, createProvider, providerProblem } from './provider.js';
 import { formatReport, reportView } from './report.js';
-import { hashJson, normalizePolicy, validatePlan } from './schema.js';
+import { blockedRulingLimit, hashJson, normalizePolicy, validatePlan } from './schema.js';
 import { acquireRun, cancelRequested, commitRun, createRun, policySecretIssues, findSecretAssignment, readArtifact, readRun, readRunOwner, releaseRun, requestCancel, sanitizeEventData, writeArtifact } from './store.js';
 import { checkCommandProblem, childEnv, runChecks, runSetup } from './verify.js';
 import { checkChanges, compareFingerprints, createWorktree, describeWorktree, inspectRepository, removeWorktree, resultPatch, sourceFingerprint, worktreePath } from './workspace.js';
 import { buildHandoff, parsePolicyText, fingerprintArtifacts } from './assignment.js';
 
-const READ_ONLY_ROLES = ['reviewer', 'auditor'];
+const READ_ONLY_ROLES = ['reviewer', 'auditor', 'arbiter'];
 const ENDED_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELLED'];
 const EXIT_BY_STATUS = { SUCCEEDED: 0, FAILED: 1, CANCELLED: 130 };
 const EXIT_WAITING = 3;
@@ -365,7 +365,7 @@ function describeRun(flags, stored, repo) {
     ...setup.map((item) => `  setup ${item.id}: ${policyCommandLine(item)}`),
     ...checks.map((check) => `  check ${check.id}, expected to ${check.baseline} at the base commit: ${policyCommandLine(check)}`),
     ...notice,
-    `  limits: ${limits.maxAgentCalls} agent calls, ${limits.runTimeoutSeconds}s of active time`,
+    `  limits: ${limits.maxAgentCalls} agent calls, ${limits.runTimeoutSeconds}s of active time${blockedRulingLimit(limits) > 0 ? `, ${blockedRulingLimit(limits)} rulings on a blocked coder, each one agent call that runs as the planner` : ''}`,
   ].join('\n'));
   if (repo.baseCommit !== stored.plan.baseCommit) {
     warn(`HEAD is ${repo.baseCommit}, but this plan was made at ${stored.plan.baseCommit}; the result patch may not apply to HEAD`);

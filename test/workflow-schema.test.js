@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseJsonc } from '../src/formats/jsonc.js';
-import { normalizePolicy, validatePlan, validateRoleResult, relativePathIssue, pathCovers, hashJson, DEFAULT_LIMITS } from '../src/workflow/schema.js';
+import { normalizePolicy, validatePlan, validateRoleResult, relativePathIssue, pathCovers, hashJson, blockedRulingLimit, DEFAULT_LIMITS } from '../src/workflow/schema.js';
 
 function rawPolicy(extra = {}) {
   return {
@@ -137,6 +137,21 @@ test('workflow policy: limit values, unknown fields and the provider are checked
     'limits.stepTimeoutSeconds',
     'limits.bogus',
   ]);
+});
+
+test('workflow policy: maxBlockedRulings is stored only when the policy sets it, and is 0 otherwise', () => {
+  const plain = policyOf({});
+  assert.equal(Object.hasOwn(plain.limits, 'maxBlockedRulings'), false);
+  assert.equal(blockedRulingLimit(plain.limits), 0);
+  const policy = policyOf({ limits: { maxBlockedRulings: 2 } });
+  assert.deepEqual(policy.limits, { ...DEFAULT_LIMITS, maxBlockedRulings: 2 });
+  assert.equal(blockedRulingLimit(policy.limits), 2);
+  assert.deepEqual(normalizePolicy(policy).policy, policy);
+  assert.equal(blockedRulingLimit(policyOf({ limits: { maxBlockedRulings: 0 } }).limits), 0);
+  assert.equal(blockedRulingLimit(policyOf({ exceptions: [{ id: 'rule', kind: 'replace-limit', limit: 'maxBlockedRulings', value: 1 }] }).limits), 1);
+  for (const bad of [-1, 1.5, '1']) {
+    assert.deepEqual(wheres(normalizePolicy(rawPolicy({ limits: { maxBlockedRulings: bad } })).issues), ['limits.maxBlockedRulings'], String(bad));
+  }
 });
 
 test('workflow policy: the provider is a command with args, role args and environment variable names', () => {

@@ -60,7 +60,7 @@ test('workflow provider: output with no readable result gives undefined', () => 
 });
 
 test('workflow provider: the prompt holds the role text, the result format and the request last', () => {
-  for (const [role, heading] of [['coder', '# Coder'], ['reviewer', '# Reviewer'], ['auditor', '# Auditor']]) {
+  for (const [role, heading] of [['coder', '# Coder'], ['reviewer', '# Reviewer'], ['auditor', '# Auditor'], ['arbiter', '# Arbiter']]) {
     const prompt = buildPrompt({ ...REQUEST, role });
     assert.ok(prompt.startsWith(heading), role);
     assert.match(prompt, /## Final message/);
@@ -94,6 +94,19 @@ test('workflow provider: role arguments replace the shared arguments for that ro
   const [coder, reviewer] = s.calls();
   assert.equal(coder.argv.includes('--reviewing'), false);
   assert.equal(reviewer.argv.includes('--reviewing'), true);
+});
+
+test('workflow provider: an arbiter call uses the planner arguments', async (t) => {
+  const s = setup(t);
+  const scenario = s.fakeArgs.slice(1);
+  const { policy } = normalizePolicy({ ...s.policy, provider: { ...s.policy.provider, roleArgs: { planner: [FAKE_AI, '--planning', ...scenario], reviewer: [FAKE_AI, '--reviewing', ...scenario] } } });
+  const provider = createProvider({ policy, cwd: s.dir });
+  const result = await provider.call({ ...REQUEST, role: 'arbiter' });
+  assert.equal(result.status, 'completed');
+  const [call] = s.calls();
+  assert.equal(call.request.role, 'arbiter');
+  assert.equal(call.argv.includes('--planning'), true);
+  assert.equal(call.argv.includes('--reviewing'), false);
 });
 
 test('workflow provider: a non-zero exit is a transport error with the exit code, after a diagnostic and the delay', async (t) => {

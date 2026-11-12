@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { firstLine } from '../util/proc.js';
 import { runProcess } from './process.js';
 import { cancelError, childEnv, commandProblem, isRelativeCommand, runTracked } from './verify.js';
-import { assignedAgent, assignmentError, fieldValue } from './assignment.js';
+import { assignedAgent, assignmentError, commandRole, fieldValue } from './assignment.js';
 import { findSecretAssignment } from './store.js';
 import { sha256 } from '../util/fsx.js';
 
@@ -110,7 +110,7 @@ export function createProvider({ policy, cwd, signal = null, retryDelayMs = DEFA
     async call(request) {
       const r = await runTracked(track, { role: request.role, stepId: request.stepId, attempt: request.attempt }, {
         file: command,
-        args: roleArgs[request.role] || args,
+        args: roleArgs[commandRole(request.role)] || args,
         cwd,
         env,
         input: buildPrompt(request),

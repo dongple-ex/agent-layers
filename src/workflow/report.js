@@ -78,7 +78,7 @@ export function reportView(run) {
     }
     return { id, result: last.exitCode === 0 ? 'passed' : 'failed', required: run.policy.requiredChecks.includes(id), ...last };
   });
-  const artifacts = run.events.filter((e) => e.type === 'role.result').map((e) => ({
+  const artifacts = run.events.filter((e) => e.type === 'role.result' || e.type === 'blocked.ruled').map((e) => ({
     role: e.data.role,
     stepId: e.data.stepId,
     attempt: e.data.attempt,

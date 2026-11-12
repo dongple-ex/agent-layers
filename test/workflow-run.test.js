@@ -1069,6 +1069,35 @@ test('workflow run: a check that fails at the base commit stops before any coder
   assert.match(text.stdout, /baseline checks at the base commit:\n {2}unit: exit 1, expected to pass, NOT as expected; failing tests: first/);
 });
 
+test('workflow run: a ruling on a blocked coder reads the worktree, is listed in the report, and must not change files', (t) => {
+  const blocked = { result: { status: 'blocked', needsInput: ['May I add the tests too?'] } };
+  const policy = { limits: { maxBlockedRulings: 1 } };
+
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' }, ...blocked }, 'arbiter:impl': { result: { status: 'completed' } } }, { policy });
+  const runId = planned(s);
+  const r = runCli(s, runId);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stderr, /limits: \d+ agent calls, \d+s of active time, 1 rulings on a blocked coder, each one agent call that runs as the planner/);
+  assert.deepEqual(s.keys(), ['planner:plan:1', 'coder:impl:1', 'arbiter:impl:1', 'reviewer:review:1', 'auditor:audit:1']);
+  const { request } = s.calls()[2];
+  assert.match(request.diff, /\+new/);
+  assert.deepEqual(request.blocked.needsInput, ['May I add the tests too?']);
+  assert.deepEqual(request.checkFailures, []);
+  assert.deepEqual(request.checkResults, [{ id: 'unit', exitCode: 0, stepId: 'impl' }]);
+  assert.match(cli(s, ['report', runId]).stdout, /\n {2}artifacts\/ruling-\d+\.json arbiter impl attempt 1: completed\n/);
+  assert.deepEqual(readRun(s.ctx, runId).issues, []);
+
+  const plain = setup(t, { 'coder:impl': blocked });
+  assert.doesNotMatch(runCli(plain, planned(plain)).stderr, /rulings on a blocked coder/);
+
+  const edited = setup(t, { 'coder:impl': blocked, 'arbiter:impl': { write: { 'src/r.txt': 'x\n' } } }, { policy });
+  const failed = runCli(edited, planned(edited));
+  assert.equal(failed.code, 1, failed.stderr);
+  const rep = JSON.parse(failed.stdout);
+  assert.equal(rep.stopReason, 'policy-violation');
+  assert.match(rep.steps.find((step) => step.id === 'impl').lastError, /the arbiter call broke the policy: read-only-role-changed-files/);
+});
+
 test('workflow report: a stop that resume does not continue says what to do next, and resume calls nothing', (t) => {
   const finding = { code: 'docs', severity: 'low', path: 'docs/guide.md', evidence: 'not documented' };
   const cases = [
