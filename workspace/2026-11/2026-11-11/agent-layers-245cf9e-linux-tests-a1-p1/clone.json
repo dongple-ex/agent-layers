@@ -1,0 +1,12 @@
+{
+  "command": [
+    "git",
+    "clone",
+    "https://github.com/dongple-ex/agent-layers.git",
+    "clone"
+  ],
+  "cwd": ".",
+  "exitCode": 0,
+  "elapsedSeconds": 0.801,
+  "log": "logs/clone.log"
+}

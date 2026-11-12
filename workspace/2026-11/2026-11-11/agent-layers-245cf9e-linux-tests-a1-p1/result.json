@@ -1,0 +1,145 @@
+{
+  "environment": {
+    "os": "Linux",
+    "unameMachine": "aarch64",
+    "node": "v24.15.0",
+    "git": "git version 2.43.0",
+    "nodeExecutable": "/usr/bin/node",
+    "targetCommit": "245cf9e2662a982f50c298946e8feda045b19058",
+    "previousCommit": "daf4a18c9b5b058cd4d776c691a9d2d74894e807",
+    "isolatedHomeAndState": true,
+    "actualAIInvocations": 0,
+    "verifiedHead": "245cf9e2662a982f50c298946e8feda045b19058",
+    "verifiedParent": "daf4a18c9b5b058cd4d776c691a9d2d74894e807",
+    "detached": true
+  },
+  "treeKillOutput": "true process-group",
+  "fullSuite": {
+    "command": [
+      "node",
+      "--test"
+    ],
+    "cwd": "clone",
+    "exitCode": 0,
+    "elapsedSeconds": 252.791,
+    "log": "logs/node-test-full.log",
+    "tests": 514,
+    "pass": 505,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 9
+  },
+  "skippedTests": [
+    {
+      "name": "#9 windows shims: JSON with quotes, backslashes and %VARS% survives a .cmd round trip",
+      "reason": "SKIP"
+    },
+    {
+      "name": "workflow process: on Windows a batch file is refused instead of going through a shell",
+      "reason": "Windows only"
+    },
+    {
+      "name": "workflow process: outside Linux the result says tree termination is not guaranteed",
+      "reason": "not Linux only"
+    },
+    {
+      "name": "workflow process: outside Linux a process that keeps the output pipe open does not hold up the result",
+      "reason": "not Linux only"
+    },
+    {
+      "name": "workflow process: on Windows a cancel ends the child, the cmd.exe under it and the grandchild",
+      "reason": "Windows only: descendants are ended with taskkill /T"
+    },
+    {
+      "name": "workflow process: on Windows a timeout ends the grandchild too",
+      "reason": "Windows only: descendants are ended with taskkill /T"
+    },
+    {
+      "name": "workflow process: on Windows without SystemRoot the direct child is ended and the reason is recorded",
+      "reason": "Windows only: descendants are ended with taskkill /T"
+    },
+    {
+      "name": "workflow plan: an npm batch file is refused on Windows with what to write instead",
+      "reason": "SKIP"
+    },
+    {
+      "name": "workflow verify: a batch file is named as a problem on Windows",
+      "reason": "SKIP"
+    }
+  ],
+  "linuxProcessTests": [
+    {
+      "name": "workflow process: on Linux a cancel ends the child, the grandchild and a descendant in its own session",
+      "passed": true,
+      "raw": "✔ workflow process: on Linux a cancel ends the child, the grandchild and a descendant in its own session (195.28085ms)"
+    },
+    {
+      "name": "workflow process: on Linux a timeout ends the whole tree too",
+      "passed": true,
+      "raw": "✔ workflow process: on Linux a timeout ends the whole tree too (1585.669227ms)"
+    },
+    {
+      "name": "workflow process: on Linux a process that ignores TERM is killed after the grace time",
+      "passed": true,
+      "raw": "✔ workflow process: on Linux a process that ignores TERM is killed after the grace time (508.062076ms)"
+    },
+    {
+      "name": "workflow process: on Linux a process that handles TERM is not killed early",
+      "passed": true,
+      "raw": "✔ workflow process: on Linux a process that handles TERM is not killed early (234.003187ms)"
+    },
+    {
+      "name": "workflow process: on Linux a process left behind after a normal exit is found and ended",
+      "passed": true,
+      "raw": "✔ workflow process: on Linux a process left behind after a normal exit is found and ended (207.254425ms)"
+    },
+    {
+      "name": "workflow process: on Linux a process that escaped with the output pipe open is never reported as confirmed gone",
+      "passed": true,
+      "raw": "✔ workflow process: on Linux a process that escaped with the output pipe open is never reported as confirmed gone (620.574428ms)"
+    },
+    {
+      "name": "workflow process: on Linux the relay does not interpret shell characters in arguments",
+      "passed": true,
+      "raw": "✔ workflow process: on Linux the relay does not interpret shell characters in arguments (266.938017ms)"
+    },
+    {
+      "name": "workflow process: on Linux a cancel also ends the relay and its pipes",
+      "passed": true,
+      "raw": "✔ workflow process: on Linux a cancel also ends the relay and its pipes (123.811284ms)"
+    },
+    {
+      "name": "workflow process: on Linux a real detached process is a leftover until it has ended",
+      "passed": true,
+      "raw": "✔ workflow process: on Linux a real detached process is a leftover until it has ended (28.005848ms)"
+    },
+    {
+      "name": "workflow process: on Linux a bash that fails the relay probe is refused",
+      "passed": true,
+      "raw": "✔ workflow process: on Linux a bash that fails the relay probe is refused (14.239025ms)"
+    }
+  ],
+  "failures": [],
+  "previousCommitComparison": "not needed: no failing tests",
+  "remainingProcesses": {
+    "command": [
+      "/bin/sh",
+      "-c",
+      "ps -eo pid,ppid,etime,args | grep -E \"node .*(setInterval|fake-ai)\" | grep -v grep"
+    ],
+    "cwd": ".",
+    "exitCode": 1,
+    "elapsedSeconds": 0.02,
+    "log": "logs/remaining-processes.log",
+    "output": "",
+    "terminatedByThisTaskAfterTests": false
+  },
+  "cloneTrackedChanges": "",
+  "fullLogSha256": "c464fe7b7fcbe748101729113580b7163e3efe9b2297d7d298c083ff08a1d8d4",
+  "existingCheckoutAccessed": false,
+  "realAgentLayersHomeAccessed": false,
+  "actualAIInvocations": 0,
+  "cloneRemoved": true,
+  "sharedFullLogSha256": "f4557b12603aad49432879a209b38676131c77e10dec6df6b8acb7f7fe002da6",
+  "sharingNote": "fullLogSha256 is the original Linux log hash; sharedFullLogSha256 is the shared log hash after replacing the absolute task root with <TASK_ROOT>. Test output and counts are unchanged."
+}

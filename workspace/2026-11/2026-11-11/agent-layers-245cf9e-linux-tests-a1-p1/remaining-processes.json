@@ -1,0 +1,11 @@
+{
+  "command": [
+    "/bin/sh",
+    "-c",
+    "ps -eo pid,ppid,etime,args | grep -E \"node .*(setInterval|fake-ai)\" | grep -v grep"
+  ],
+  "cwd": ".",
+  "exitCode": 1,
+  "elapsedSeconds": 0.02,
+  "log": "logs/remaining-processes.log"
+}

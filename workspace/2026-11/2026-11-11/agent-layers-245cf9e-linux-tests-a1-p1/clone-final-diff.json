@@ -1,0 +1,12 @@
+{
+  "command": [
+    "git",
+    "--no-optional-locks",
+    "diff",
+    "--stat"
+  ],
+  "cwd": "clone",
+  "exitCode": 0,
+  "elapsedSeconds": 0.002,
+  "log": "logs/clone-final-diff.log"
+}

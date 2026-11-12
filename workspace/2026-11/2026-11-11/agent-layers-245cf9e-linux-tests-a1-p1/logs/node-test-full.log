@@ -1,0 +1,1076 @@
+✔ user scope: apply is idempotent, drift is detected, removed sources are cleaned up (788.144273ms)
+✔ user scope: --only keeps outputs of other agents unless --prune is given (476.422973ms)
+✔ user scope: existing files and foreign content are preserved (131.036878ms)
+✔ codex: settings and MCP servers merge into an existing config.toml without losing machine entries (661.379816ms)
+✔ mcp: env references for shared files, wrapper for local files, per-agent formats (159.122966ms)
+✔ plan lists executable content without secret values (165.656916ms)
+✔ secrets: file backend, exec wrapper injects values, check reports missing ones (1114.291161ms)
+✔ project (private mode): only untracked files, git exclude, memory folder, then purge (683.164715ms)
+✔ project (shared mode): AGENTS.md block, .mcp.json with env references, CLAUDE.md shim (143.766655ms)
+✔ import captures existing configs, templatizes home paths and replaces plaintext secrets (234.017707ms)
+✔ init writes persona rules in Korean when existing agent instructions are Korean (251.811428ms)
+✔ init writes persona rules in English by default and ignores managed blocks and code (127.502222ms)
+✔ init --lang overrides detection and rejects unsupported languages (225.417228ms)
+✔ purge only targets agent data of the exact project folder (38.525536ms)
+✔ validate flags plaintext secrets and bad skill names (134.578254ms)
+✔ uninstall removes managed outputs and keeps foreign content (275.950618ms)
+✔ show lists layers, targets, setting keys and secret names without values (491.2204ms)
+✔ test/fixtures/workflow/assigned-ai.mjs (42.104752ms)
+✔ test/fixtures/workflow/fake-ai.mjs (47.467896ms)
+✔ test/fixtures/workflow/fakes.js (42.806035ms)
+✔ forget: setting keys round-trip through the dotted key notation (2.182689ms)
+✔ forget (toml): keys removed from the source stay in place, unchanged or edited, and stop being managed (595.727317ms)
+✔ forget (json): files with comments are not rewritten and edited values are not drift (365.055664ms)
+✔ forget: a parent key releases every managed key below it (241.32046ms)
+✔ forget: when a whole settings file leaves the source, only the forgotten keys are kept (354.950898ms)
+✔ forget: @os files apply only on that operating system (231.767096ms)
+✔ forget: contradicting or malformed entries stop validate and apply before anything is written (718.133514ms)
+✔ forget: uninstall after a forget keeps the released keys (361.87789ms)
+✔ toml: parses a codex-like config with literal paths, multi-line arrays and dotted keys (10.700368ms)
+✔ toml: rejects duplicate tables and keys (1.337286ms)
+✔ toml: __proto__ keys are rejected and never reach Object.prototype (1.410086ms)
+✔ toml: strings, numbers, inline tables, multi-line strings (1.067685ms)
+✔ toml editor: update root key keeps comments and other tables (2.07933ms)
+✔ toml editor: add root key goes before the first table (1.725568ms)
+✔ toml editor: add key into existing table and into a new table (1.198966ms)
+✔ toml editor: dotted-key host is reused instead of adding a conflicting header (1.935049ms)
+✔ toml editor: inline table parent is rewritten (0.590443ms)
+✔ toml editor: setTable replaces a table with subtables and removeTable deletes it (2.548212ms)
+✔ toml editor: comments attached to the next table survive replace, remove and insert (3.429336ms)
+✔ mdblock: markers match whole lines only (0.750124ms)
+✔ toml editor: remove key and empty document handling (0.349881ms)
+✔ toml value serialization (0.256082ms)
+✔ jsonc: comments and trailing commas (0.664563ms)
+✔ jsonc: commas followed by comments are handled in linear time (10.680849ms)
+✔ frontmatter: yaml subset (8.909201ms)
+✔ mdblock: upsert preserves foreign content and other blocks (0.440122ms)
+✔ jsonmerge: managed keys, removal and drift (4.883502ms)
+✔ diff and eol helpers (0.555683ms)
+✔ toml editor: comments below the last key of a table survive table update and removal (0.690883ms)
+✔ jsonmerge: a user value that is not an object is reported before a managed key replaces it (0.829084ms)
+✔ private: the generated command updates project rules and preserves user outputs (775.820057ms)
+✔ private: header false preserves rules, frontmatter and managed boundaries (361.062646ms)
+✔ shared: the generated command updates project rules and preserves user outputs (675.4698ms)
+✔ shared: header false preserves rules, frontmatter and managed boundaries (277.012383ms)
+✔ renderScope uses the project identity even when layer names contain only base and extends (26.986804ms)
+﹣ #9 windows shims: JSON with quotes, backslashes and %VARS% survives a .cmd round trip (2.610772ms) # SKIP
+✔ #2 claude CLI route: conflicts are reported, --force backs up, failed add restores the old server (689.560304ms)
+✔ #2 claude CLI route: removals are kept as errors when the CLI is missing (269.961351ms)
+✔ #3 user and project scopes keep separate records for the same file (487.403582ms)
+✔ #4 import never writes bearer tokens, token args, settings env secrets or codex tokens (116.560211ms)
+✔ #5 when git cannot list tracked files, existing files are treated as tracked (156.426873ms)
+✔ #1 purge refuses unknown names, unrecorded folders without --path, and unsafe roots (537.21929ms)
+✔ #1 purge keeps a Claude folder shared with another path that maps to the same name (25.194235ms)
+✔ #6 purge removes the local memory folder and keeps exclude entries for files it leaves (297.340636ms)
+✔ private ignore patterns exclude literal filenames and memory directories without hiding similar files (499.514517ms)
+✔ private ignore patterns remain literal when purge preserves edited files (432.05177ms)
+✔ #7 apply skips files that changed after the plan was made (13.774743ms)
+✔ #8 linked skill folders are never written through (133.524249ms)
+✔ #10 materialized secrets are redacted in plan --diff and --json output (311.873221ms)
+✔ #10 auto mode does not write HTTP secrets into agents without env references (220.113123ms)
+✔ #11 the CLAUDE.md shim is stable across repeated applies (473.86768ms)
+✔ #12 file modes are kept and executable bits are copied (134.004691ms)
+✔ #13 JSON files with comments are not rewritten without --force (126.157975ms)
+✔ secret fields are masked in diff text while references and other values stay readable (2.133809ms)
+✔ plan --diff does not print plaintext secrets that already exist in a conflicting file (143.018172ms)
+✔ doctor finds plaintext secrets in project .codex/config.toml and inside JSON strings (7.748835ms)
+✔ doctor compares the installed version with npm and recommends an update command (1021.101216ms)
+✔ doctor --fast skips the npm version lookup (102.96311ms)
+✔ update command follows the install location, and versions compare numerically (0.881924ms)
+✔ remote URLs with ports and trailing .git/ normalize to host/org/repo (0.932524ms)
+✔ #14 purge deletes config files it created once they are empty, and the folders it created (289.654921ms)
+✔ #15 purge results name the block they removed, and the source hint follows git (786.635587ms)
+✔ #16 extends projects: a project from another setup repository is listed, detected and applied (592.524222ms)
+✔ #17 extends projects: a name defined twice is an error, and init refuses names taken by extends (340.923154ms)
+✔ #18 extends projects: purge --remove-source never deletes a project of another repository (338.774505ms)
+✔ #19 extends projects: a missing folder is reported unless optional, and sync clones then pulls it (795.400586ms)
+✔ selected sync clones only the chosen external repository without applying settings (161.204935ms)
+✔ selected sync pulls a known project once and leaves unselected checkouts unchanged (230.716372ms)
+✔ selected sync validates every selection and option before any Git changes (724.729264ms)
+✔ selected sync supports multiple repositories and preserves default sync application (330.268346ms)
+✔ selected sync updates the source repository only when a source project is chosen (394.008796ms)
+✔ selected sync reports missing Git configuration before cloning other selections (150.797127ms)
+✔ selected sync menu handles multiple choices, cancellation and invalid input (1048.999102ms)
+✔ selected sync fails a missing clone source without applying or processing later selections (160.07273ms)
+✔ selected sync supports Git worktrees with a .git file (223.166537ms)
+✔ selected sync stops on a failed pull and preserves local edits (208.121948ms)
+✔ #20 project names from project.jsonc must be plain names, and project outputs never leave the project folder (106.738767ms)
+✔ #21 links in a layer are copied only when they point to a file inside that layer (302.248058ms)
+✔ #22 files copied straight into the home folder are listed as executable content (163.976748ms)
+✔ #23 control characters from layers are shown as text, and MCP names cannot look like options (282.99121ms)
+✔ #24 the Claude memory folder must stay inside the project folder (157.092276ms)
+✔ registry splits agents into tier 1 core targets and tier 2 extended targets (1.176565ms)
+✔ agents lists tier 1 and tier 2 targets in separate tables and reports the tier in JSON (302.733541ms)
+✔ doctor --strict fails on warnings that a plain doctor run only reports (718.178674ms)
+✔ doctor warns when ~/.grok/AGENTS.md exceeds the 10,000 character limit of Grok Build (441.608174ms)
+✔ doctor does not warn about a ~/.codex/AGENTS.md over 32 KiB, since project_doc_max_bytes covers project AGENTS.md files (244.037073ms)
+✔ plan warns when rendered grok instructions exceed the 10,000 character limit (411.134754ms)
+✔ project plan warns about the shared AGENTS.md only when grok reads it (306.336396ms)
+✔ gemini model settings are managed per key and keep the other model settings of the user (272.213361ms)
+✔ the init template gemini.jsonc writes nothing until a key is uncommented (140.25064ms)
+✔ purge lists Antigravity conversation artifacts that link to the project for review and leaves global config alone (4.011978ms)
+✔ kimi and grok receive user instructions and MCP servers with secrets handled per format (161.516777ms)
+✔ grok settings fragments merge into config.toml and keep the comments and keys of the user (131.104678ms)
+✔ shared projects get kimi and grok MCP files with references only (158.083601ms)
+✔ instruction templates can use the kimi and grok home folders (158.439202ms)
+✔ plan and apply stop on an unknown instruction target before they change managed outputs (1051.641754ms)
+✔ validate, plan and apply reject unknown targets in skills, commands, subagents, MCP servers and instruction excludes (473.70032ms)
+✔ skill sidecar targets: an empty list deploys nowhere, and empty or null values fall back to SKILL.md (1454.017029ms)
+✔ user plan and apply keep existing managed outputs when an instruction target becomes unknown (1105.521681ms)
+✔ screenshotsDir follows the macOS capture location and defaults to the Desktop (1.070885ms)
+✔ doctor warns when a skill is in both ~/.codex/skills and ~/.agents/skills (1.480247ms)
+✔ import from ~/.codex/skills notes the duplicate Codex will load after apply (8.669799ms)
+✔ import asks to remove a ~/.codex/skills copy only when every file of it was imported (2.681252ms)
+✔ screenshotsDir falls back to the Desktop for an unusable location and keeps special characters in home (0.446202ms)
+✔ the init template uses only built-in variables that 0.1.7 engines know (0.468803ms)
+✔ existing files that are not UTF-8 are reported and left byte for byte unchanged (351.06004ms)
+✔ a managed JSON key does not replace a user value of another type without --force (235.947436ms)
+✔ removing managed JSON keys leaves a file with comments in place and keeps its record (452.587223ms)
+✔ import replaces URL passwords, URL query keys and auth-named values, and validate reports them (372.782539ms)
+✔ plan says that environment variables for remote servers are not exported from the keychain (229.804048ms)
+✔ review: exact duplicates and broken references are located without changing source or home (298.959803ms)
+✔ review: projects, OS variants and scoped instructions are not treated as duplicate contexts (32.136586ms)
+✔ review: exceptions, disabled rules and custom required headings have observable effects (9.316123ms)
+✔ review rules: invalid IDs, duplicate IDs, unknown fields and malformed exceptions are rejected (1.065805ms)
+✔ review rules CLI: changes preview first, write only rules, back up exact original and can be re-enabled (481.757277ms)
+✔ review rules CLI: add, update, validation and alternate comparison do not silently write (913.586085ms)
+✔ review rules: changed-after-preview and symbolic-link writes are refused (3.909778ms)
+✔ review: fenced examples and comments do not produce static duplicates; rules age never deletes anything (5.078983ms)
+✔ review packet: malicious instructions remain data, secrets are masked, AI checks require coverage and fresh hash (251.937909ms)
+✔ review: source target, project settings and skill sidecars invalidate old AI results (20.490453ms)
+✔ review: independent problems under one rule are allowed while identical decisions are rejected (3.575136ms)
+✔ review: empty sources and skipped symlinks do not pass strict review (116.424491ms)
+run 504d8281-8544-4f8b-923a-7b645690984f planned with 3 step(s): one, two, three
+next: agent-layers workflow run 504d8281-8544-4f8b-923a-7b645690984f
+run 504d8281-8544-4f8b-923a-7b645690984f: SUCCEEDED
+  step    status     attempts  reason  last error
+  one     SUCCEEDED  1
+  two     SUCCEEDED  1
+  three   SUCCEEDED  1
+  review  SUCCEEDED  1
+  audit   SUCCEEDED  1
+agent calls 6/10, active time 1s/3600s, plan repairs 0/1
+assignments: {"planner":{"agentId":"claude","selectionSource":"role-default"},"reviewer":{"agentId":"claude","selectionSource":"role-default"},"auditor":{"agentId":"claude","selectionSource":"role-default"},"steps":{"one":{"agentId":"codex","selectionSource":"step"},"two":{"agentId":"gemini","selectionSource":"step"},"three":{"agentId":"kimi","selectionSource":"step"}},"repair":{"agentId":"codex","selectionSource":"repair-default"}}
+  planner plan: claude, requested model claude-fixture-model, reported unknown, exit 0
+  coder one: codex, requested model codex-fixture-model, reported unknown, exit 0
+  coder two: gemini, requested model gemini-fixture-model, reported unknown, exit 0
+  coder three: kimi, requested model kimi-fixture-model, reported unknown, exit 0
+  reviewer review: claude, requested model claude-fixture-model, reported unknown, exit 0
+  auditor audit: claude, requested model claude-fixture-model, reported unknown, exit 0
+baseline checks at the base commit:
+  unit: exit 0, expected to pass, as expected
+checks:
+  unit (required): passed
+checks without inputs, whose test files the AI CLI may edit: unit
+result hashes all match: checks d8ff2e9fb8ea0033686b189542e0b35d4e68a5fe9163d56cf04d3cdda9a767c6, reviewer d8ff2e9fb8ea0033686b189542e0b35d4e68a5fe9163d56cf04d3cdda9a767c6, auditor d8ff2e9fb8ea0033686b189542e0b35d4e68a5fe9163d56cf04d3cdda9a767c6, final d8ff2e9fb8ea0033686b189542e0b35d4e68a5fe9163d56cf04d3cdda9a767c6
+artifacts: 5 in <TASK_ROOT>/tmp/wf-assignment-mNBuQe/.agent-layers/workflows/504d8281-8544-4f8b-923a-7b645690984f
+  artifacts/00-one-1.json coder one attempt 1: completed
+  artifacts/01-two-1.json coder two attempt 1: completed
+  artifacts/02-three-1.json coder three attempt 1: completed
+  artifacts/03-review-1.json reviewer review attempt 1: completed
+  artifacts/04-audit-1.json auditor audit attempt 1: completed
+remaining steps: none
+worktree: <TASK_ROOT>/tmp/wf-assignment-mNBuQe/.agent-layers/worktrees/504d8281-8544-4f8b-923a-7b645690984f
+result patch: artifacts/result-patch-96.json (130 bytes, sha256 d8ff2e9fb8ea0033686b189542e0b35d4e68a5fe9163d56cf04d3cdda9a767c6)
+not guaranteed:
+  isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions
+  write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted
+  processes: one that left its session is not found when a run ends, is cancelled or is resumed
+  AI CLI settings: changes a CLI makes to its own global settings are not cleaned up
+  model and usage: requested models are settings; CLI-reported identity and usage may be unavailable
+  result patch: a record with secret-looking lines masked; take the change from the worktree
+✔ v2: four agents execute fixed tasks and receive original goal and transitive evidence (2028.679328ms)
+✔ v2: missing worker agent uses the role default and an explicit invalid agent never falls back (60.431195ms)
+✔ v2: invalid profiles and policy combinations are rejected without a process (27.501806ms)
+✔ v2: duplicate escaped JSONC keys are rejected while v1 parsing is preserved (1.167165ms)
+✔ v2: argument input preserves shell characters and only the selected environment (81.25733ms)
+✔ v2: JSON envelope metadata is evidence, not a copy of the requested model (80.665767ms)
+✔ v2: an error envelope cannot masquerade as a successful role result (75.270023ms)
+✔ v2: prompt size and secret checks prevent any CLI process (26.768122ms)
+✔ v2: original goal and fixed assignments cannot be tampered with and then executed (72.052488ms)
+run a1734a02-5a4a-47b8-b98d-877fa1d1fcd7 planned with 3 step(s): one, two, three
+next: agent-layers workflow run a1734a02-5a4a-47b8-b98d-877fa1d1fcd7
+run a1734a02-5a4a-47b8-b98d-877fa1d1fcd7: BLOCKED (transport)
+  step    status     attempts  reason     last error
+  one     SUCCEEDED  1
+  two     BLOCKED    1         transport  transport error exit-73
+  three   PENDING    0
+  review  PENDING    0
+  audit   PENDING    0
+agent calls 3/10, active time 0s/3600s, plan repairs 0/1
+assignments: {"planner":{"agentId":"claude","selectionSource":"role-default"},"reviewer":{"agentId":"claude","selectionSource":"role-default"},"auditor":{"agentId":"claude","selectionSource":"role-default"},"steps":{"one":{"agentId":"codex","selectionSource":"step"},"two":{"agentId":"gemini","selectionSource":"step"},"three":{"agentId":"kimi","selectionSource":"step"}},"repair":{"agentId":"codex","selectionSource":"repair-default"}}
+  planner plan: claude, requested model claude-fixture-model, reported unknown, exit 0
+  coder one: codex, requested model codex-fixture-model, reported unknown, exit 0
+  coder two: gemini, requested model gemini-fixture-model, reported unknown, exit 73
+next: the AI CLI call kept ending with an error; the step's last error has the code, and artifacts/call-failed-* in the run folder keep the output. Fix the cause, then run workflow resume, which continues in the same worktree; with the same error it stops again after one more call. A run keeps the policy it was planned with, so a wrong command or argument in the policy needs a new plan
+baseline checks at the base commit:
+  unit: exit 0, expected to pass, as expected
+checks:
+  unit (required): passed
+checks without inputs, whose test files the AI CLI may edit: unit
+artifacts: 1 in <TASK_ROOT>/tmp/wf-assignment-ekDZbt/.agent-layers/workflows/a1734a02-5a4a-47b8-b98d-877fa1d1fcd7
+  artifacts/00-one-1.json coder one attempt 1: completed
+remaining steps: two, three, review, audit
+worktree: <TASK_ROOT>/tmp/wf-assignment-ekDZbt/.agent-layers/worktrees/a1734a02-5a4a-47b8-b98d-877fa1d1fcd7
+result patch: artifacts/result-patch-39.json (0 bytes, sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855)
+not guaranteed:
+  isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions
+  write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted
+  processes: one that left its session is not found when a run ends, is cancelled or is resumed
+  AI CLI settings: changes a CLI makes to its own global settings are not cleaned up
+  model and usage: requested models are settings; CLI-reported identity and usage may be unavailable
+  result patch: a record with secret-looking lines masked; take the change from the worktree
+run a1734a02-5a4a-47b8-b98d-877fa1d1fcd7: SUCCEEDED
+  step    status     attempts  reason  last error
+  one     SUCCEEDED  1
+  two     SUCCEEDED  2
+  three   SUCCEEDED  1
+  review  SUCCEEDED  1
+  audit   SUCCEEDED  1
+agent calls 7/10, active time 1s/3600s, plan repairs 0/1
+assignments: {"planner":{"agentId":"claude","selectionSource":"role-default"},"reviewer":{"agentId":"claude","selectionSource":"role-default"},"auditor":{"agentId":"claude","selectionSource":"role-default"},"steps":{"one":{"agentId":"codex","selectionSource":"step"},"two":{"agentId":"gemini","selectionSource":"step"},"three":{"agentId":"kimi","selectionSource":"step"}},"repair":{"agentId":"codex","selectionSource":"repair-default"}}
+  planner plan: claude, requested model claude-fixture-model, reported unknown, exit 0
+  coder one: codex, requested model codex-fixture-model, reported unknown, exit 0
+  coder two: gemini, requested model gemini-fixture-model, reported unknown, exit 73
+  coder two: gemini, requested model gemini-fixture-model, reported unknown, exit 0
+  coder three: kimi, requested model kimi-fixture-model, reported unknown, exit 0
+  reviewer review: claude, requested model claude-fixture-model, reported unknown, exit 0
+  auditor audit: claude, requested model claude-fixture-model, reported unknown, exit 0
+baseline checks at the base commit:
+  unit: exit 0, expected to pass, as expected
+checks:
+  unit (required): passed
+checks without inputs, whose test files the AI CLI may edit: unit
+result hashes all match: checks e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, reviewer e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, auditor e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, final e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+artifacts: 5 in <TASK_ROOT>/tmp/wf-assignment-ekDZbt/.agent-layers/workflows/a1734a02-5a4a-47b8-b98d-877fa1d1fcd7
+  artifacts/00-one-1.json coder one attempt 1: completed
+  artifacts/01-two-2.json coder two attempt 2: completed
+  artifacts/02-three-1.json coder three attempt 1: completed
+  artifacts/03-review-1.json reviewer review attempt 1: completed
+  artifacts/04-audit-1.json auditor audit attempt 1: completed
+remaining steps: none
+worktree: <TASK_ROOT>/tmp/wf-assignment-ekDZbt/.agent-layers/worktrees/a1734a02-5a4a-47b8-b98d-877fa1d1fcd7
+result patch: artifacts/result-patch-111.json (0 bytes, sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855)
+not guaranteed:
+  isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions
+  write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted
+  processes: one that left its session is not found when a run ends, is cancelled or is resumed
+  AI CLI settings: changes a CLI makes to its own global settings are not cleaned up
+  model and usage: requested models are settings; CLI-reported identity and usage may be unavailable
+  result patch: a record with secret-looking lines masked; take the change from the worktree
+✔ v2: transport resume preserves the same agent and total budget (2683.324553ms)
+run 6981a4ad-df17-442c-9d99-442faba846ea planned with 3 step(s): one, two, three
+next: agent-layers workflow run 6981a4ad-df17-442c-9d99-442faba846ea
+run 6981a4ad-df17-442c-9d99-442faba846ea: SUCCEEDED
+  step    status     attempts  reason  last error
+  one     SUCCEEDED  1
+  two     SUCCEEDED  1
+  three   SUCCEEDED  1
+  review  SUCCEEDED  2
+  audit   SUCCEEDED  1
+agent calls 8/10, active time 2s/3600s, plan repairs 0/1
+repair attempts (limit 2 each): review-fix 1
+assignments: {"planner":{"agentId":"claude","selectionSource":"role-default"},"reviewer":{"agentId":"claude","selectionSource":"role-default"},"auditor":{"agentId":"claude","selectionSource":"role-default"},"steps":{"one":{"agentId":"codex","selectionSource":"step"},"two":{"agentId":"gemini","selectionSource":"step"},"three":{"agentId":"kimi","selectionSource":"step"}},"repair":{"agentId":"kimi","selectionSource":"repair-default"}}
+  planner plan: claude, requested model claude-fixture-model, reported unknown, exit 0
+  coder one: codex, requested model codex-fixture-model, reported unknown, exit 0
+  coder two: gemini, requested model gemini-fixture-model, reported unknown, exit 0
+  coder three: kimi, requested model kimi-fixture-model, reported unknown, exit 0
+  reviewer review: claude, requested model claude-fixture-model, reported unknown, exit 0
+  coder review-fix: kimi, requested model kimi-fixture-model, reported unknown, exit 0
+  reviewer review: claude, requested model claude-fixture-model, reported unknown, exit 0
+  auditor audit: claude, requested model claude-fixture-model, reported unknown, exit 0
+baseline checks at the base commit:
+  unit: exit 0, expected to pass, as expected
+checks:
+  unit (required): passed
+checks without inputs, whose test files the AI CLI may edit: unit
+result hashes all match: checks e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, reviewer e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, auditor e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, final e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+artifacts: 7 in <TASK_ROOT>/tmp/wf-assignment-mbDSP9/.agent-layers/workflows/6981a4ad-df17-442c-9d99-442faba846ea
+  artifacts/00-one-1.json coder one attempt 1: completed
+  artifacts/01-two-1.json coder two attempt 1: completed
+  artifacts/02-three-1.json coder three attempt 1: completed
+  artifacts/03-review-1.json reviewer review attempt 1: needs_changes
+  artifacts/03-review-fix-1.json coder review-fix attempt 1: completed
+  artifacts/03-review-2.json reviewer review attempt 2: completed
+  artifacts/04-audit-1.json auditor audit attempt 1: completed
+remaining steps: none
+worktree: <TASK_ROOT>/tmp/wf-assignment-mbDSP9/.agent-layers/worktrees/6981a4ad-df17-442c-9d99-442faba846ea
+result patch: artifacts/result-patch-127.json (0 bytes, sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855)
+not guaranteed:
+  isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions
+  write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted
+  processes: one that left its session is not found when a run ends, is cancelled or is resumed
+  AI CLI settings: changes a CLI makes to its own global settings are not cleaned up
+  model and usage: requested models are settings; CLI-reported identity and usage may be unavailable
+  result patch: a record with secret-looking lines masked; take the change from the worktree
+✔ v2: final review findings use the configured integration repair agent (2851.7028ms)
+run 3e271865-c924-4da9-b308-bf488087913c planned with 3 step(s): one, two, three
+next: agent-layers workflow run 3e271865-c924-4da9-b308-bf488087913c
+run 3e271865-c924-4da9-b308-bf488087913c: BLOCKED (input-invalid)
+  step    status   attempts  reason         last error
+  one     BLOCKED  1         input-invalid  dependency context exceeds maxDependencyBytes; make a smaller plan
+  two     PENDING  0
+  three   PENDING  0
+  review  PENDING  0
+  audit   PENDING  0
+agent calls 2/10, active time 0s/3600s, plan repairs 0/1
+assignments: {"planner":{"agentId":"claude","selectionSource":"role-default"},"reviewer":{"agentId":"claude","selectionSource":"role-default"},"auditor":{"agentId":"claude","selectionSource":"role-default"},"steps":{"one":{"agentId":"codex","selectionSource":"step"},"two":{"agentId":"gemini","selectionSource":"step"},"three":{"agentId":"kimi","selectionSource":"step"}},"repair":{"agentId":"codex","selectionSource":"repair-default"}}
+  planner plan: claude, requested model claude-fixture-model, reported unknown, exit 0
+next: The fixed input or dependency evidence is invalid. Inspect the evidence and make a new plan if the context, policy or assignment must change. This run does not replace its assigned agent.
+baseline checks at the base commit:
+  unit: exit 0, expected to pass, as expected
+checks:
+  unit (required): not-run
+checks without inputs, whose test files the AI CLI may edit: unit
+artifacts: 0 in <TASK_ROOT>/tmp/wf-assignment-22VU9J/.agent-layers/workflows/3e271865-c924-4da9-b308-bf488087913c
+remaining steps: one, two, three, review, audit
+worktree: <TASK_ROOT>/tmp/wf-assignment-22VU9J/.agent-layers/worktrees/3e271865-c924-4da9-b308-bf488087913c
+result patch: artifacts/result-patch-15.json (0 bytes, sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855)
+not guaranteed:
+  isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions
+  write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted
+  processes: one that left its session is not found when a run ends, is cancelled or is resumed
+  AI CLI settings: changes a CLI makes to its own global settings are not cleaned up
+  model and usage: requested models are settings; CLI-reported identity and usage may be unavailable
+  result patch: a record with secret-looking lines masked; take the change from the worktree
+✔ v2: dependency context limit stops downstream calls without truncating the goal (665.538434ms)
+✔ v2: a transcript keeps JSON indentation but never repairs a broken body (0.535282ms)
+✔ v2: unknown record versions are rejected before any write (58.742428ms)
+✔ v2: command-line validate, status and report are read-only (405.379368ms)
+run 1645c915-a487-42e5-8ba1-5b20a1ae0ec8 planned with 3 step(s): one, two, three
+next: agent-layers workflow run 1645c915-a487-42e5-8ba1-5b20a1ae0ec8
+run 1645c915-a487-42e5-8ba1-5b20a1ae0ec8: SUCCEEDED
+  step    status     attempts  reason  last error
+  one     SUCCEEDED  2
+  two     SUCCEEDED  1
+  three   SUCCEEDED  1
+  review  SUCCEEDED  1
+  audit   SUCCEEDED  1
+agent calls 7/10, active time 1s/3600s, plan repairs 0/1
+repair attempts (limit 2 each): one 1
+assignments: {"planner":{"agentId":"claude","selectionSource":"role-default"},"reviewer":{"agentId":"claude","selectionSource":"role-default"},"auditor":{"agentId":"claude","selectionSource":"role-default"},"steps":{"one":{"agentId":"codex","selectionSource":"step"},"two":{"agentId":"gemini","selectionSource":"step"},"three":{"agentId":"kimi","selectionSource":"step"}},"repair":{"agentId":"codex","selectionSource":"repair-default"}}
+  planner plan: claude, requested model claude-fixture-model, reported unknown, exit 0
+  coder one: codex, requested model codex-fixture-model, reported unknown, exit 0
+  coder one: codex, requested model codex-fixture-model, reported unknown, exit 0
+  coder two: gemini, requested model gemini-fixture-model, reported unknown, exit 0
+  coder three: kimi, requested model kimi-fixture-model, reported unknown, exit 0
+  reviewer review: claude, requested model claude-fixture-model, reported unknown, exit 0
+  auditor audit: claude, requested model claude-fixture-model, reported unknown, exit 0
+baseline checks at the base commit:
+  unit: exit 1, expected to fail, as expected
+checks:
+  unit (required): passed
+checks without inputs, whose test files the AI CLI may edit: unit
+result hashes all match: checks bde108debb943f9c7a2070d43117f71480d2595cf4892b5d7e0d9fd57f63bf94, reviewer bde108debb943f9c7a2070d43117f71480d2595cf4892b5d7e0d9fd57f63bf94, auditor bde108debb943f9c7a2070d43117f71480d2595cf4892b5d7e0d9fd57f63bf94, final bde108debb943f9c7a2070d43117f71480d2595cf4892b5d7e0d9fd57f63bf94
+artifacts: 6 in <TASK_ROOT>/tmp/wf-assignment-d9sOyL/.agent-layers/workflows/1645c915-a487-42e5-8ba1-5b20a1ae0ec8
+  artifacts/00-one-1.json coder one attempt 1: completed
+  artifacts/00-one-2.json coder one attempt 2: completed
+  artifacts/01-two-1.json coder two attempt 1: completed
+  artifacts/02-three-1.json coder three attempt 1: completed
+  artifacts/03-review-1.json reviewer review attempt 1: completed
+  artifacts/04-audit-1.json auditor audit attempt 1: completed
+remaining steps: none
+worktree: <TASK_ROOT>/tmp/wf-assignment-d9sOyL/.agent-layers/worktrees/1645c915-a487-42e5-8ba1-5b20a1ae0ec8
+result patch: artifacts/result-patch-115.json (158 bytes, sha256 bde108debb943f9c7a2070d43117f71480d2595cf4892b5d7e0d9fd57f63bf94)
+not guaranteed:
+  isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions
+  write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted
+  processes: one that left its session is not found when a run ends, is cancelled or is resumed
+  AI CLI settings: changes a CLI makes to its own global settings are not cleaned up
+  model and usage: requested models are settings; CLI-reported identity and usage may be unavailable
+  result patch: a record with secret-looking lines masked; take the change from the worktree
+✔ v2: an ordinary failed check retries the original task agent (2258.246334ms)
+run 8317d63b-4407-4b11-aee5-c4c18c0cb519 planned with 3 step(s): one, two, three
+next: agent-layers workflow run 8317d63b-4407-4b11-aee5-c4c18c0cb519
+run 8317d63b-4407-4b11-aee5-c4c18c0cb519: FAILED (maxAgentCalls)
+  step    status     attempts  reason  last error
+  one     SUCCEEDED  1
+  two     SUCCEEDED  1
+  three   SUCCEEDED  1
+  review  PENDING    1
+  audit   PENDING    0
+agent calls 6/6, active time 1s/3600s, plan repairs 0/1
+repair attempts (limit 2 each): review-fix 1
+assignments: {"planner":{"agentId":"claude","selectionSource":"role-default"},"reviewer":{"agentId":"claude","selectionSource":"role-default"},"auditor":{"agentId":"claude","selectionSource":"role-default"},"steps":{"one":{"agentId":"codex","selectionSource":"step"},"two":{"agentId":"gemini","selectionSource":"step"},"three":{"agentId":"kimi","selectionSource":"step"}},"repair":{"agentId":"codex","selectionSource":"repair-default"}}
+  planner plan: claude, requested model claude-fixture-model, reported unknown, exit 0
+  coder one: codex, requested model codex-fixture-model, reported unknown, exit 0
+  coder two: gemini, requested model gemini-fixture-model, reported unknown, exit 0
+  coder three: kimi, requested model kimi-fixture-model, reported unknown, exit 0
+  reviewer review: claude, requested model claude-fixture-model, reported unknown, exit 0
+  coder review-fix: codex, requested model codex-fixture-model, reported unknown, exit 0
+baseline checks at the base commit:
+  unit: exit 0, expected to pass, as expected
+checks:
+  unit (required): passed
+checks without inputs, whose test files the AI CLI may edit: unit
+artifacts: 5 in <TASK_ROOT>/tmp/wf-assignment-X1wdIU/.agent-layers/workflows/8317d63b-4407-4b11-aee5-c4c18c0cb519
+  artifacts/00-one-1.json coder one attempt 1: completed
+  artifacts/01-two-1.json coder two attempt 1: completed
+  artifacts/02-three-1.json coder three attempt 1: completed
+  artifacts/03-review-1.json reviewer review attempt 1: needs_changes
+  artifacts/03-review-fix-1.json coder review-fix attempt 1: completed
+remaining steps: review, audit
+worktree: <TASK_ROOT>/tmp/wf-assignment-X1wdIU/.agent-layers/worktrees/8317d63b-4407-4b11-aee5-c4c18c0cb519
+result patch: artifacts/result-patch-101.json (0 bytes, sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855)
+not guaranteed:
+  isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions
+  write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted
+  processes: one that left its session is not found when a run ends, is cancelled or is resumed
+  AI CLI settings: changes a CLI makes to its own global settings are not cleaned up
+  model and usage: requested models are settings; CLI-reported identity and usage may be unavailable
+  result patch: a record with secret-looking lines masked; take the change from the worktree
+✔ v2: the shared call limit is not multiplied by agent count (2067.078943ms)
+run 246d796b-2867-4108-97c8-730b1dcbb25f planned with 3 step(s): one, two, three
+next: agent-layers workflow run 246d796b-2867-4108-97c8-730b1dcbb25f
+run 246d796b-2867-4108-97c8-730b1dcbb25f: BLOCKED (transport)
+  step    status     attempts  reason     last error
+  one     SUCCEEDED  1
+  two     BLOCKED    1         transport  transport error exit-73
+  three   PENDING    0
+  review  PENDING    0
+  audit   PENDING    0
+agent calls 3/10, active time 0s/3600s, plan repairs 0/1
+assignments: {"planner":{"agentId":"claude","selectionSource":"role-default"},"reviewer":{"agentId":"claude","selectionSource":"role-default"},"auditor":{"agentId":"claude","selectionSource":"role-default"},"steps":{"one":{"agentId":"codex","selectionSource":"step"},"two":{"agentId":"gemini","selectionSource":"step"},"three":{"agentId":"kimi","selectionSource":"step"}},"repair":{"agentId":"codex","selectionSource":"repair-default"}}
+  planner plan: claude, requested model claude-fixture-model, reported unknown, exit 0
+  coder one: codex, requested model codex-fixture-model, reported unknown, exit 0
+  coder two: gemini, requested model gemini-fixture-model, reported unknown, exit 73
+next: the AI CLI call kept ending with an error; the step's last error has the code, and artifacts/call-failed-* in the run folder keep the output. Fix the cause, then run workflow resume, which continues in the same worktree; with the same error it stops again after one more call. A run keeps the policy it was planned with, so a wrong command or argument in the policy needs a new plan
+baseline checks at the base commit:
+  unit: exit 0, expected to pass, as expected
+checks:
+  unit (required): passed
+checks without inputs, whose test files the AI CLI may edit: unit
+artifacts: 1 in <TASK_ROOT>/tmp/wf-assignment-h3DXcA/.agent-layers/workflows/246d796b-2867-4108-97c8-730b1dcbb25f
+  artifacts/00-one-1.json coder one attempt 1: completed
+remaining steps: two, three, review, audit
+worktree: <TASK_ROOT>/tmp/wf-assignment-h3DXcA/.agent-layers/worktrees/246d796b-2867-4108-97c8-730b1dcbb25f
+result patch: artifacts/result-patch-39.json (164 bytes, sha256 b0a43393c33862567607b825d4d6658891113e20b1db87e817ee7dd6ce645abc)
+not guaranteed:
+  isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions
+  write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted
+  processes: one that left its session is not found when a run ends, is cancelled or is resumed
+  AI CLI settings: changes a CLI makes to its own global settings are not cleaned up
+  model and usage: requested models are settings; CLI-reported identity and usage may be unavailable
+  result patch: a record with secret-looking lines masked; take the change from the worktree
+run 246d796b-2867-4108-97c8-730b1dcbb25f: BLOCKED (input-invalid)
+  step    status     attempts  reason         last error
+  one     SUCCEEDED  1
+  two     BLOCKED    2         input-invalid  dependency file changed since its last validated result
+  three   PENDING    0
+  review  PENDING    0
+  audit   PENDING    0
+agent calls 4/10, active time 0s/3600s, plan repairs 0/1
+assignments: {"planner":{"agentId":"claude","selectionSource":"role-default"},"reviewer":{"agentId":"claude","selectionSource":"role-default"},"auditor":{"agentId":"claude","selectionSource":"role-default"},"steps":{"one":{"agentId":"codex","selectionSource":"step"},"two":{"agentId":"gemini","selectionSource":"step"},"three":{"agentId":"kimi","selectionSource":"step"}},"repair":{"agentId":"codex","selectionSource":"repair-default"}}
+  planner plan: claude, requested model claude-fixture-model, reported unknown, exit 0
+  coder one: codex, requested model codex-fixture-model, reported unknown, exit 0
+  coder two: gemini, requested model gemini-fixture-model, reported unknown, exit 73
+next: The fixed input or dependency evidence is invalid. Inspect the evidence and make a new plan if the context, policy or assignment must change. This run does not replace its assigned agent.
+baseline checks at the base commit:
+  unit: exit 0, expected to pass, as expected
+checks:
+  unit (required): passed
+checks without inputs, whose test files the AI CLI may edit: unit
+artifacts: 1 in <TASK_ROOT>/tmp/wf-assignment-h3DXcA/.agent-layers/workflows/246d796b-2867-4108-97c8-730b1dcbb25f
+  artifacts/00-one-1.json coder one attempt 1: completed
+remaining steps: two, three, review, audit
+worktree: <TASK_ROOT>/tmp/wf-assignment-h3DXcA/.agent-layers/worktrees/246d796b-2867-4108-97c8-730b1dcbb25f
+result patch: artifacts/result-patch-48.json (164 bytes, sha256 5b4bc3f79f640a0396d4189dcb83d1bc56839a09b6879c72e98233b72a8743f5)
+not guaranteed:
+  isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions
+  write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted
+  processes: one that left its session is not found when a run ends, is cancelled or is resumed
+  AI CLI settings: changes a CLI makes to its own global settings are not cleaned up
+  model and usage: requested models are settings; CLI-reported identity and usage may be unavailable
+  result patch: a record with secret-looking lines masked; take the change from the worktree
+✔ v2: changed dependency files stop resume before a downstream process (1393.471312ms)
+✔ v2: artifacts cannot escape through parent paths or symbolic links (23.542707ms)
+warning planning evidence: <TASK_ROOT>/tmp/wf-assignment-Wakw8P/.agent-layers/workflow-preparation/880b0f90-1fb7-4982-a750-ab0aa7d10caa.json
+✔ v2: plan failures preserve preparation evidence without creating a run (254.102278ms)
+✔ v2: policy exceptions survive storage normalization without applying checks twice (58.342226ms)
+✔ v2: forged assignment ids and altered preparation evidence are rejected (61.843842ms)
+✔ v2: same CLI can select different models without changing role semantics (83.5093ms)
+run 17c66d8f-b444-4c36-a3bf-66ea69913e65 planned with 3 step(s): one, two, three
+next: agent-layers workflow run 17c66d8f-b444-4c36-a3bf-66ea69913e65
+run 17c66d8f-b444-4c36-a3bf-66ea69913e65: BLOCKED (input-invalid)
+  step    status   attempts  reason         last error
+  one     BLOCKED  1         input-invalid  dependency context exceeds maxDependencyBytes; make a smaller plan
+  two     PENDING  0
+  three   PENDING  0
+  review  PENDING  0
+  audit   PENDING  0
+agent calls 2/10, active time 0s/3600s, plan repairs 0/1
+assignments: {"planner":{"agentId":"claude","selectionSource":"role-default"},"reviewer":{"agentId":"claude","selectionSource":"role-default"},"auditor":{"agentId":"claude","selectionSource":"role-default"},"steps":{"one":{"agentId":"codex","selectionSource":"step"},"two":{"agentId":"gemini","selectionSource":"step"},"three":{"agentId":"kimi","selectionSource":"step"}},"repair":{"agentId":"codex","selectionSource":"repair-default"}}
+  planner plan: claude, requested model claude-fixture-model, reported unknown, exit 0
+next: The fixed input or dependency evidence is invalid. Inspect the evidence and make a new plan if the context, policy or assignment must change. This run does not replace its assigned agent.
+baseline checks at the base commit:
+  unit: exit 0, expected to pass, as expected
+checks:
+  unit (required): not-run
+checks without inputs, whose test files the AI CLI may edit: unit
+artifacts: 0 in <TASK_ROOT>/tmp/wf-assignment-1PKwvs/.agent-layers/workflows/17c66d8f-b444-4c36-a3bf-66ea69913e65
+remaining steps: one, two, three, review, audit
+worktree: <TASK_ROOT>/tmp/wf-assignment-1PKwvs/.agent-layers/worktrees/17c66d8f-b444-4c36-a3bf-66ea69913e65
+result patch: artifacts/result-patch-15.json (0 bytes, sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855)
+not guaranteed:
+  isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions
+  write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted
+  processes: one that left its session is not found when a run ends, is cancelled or is resumed
+  AI CLI settings: changes a CLI makes to its own global settings are not cleaned up
+  model and usage: requested models are settings; CLI-reported identity and usage may be unavailable
+  result patch: a record with secret-looking lines masked; take the change from the worktree
+run 17c66d8f-b444-4c36-a3bf-66ea69913e65: BLOCKED (input-invalid)
+  step    status   attempts  reason         last error
+  one     BLOCKED  1         input-invalid  dependency context exceeds maxDependencyBytes; make a smaller plan
+  two     PENDING  0
+  three   PENDING  0
+  review  PENDING  0
+  audit   PENDING  0
+agent calls 2/10, active time 0s/3600s, plan repairs 0/1
+assignments: {"planner":{"agentId":"claude","selectionSource":"role-default"},"reviewer":{"agentId":"claude","selectionSource":"role-default"},"auditor":{"agentId":"claude","selectionSource":"role-default"},"steps":{"one":{"agentId":"codex","selectionSource":"step"},"two":{"agentId":"gemini","selectionSource":"step"},"three":{"agentId":"kimi","selectionSource":"step"}},"repair":{"agentId":"codex","selectionSource":"repair-default"}}
+  planner plan: claude, requested model claude-fixture-model, reported unknown, exit 0
+next: The fixed input or dependency evidence is invalid. Inspect the evidence and make a new plan if the context, policy or assignment must change. This run does not replace its assigned agent.
+baseline checks at the base commit:
+  unit: exit 0, expected to pass, as expected
+checks:
+  unit (required): not-run
+checks without inputs, whose test files the AI CLI may edit: unit
+artifacts: 0 in <TASK_ROOT>/tmp/wf-assignment-1PKwvs/.agent-layers/workflows/17c66d8f-b444-4c36-a3bf-66ea69913e65
+remaining steps: one, two, three, review, audit
+worktree: <TASK_ROOT>/tmp/wf-assignment-1PKwvs/.agent-layers/worktrees/17c66d8f-b444-4c36-a3bf-66ea69913e65
+result patch: artifacts/result-patch-19.json (0 bytes, sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855)
+not guaranteed:
+  isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions
+  write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted
+  processes: one that left its session is not found when a run ends, is cancelled or is resumed
+  AI CLI settings: changes a CLI makes to its own global settings are not cleaned up
+  model and usage: requested models are settings; CLI-reported identity and usage may be unavailable
+  result patch: a record with secret-looking lines masked; take the change from the worktree
+✔ v2: input-invalid is not resumed into another model (921.664401ms)
+✔ v2: large prompt arguments report E2BIG without retry or truncation (49.377065ms)
+✔ v2: cancellation and timeout terminate the assigned CLI process (1205.233534ms)
+run 59504ad1-4aff-499d-97c9-66cffc73df9e planned with 3 step(s): one, two, three
+next: agent-layers workflow run 59504ad1-4aff-499d-97c9-66cffc73df9e
+run 59504ad1-4aff-499d-97c9-66cffc73df9e: SUCCEEDED
+  step    status     attempts  reason  last error
+  one     SUCCEEDED  1
+  two     SUCCEEDED  1
+  three   SUCCEEDED  1
+  review  SUCCEEDED  1
+  audit   SUCCEEDED  1
+agent calls 7/10, active time 2s/3600s, plan repairs 0/1
+repair attempts (limit 2 each): review-fix 1
+assignments: {"planner":{"agentId":"claude","selectionSource":"role-default"},"reviewer":{"agentId":"claude","selectionSource":"role-default"},"auditor":{"agentId":"claude","selectionSource":"role-default"},"steps":{"one":{"agentId":"codex","selectionSource":"step"},"two":{"agentId":"gemini","selectionSource":"step"},"three":{"agentId":"kimi","selectionSource":"step"}},"repair":{"agentId":"kimi","selectionSource":"repair-default"}}
+  planner plan: claude, requested model claude-fixture-model, reported unknown, exit 0
+  coder one: codex, requested model codex-fixture-model, reported unknown, exit 0
+  coder two: gemini, requested model gemini-fixture-model, reported unknown, exit 0
+  coder three: kimi, requested model kimi-fixture-model, reported unknown, exit 0
+  coder review-fix: kimi, requested model kimi-fixture-model, reported unknown, exit 0
+  reviewer review: claude, requested model claude-fixture-model, reported unknown, exit 0
+  auditor audit: claude, requested model claude-fixture-model, reported unknown, exit 0
+baseline checks at the base commit:
+  unit: exit 0, expected to pass, as expected
+  gate: exit 1, expected to fail, as expected
+checks:
+  unit (required): passed
+  gate (required): passed
+checks without inputs, whose test files the AI CLI may edit: unit, gate
+result hashes all match: checks 4b74845b58720379879236f6f64f86c775b2edc25dfbfea808c501555996fbfc, reviewer 4b74845b58720379879236f6f64f86c775b2edc25dfbfea808c501555996fbfc, auditor 4b74845b58720379879236f6f64f86c775b2edc25dfbfea808c501555996fbfc, final 4b74845b58720379879236f6f64f86c775b2edc25dfbfea808c501555996fbfc
+artifacts: 6 in <TASK_ROOT>/tmp/wf-assignment-CLm9be/.agent-layers/workflows/59504ad1-4aff-499d-97c9-66cffc73df9e
+  artifacts/00-one-1.json coder one attempt 1: completed
+  artifacts/01-two-1.json coder two attempt 1: completed
+  artifacts/02-three-1.json coder three attempt 1: completed
+  artifacts/03-review-fix-1.json coder review-fix attempt 1: completed
+  artifacts/03-review-1.json reviewer review attempt 1: completed
+  artifacts/04-audit-1.json auditor audit attempt 1: completed
+remaining steps: none
+worktree: <TASK_ROOT>/tmp/wf-assignment-CLm9be/.agent-layers/worktrees/59504ad1-4aff-499d-97c9-66cffc73df9e
+result patch: artifacts/result-patch-123.json (176 bytes, sha256 4b74845b58720379879236f6f64f86c775b2edc25dfbfea808c501555996fbfc)
+not guaranteed:
+  isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions
+  write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted
+  processes: one that left its session is not found when a run ends, is cancelled or is resumed
+  AI CLI settings: changes a CLI makes to its own global settings are not cleaned up
+  model and usage: requested models are settings; CLI-reported identity and usage may be unavailable
+  result patch: a record with secret-looking lines masked; take the change from the worktree
+✔ v2: mandatory final check failures use repairAgent before review (2870.813006ms)
+warning agent claude CLI version changed since planning
+warning agent codex CLI version changed since planning
+warning agent gemini CLI version changed since planning
+warning agent kimi CLI version changed since planning
+run 1e439f53-c56b-4d91-8b9f-9978633a3acb: SUCCEEDED
+  step    status     attempts  reason  last error
+  one     SUCCEEDED  1
+  two     SUCCEEDED  1
+  three   SUCCEEDED  1
+  review  SUCCEEDED  1
+  audit   SUCCEEDED  1
+agent calls 5/10, active time 1s/3600s, plan repairs 0/1
+assignments: {"planner":{"agentId":"claude","selectionSource":"role-default"},"reviewer":{"agentId":"claude","selectionSource":"role-default"},"auditor":{"agentId":"claude","selectionSource":"role-default"},"steps":{"one":{"agentId":"codex","selectionSource":"step"},"two":{"agentId":"gemini","selectionSource":"step"},"three":{"agentId":"kimi","selectionSource":"step"}},"repair":{"agentId":"codex","selectionSource":"repair-default"}}
+  coder one: codex, requested model codex-fixture-model, reported unknown, exit 0
+  coder two: gemini, requested model gemini-fixture-model, reported unknown, exit 0
+  coder three: kimi, requested model kimi-fixture-model, reported unknown, exit 0
+  reviewer review: claude, requested model claude-fixture-model, reported unknown, exit 0
+  auditor audit: claude, requested model claude-fixture-model, reported unknown, exit 0
+baseline checks at the base commit:
+  unit: exit 0, expected to pass, as expected
+checks:
+  unit (required): passed
+checks without inputs, whose test files the AI CLI may edit: unit
+result hashes all match: checks e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, reviewer e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, auditor e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, final e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+artifacts: 5 in <TASK_ROOT>/tmp/wf-assignment-l9LxCm/.agent-layers/workflows/1e439f53-c56b-4d91-8b9f-9978633a3acb
+  artifacts/00-one-1.json coder one attempt 1: completed
+  artifacts/01-two-1.json coder two attempt 1: completed
+  artifacts/02-three-1.json coder three attempt 1: completed
+  artifacts/03-review-1.json reviewer review attempt 1: completed
+  artifacts/04-audit-1.json auditor audit attempt 1: completed
+remaining steps: none
+worktree: <TASK_ROOT>/tmp/wf-assignment-l9LxCm/.agent-layers/worktrees/1e439f53-c56b-4d91-8b9f-9978633a3acb
+result patch: artifacts/result-patch-97.json (0 bytes, sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855)
+not guaranteed:
+  isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions
+  write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted
+  processes: one that left its session is not found when a run ends, is cancelled or is resumed
+  AI CLI settings: changes a CLI makes to its own global settings are not cleaned up
+  model and usage: requested models are settings; CLI-reported identity and usage may be unavailable
+  result patch: a record with secret-looking lines masked; take the change from the worktree
+✔ v2: a torn final event is recovered without changing immutable inputs (1824.397236ms)
+warning planning evidence: <TASK_ROOT>/tmp/wf-assignment-OMVPH5/.agent-layers/workflow-preparation/8f2b34d6-49c4-4de0-9fe6-9f7486b74705.json
+run 33e84d18-0983-4088-bf48-28e6b455328d planned with 3 step(s): one, two, three
+next: agent-layers workflow run 33e84d18-0983-4088-bf48-28e6b455328d
+run 33e84d18-0983-4088-bf48-28e6b455328d: FAILED (policy-violation)
+  step    status     attempts  reason            last error
+  one     SUCCEEDED  1
+  two     SUCCEEDED  1
+  three   SUCCEEDED  1
+  review  FAILED     1         policy-violation  the reviewer call broke the policy: read-only-role-changed-files; see artifacts/violations-79.json
+  audit   PENDING    0
+agent calls 5/10, active time 1s/3600s, plan repairs 0/1
+assignments: {"planner":{"agentId":"claude","selectionSource":"role-default"},"reviewer":{"agentId":"claude","selectionSource":"role-default"},"auditor":{"agentId":"claude","selectionSource":"role-default"},"steps":{"one":{"agentId":"codex","selectionSource":"step"},"two":{"agentId":"gemini","selectionSource":"step"},"three":{"agentId":"kimi","selectionSource":"step"}},"repair":{"agentId":"codex","selectionSource":"repair-default"}}
+  planner plan: claude, requested model claude-fixture-model, reported unknown, exit 0
+  coder one: codex, requested model codex-fixture-model, reported unknown, exit 0
+  coder two: gemini, requested model gemini-fixture-model, reported unknown, exit 0
+  coder three: kimi, requested model kimi-fixture-model, reported unknown, exit 0
+  reviewer review: claude, requested model claude-fixture-model, reported unknown, exit 0
+baseline checks at the base commit:
+  unit: exit 0, expected to pass, as expected
+checks:
+  unit (required): passed
+checks without inputs, whose test files the AI CLI may edit: unit
+artifacts: 3 in <TASK_ROOT>/tmp/wf-assignment-43FLKc/.agent-layers/workflows/33e84d18-0983-4088-bf48-28e6b455328d
+  artifacts/00-one-1.json coder one attempt 1: completed
+  artifacts/01-two-1.json coder two attempt 1: completed
+  artifacts/02-three-1.json coder three attempt 1: completed
+remaining steps: review, audit
+worktree: <TASK_ROOT>/tmp/wf-assignment-43FLKc/.agent-layers/worktrees/33e84d18-0983-4088-bf48-28e6b455328d
+result patch: artifacts/result-patch-81.json (171 bytes, sha256 b87df58646fbeeb04c22fcfda2f9bfc44775ebbfa8803343bb038f511a2cbfba)
+not guaranteed:
+  isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions
+  write scope: checked after each call, not blocked; paths of earlier steps and files git ignores are not counted
+  processes: one that left its session is not found when a run ends, is cancelled or is resumed
+  AI CLI settings: changes a CLI makes to its own global settings are not cleaned up
+  model and usage: requested models are settings; CLI-reported identity and usage may be unavailable
+  result patch: a record with secret-looking lines masked; take the change from the worktree
+✔ v2: planner and reviewer edits are rejected rather than accepted as read-only work (1968.740575ms)
+✔ v2: the four-CLI example validates without invoking a real CLI (1.941249ms)
+✔ workflow cli: status, report and validate read a stored run, print JSON only on stdout, and write nothing (521.015374ms)
+✔ workflow cli: report shows finished checks and artifacts after a fake run (722.710654ms)
+✔ workflow cli: exit codes follow the contract and diagnostics go to stderr (2598.268844ms)
+✔ workflow cli: validate reports a tampered policy with exit code 2 (120.266868ms)
+✔ workflow cli: help lists the workflow commands and existing commands keep their exit codes (203.668728ms)
+✔ workflow cli: validate rechecks a policy whose hash was updated and a malformed policy without crashing (225.99615ms)
+✔ workflow cli: validate reports a state that differs from the last event (123.026921ms)
+✔ workflow cli: unknown options and values on switches exit 2 without output on stdout (532.016825ms)
+✔ workflow cli: validate accepts a stored policy whose add-check exception is already applied (152.211454ms)
+✔ workflow cli: a damaged state.json is exit 2 from validate and exit 3 from status and report, never a crash (2925.450215ms)
+✔ workflow engine: a stop request from the provider ends the run with its status and reason, without a retry (129.140988ms)
+✔ workflow engine: a cancelled call ends the run as CANCELLED, one with processes left is INTERRUPTED (272.754203ms)
+✔ workflow engine: a clean run goes coder by coder, then review and audit, and succeeds (302.314338ms)
+✔ workflow engine: a failing check is repaired within maxRepairAttempts and the run succeeds (381.449659ms)
+✔ workflow engine: a check that keeps failing stops at the repair limit without starting later steps (275.365495ms)
+✔ workflow engine: the same failure three times in a row stops before a larger repair limit (245.80472ms)
+✔ workflow engine: reviewer changes go through one review-fix, recheck affected steps, then review again (337.363418ms)
+✔ workflow engine: auditor changes also send the run back through review before a new audit (399.787622ms)
+✔ workflow engine: a recheck that fails after review-fix spends review-fix attempts, not step repairs (805.232391ms)
+✔ workflow engine: a finding outside every writePaths blocks the run without widening the scope (271.850999ms)
+✔ workflow engine: transport errors retry per call, block when used up, and resume keeps counting (489.871032ms)
+✔ workflow engine: reaching maxAgentCalls stops before the next call and resume does not reset it (274.614771ms)
+✔ workflow engine: active time counts across calls and checks and stops at runTimeoutSeconds (169.639893ms)
+✔ workflow engine: a run recovered as interrupted is blocked and no role is called again (72.016488ms)
+✔ workflow engine: a passed recovery check runs the step again with a note and the counts so far (288.310554ms)
+✔ workflow engine: a failed recovery check stops the run without a call until a later check passes (289.825041ms)
+✔ workflow engine: a recovery check that found a violation ends the run as FAILED for good (78.629959ms)
+✔ workflow engine: a review fix cut off by an interruption continues with the findings and the note (418.852389ms)
+✔ workflow engine: invalid results, role timeouts and blocked roles stop the run as BLOCKED (648.032353ms)
+✔ workflow engine: a failing required check after the work steps is repaired before review (298.815322ms)
+✔ workflow engine: a secret in a role summary is redacted in the artifact and never reaches events or state (253.276954ms)
+✔ workflow engine: work steps run in dependency order even when the plan lists them out of order (239.746212ms)
+✔ workflow engine: a review-fix stopped by transport errors resumes the same fix before review runs again (426.204422ms)
+✔ workflow engine: an unexpected provider or verifier error leaves the run interrupted with the time it used (219.862923ms)
+✔ workflow engine: the same auditor findings three times stop the run even though review passes in between (508.055716ms)
+✔ workflow engine: a last call that runs past runTimeoutSeconds fails the run instead of succeeding (259.874624ms)
+✔ workflow engine: step ids with dots get safe artifact names (254.886321ms)
+✔ workflow engine: an authorization header in a role result is redacted in the artifact (270.995675ms)
+✔ workflow engine: no role is called once the active time left is exactly zero (252.690752ms)
+✔ workflow engine: checks that finish past runTimeoutSeconds do not count as a passed step (105.763682ms)
+✔ workflow engine: a step id that looks like a secret key still records its check failures (306.111156ms)
+✔ workflow engine: a review-fix resumed after a failed recheck skips the gate, keeps the failures and runs as RUNNING (467.827892ms)
+✔ workflow engine: an unexpected error during review-fix marks the review step interrupted (234.361549ms)
+✔ workflow engine: when the interruption cannot be recorded, the original error still reaches the caller (171.804743ms)
+✔ workflow engine: a review-fix that cannot go on stops from RUNNING or VERIFYING, never from RETRY_PENDING (2770.280467ms)
+✔ workflow engine: every review-fix attempt goes through READY before it runs (447.42348ms)
+✔ workflow engine: a review step that has not started keeps its status when the time ends at the required gate (709.692954ms)
+✔ workflow engine: a check that fails at the base commit stops the run before any call (69.186035ms)
+✔ workflow engine: a check marked to fail at the base commit goes on when it fails there, and both results stay on record (304.715989ms)
+✔ workflow engine: a check marked to fail at the base commit must fail by itself (281.287803ms)
+✔ workflow engine: the checks of the work steps and the required checks run at the base commit, others do not (293.247336ms)
+✔ workflow engine: a failing setup command stops the run before the baseline checks (617.376934ms)
+✔ workflow engine: files changed before any call stop the run, whichever way the change was found (552.388878ms)
+✔ workflow engine: only workflow resume repeats a stopped preparation, from the setup commands on (289.458879ms)
+✔ workflow engine: a finished preparation is not repeated when the run resumes (308.251605ms)
+✔ workflow engine: an error during the baseline checks ends the run by the same rule and a resumed run prepares again (317.158405ms)
+✔ workflow engine: the time of the preparation counts toward runTimeoutSeconds (259.228781ms)
+✔ workflow engine: every verifier method is required before the run starts (144.063257ms)
+✔ workflow engine: a required check repair stops at the repair limit and at the third same failure (1099.024009ms)
+✔ workflow engine: a required check repair stopped by transport errors resumes the same fix without findings (376.465756ms)
+✔ workflow engine: the checked result is sealed, recorded on success, and a review fix seals it again (348.693149ms)
+✔ workflow engine: a result that differs from the seal runs every check and both reviews again (921.63464ms)
+✔ workflow engine: the third difference from the seal in a row ends the run, also when a review passes between them (550.58131ms)
+✔ workflow engine: a change outside the scope found at any seal ends the run as FAILED (1073.615973ms)
+✔ workflow engine: a coder resumed after a failed check gets the failures with the interruption note (736.765398ms)
+✔ workflow engine: a review-fix whose result is stored is not called again when its recheck was interrupted (381.7221ms)
+✔ workflow graph: valid DAG has no issues and keeps the original order for ties (2.18917ms)
+✔ workflow graph: a later step listed first still runs after its dependency (0.229881ms)
+✔ workflow graph: duplicate ids, self, missing and repeated dependencies are reported in a fixed order (0.831843ms)
+✔ workflow graph: a missing dependency alone is not also reported as a cycle (1.783368ms)
+✔ workflow graph: cycles are rejected and name the steps that cannot be ordered (0.692043ms)
+✔ workflow graph: review and audit are appended after every work step, audit after review (0.332681ms)
+✔ workflow graph: downstream invalidation returns the step and every later dependent in run order (1.104245ms)
+✔ workflow process: stdout lines arrive as JSON events in order (72.41209ms)
+✔ workflow process: an unterminated last line is an error and is not delivered (45.935009ms)
+✔ workflow process: lines that are not JSON objects are errors and later lines still arrive (48.093819ms)
+✔ workflow process: a line over the limit is marked, not parsed, and the next line still arrives (51.883236ms)
+✔ workflow process: output over the total limit is marked as truncated, keeps only the tail, and the child still finishes (85.105628ms)
+✔ workflow process: a tail cut in the middle of a multibyte letter still reads as clean text (79.091681ms)
+✔ workflow process: the collector joins lines and multibyte text split across chunks (0.630843ms)
+✔ workflow process: the collector cuts a chunk at the total limit and does not report the cut line as an error (0.321802ms)
+✔ workflow process: a last line over the limit without a line end is still reported as too long (0.246441ms)
+✔ workflow process: the collector keeps a bounded list of line errors and still counts them all (37.916652ms)
+✔ workflow process: stdin reaches the child and the exit code and stderr tail come back (152.451015ms)
+✔ workflow process: a child that stops reading stdin does not crash the parent (172.706787ms)
+✔ workflow process: a timeout ends the child and is reported (383.821749ms)
+✔ workflow process: a finished child is not reported as timed out and leaves no timer or abort listener behind (74.859142ms)
+✔ workflow process: a cancel ends the child and is reported (121.082072ms)
+✔ workflow process: a cancel that came before the start runs nothing (0.837204ms)
+✔ workflow process: the child sees only the given environment (58.261386ms)
+✔ workflow process: an environment is required, so the parent environment can never be inherited by accident (1.362966ms)
+✔ workflow process: a program that cannot start is a clear error (10.906129ms)
+﹣ workflow process: on Windows a batch file is refused instead of going through a shell (0.17304ms) # Windows only
+✔ workflow process: arguments reach the child unchanged because no shell is used (64.596734ms)
+✔ workflow process: an error from the event callback ends the child and rejects with the result attached (115.914768ms)
+✔ workflow process: an error from onSpawn ends the child and rejects (90.809614ms)
+✔ workflow process: the owner is reported at the start and in the result (63.790891ms)
+﹣ workflow process: outside Linux the result says tree termination is not guaranteed (0.17308ms) # not Linux only
+﹣ workflow process: outside Linux a process that keeps the output pipe open does not hold up the result (0.123481ms) # not Linux only
+✔ workflow process: /proc stat parsing handles spaces and parentheses in the program name (0.355362ms)
+✔ workflow process: the tracker finds children and a grandchild in its own session, and signals the child groups first (0.887004ms)
+✔ workflow process: the tracker keeps a grandchild after its parent has died (0.236761ms)
+✔ workflow process: the tracker adopts an orphan that is still in the session of the child (0.202281ms)
+✔ workflow process: the tracker adopts an orphan in a session that a descendant opened earlier (0.939485ms)
+✔ workflow process: the tracker does not count a reused pid as the old process (0.222881ms)
+✔ workflow process: the tracker lets go of a group once it is empty, so a reused group id is not adopted (0.188961ms)
+✔ workflow process: the tracker does not count a zombie as alive (0.150321ms)
+✔ workflow process: on Linux a cancel ends the child, the grandchild and a descendant in its own session (195.28085ms)
+✔ workflow process: on Linux a timeout ends the whole tree too (1585.669227ms)
+✔ workflow process: on Linux a process that ignores TERM is killed after the grace time (508.062076ms)
+✔ workflow process: on Linux a process that handles TERM is not killed early (234.003187ms)
+✔ workflow process: on Linux a process left behind after a normal exit is found and ended (207.254425ms)
+✔ workflow process: on Linux a process that escaped with the output pipe open is never reported as confirmed gone (620.574428ms)
+✔ workflow process: the relay passes exit code 7 and both streams through (178.413333ms)
+✔ workflow process: on Linux the relay does not interpret shell characters in arguments (266.938017ms)
+✔ workflow process: the relay carries large output on both streams without blocking (175.643401ms)
+✔ workflow process: the relay reports a missing command as exit 127 (33.613993ms)
+✔ workflow process: on Linux a cancel also ends the relay and its pipes (123.811284ms)
+✔ workflow process: the relay check passes on Linux with bash and fails clearly otherwise (11.997854ms)
+✔ workflow process: leftovers are live processes of a recorded group or session, and a reused pid means the old ones are gone (0.772963ms)
+✔ workflow process: on Linux a real detached process is a leftover until it has ended (28.005848ms)
+✔ workflow process: a signal to a process that is already gone is not an error, any other signal failure is (35.197441ms)
+✔ workflow process: on Linux a bash that fails the relay probe is refused (14.239025ms)
+﹣ workflow process: on Windows a cancel ends the child, the cmd.exe under it and the grandchild (0.165281ms) # Windows only: descendants are ended with taskkill /T
+﹣ workflow process: on Windows a timeout ends the grandchild too (0.08192ms) # Windows only: descendants are ended with taskkill /T
+﹣ workflow process: on Windows without SystemRoot the direct child is ended and the reason is recorded (0.0914ms) # Windows only: descendants are ended with taskkill /T
+✔ workflow provider: the example policy is a valid policy without a secret (12.006614ms)
+✔ workflow provider: the result is the whole stdout or the last json block (0.516322ms)
+✔ workflow provider: output with no readable result gives undefined (0.254681ms)
+✔ workflow provider: the prompt holds the role text, the result format and the request last (4.927502ms)
+✔ workflow provider: a call sends the prompt on stdin, runs in the given folder and reads stdout (201.148476ms)
+✔ workflow provider: role arguments replace the shared arguments for that role only (153.134618ms)
+✔ workflow provider: a non-zero exit is a transport error with the exit code, after a diagnostic and the delay (73.991457ms)
+✔ workflow provider: exit 0 without a readable result returns undefined after a diagnostic (67.81267ms)
+✔ workflow provider: a call past stepTimeoutSeconds is a timeout error (1069.894276ms)
+✔ workflow provider: a cancelled call throws a cancel error and ends the child (124.098685ms)
+✔ workflow provider: only the base and the named environment variables reach the command (74.59902ms)
+✔ workflow provider: a program that cannot start is a start error, not a transport error (4.074058ms)
+✔ workflow provider: the version is the first line of --version, or unknown when it cannot be read (33.401712ms)
+✔ workflow provider: the command must be a program name or an absolute path that exists (1.682408ms)
+✔ workflow run: plan, then run, ends SUCCEEDED with the change only in the worktree (2489.750147ms)
+✔ workflow run: a failed check goes back to the coder with its log, and the fix then passes (1652.693292ms)
+✔ workflow run: a review finding goes to a fix call inside the work paths, then the review runs again (1903.135354ms)
+✔ workflow run: changes outside the write scope and changes by read-only roles end the run as FAILED (6398.939322ms)
+warning the reviewer call: failed
+✔ workflow run: a read-only role that changes files and then fails is stopped instead of retried (1153.728017ms)
+✔ workflow run: the write scope is the union of the steps so far, and files git ignores are not counted (3974.280872ms)
+✔ workflow run: a CLI that exits 0 without a readable result leaves the run BLOCKED with invalid-result (4050.977901ms)
+warning the coder call: failed
+  network down
+warning the coder call: failed
+warning the coder call: failed
+warning the source repository changed during this run: uncommitted:src/oops.txt
+warning the source repository changed since this run started
+✔ workflow run: a failing CLI is retried, then BLOCKED, and resume continues in the same worktree (2419.657907ms)
+✔ workflow run: a call past stepTimeoutSeconds is BLOCKED and resume does not repeat it (2238.29472ms)
+✔ workflow run: cancelling during a call ends the child and keeps the record; only a confirmed end is CANCELLED (775.363453ms)
+✔ workflow run: a cancel before any process starts ends as CANCELLED on every system (599.807693ms)
+✔ workflow run: each process is recorded by number and result only, and the source once as a digest (1496.379419ms)
+✔ workflow run: cancelling during a check ends the run with the same rule (830.965467ms)
+✔ workflow run: SIGINT and SIGTERM cancel what is running and their listeners are removed (928.510912ms)
+✔ workflow run: a real SIGINT to the command ends the run as CANCELLED with exit code 130 (1020.777212ms)
+✔ workflow cancel: a request from another process stops the run, and both commands end the same way (2087.753474ms)
+✔ workflow cancel: a request made to an earlier owner does not cancel a later run (2709.503267ms)
+✔ workflow cancel: an unreadable lock is refused, an owner that does not answer times out, and a run that ended first is named (2259.409976ms)
+✔ workflow status and cancel: a killed manager is shown as gone, and cancel never calls the run cancelled (1319.389413ms)
+✔ workflow resume: once the processes are confirmed gone, the step runs again with what it left and the counts so far (1762.797553ms)
+warning processes of the interrupted run are still alive (pid 4321); end them, then run workflow resume again
+warning processes of the interrupted run are still alive (pid 4321); end them, then run workflow resume again
+✔ workflow resume: a process still alive blocks the run without a call until it has ended (1939.179396ms)
+warning this system cannot confirm that the processes of the interrupted run have ended; make a new plan
+warning this system cannot confirm that the processes of the interrupted run have ended; make a new plan
+warning the records of this run do not show which processes it started, so their end cannot be confirmed; make a new plan
+warning the records of this run do not show which processes it started, so their end cannot be confirmed; make a new plan
+warning the source repository changed since this run started
+✔ workflow resume: without a way to confirm the processes the run stays BLOCKED and asks for a new plan (1094.185546ms)
+✔ workflow resume: a run whose records do not name its processes does not continue (1003.047411ms)
+warning the coder call broke the policy: docs/x.txt (outside-write-paths); see artifacts/violations-16.json
+warning the reviewer call broke the policy: read-only-role-changed-files; see artifacts/violations-36.json
+✔ workflow resume: files left outside the write paths or changed by a cut-off reviewer end the run as FAILED (2397.267923ms)
+✔ workflow resume: a reviewer cut off without changing anything runs again (2200.151066ms)
+warning HEAD is ad072b1759f6c2b89747a55c1b7f288218881051, but this plan was made at 6a06045be451b49f567b2a6a9ed3a6bc2fea02d6; the result patch may not apply to HEAD
+warning the source repository changed since this run started
+✔ workflow resume: a commit to the source while the run was stopped is only warned about (2140.057632ms)
+✔ workflow resume: with the real process check a killed manager continues on Linux only after its child has ended (2022.204494ms)
+✔ workflow plan: cancelling during the planner creates no run and removes the temporary worktree (259.610023ms)
+✔ workflow plan: an invalid plan is repaired with its issues, and a plan that stays invalid creates no run (1539.475975ms)
+warning the planner call: failed
+  network down
+warning the planner call: failed
+  network down
+warning the planner call: failed
+  network down
+error the planner failed: the planner call ended with exit-1
+warning the planner call: failed
+✔ workflow plan: a failing planner is retried within maxTransportRetries and creates no run (546.606651ms)
+✔ workflow plan: the planner works in a temporary worktree, and a change to the source repository creates no run (1837.811174ms)
+✔ workflow run: a change to the source repository during the run is recorded and warned about (1747.630562ms)
+✔ workflow run: uncommitted changes are refused before any call (640.797439ms)
+✔ workflow run: without --yes and a terminal nothing is called and the exit code is 3 (663.720024ms)
+✔ workflow run: a run belongs to its repository, and run and resume keep to their own states (942.747776ms)
+✔ workflow run: a commit after the plan is warned about and the run stays on the planned commit (2559.961544ms)
+warning the coder call: failed
+warning the coder call: failed
+warning the coder call: failed
+✔ workflow run: a resume whose worktree is gone is refused and the run can still be read (1387.141401ms)
+✔ workflow run: two CLIs with different arguments and output run the same flow from the policy alone (3725.861096ms)
+✔ workflow plan: bad input is refused with exit code 2 before any call (741.105616ms)
+✔ workflow plan: a secret in the provider arguments is refused without echoing it (786.172702ms)
+✔ workflow plan: a command that cannot start is refused with exit code 2 before any call (610.612262ms)
+﹣ workflow plan: an npm batch file is refused on Windows with what to write instead (0.118681ms) # SKIP
+warning the coder call: failed
+warning the coder call: failed
+warning the coder call: failed
+✔ workflow resume: a coder resumed after a failed check gets the failures and the log again (2276.378012ms)
+warning the coder call: failed
+warning the coder call: failed
+warning the coder call: failed
+✔ workflow resume: a resumed coder gets the newest failures and only the logs of the checks that failed (3053.135031ms)
+✔ workflow run: a check that leaves a file outside the write paths ends the run as FAILED (1582.886492ms)
+warning the auditor call: failed
+warning the auditor call: failed
+warning the auditor call: failed
+✔ workflow resume: a change made after the review runs the checks and the review again (3058.125853ms)
+✔ workflow run: a check that fails at the base commit stops before any coder call and the report shows it (938.367356ms)
+✔ workflow report: a stop that resume does not continue says what to do next, and resume calls nothing (7388.483621ms)
+✔ workflow run: a check expected to fail at the base commit is passed by the change, with one hash from the checks to the end (2258.263088ms)
+✔ workflow run: a check expected to fail at the base commit stops the run when it passes, times out or cannot start (3440.299514ms)
+✔ workflow run: setup runs once in the worktree, may leave ignored files, and stops the run when it fails or leaves other changes (3970.241207ms)
+✔ workflow run: a check that changes files at the base commit stops the run before any coder call (835.856007ms)
+✔ workflow resume: a stopped preparation runs again once the environment is fixed (1845.871089ms)
+✔ workflow report: after a resume the report shows the latest setup and baseline results (2703.279555ms)
+✔ workflow run: cancelling during a baseline check ends the run with the same rule, before any coder call (837.106653ms)
+✔ workflow resume: a run killed during a baseline check prepares again from the start and keeps the check result (1612.174064ms)
+✔ workflow resume: what a killed baseline check left stops the run as a preparation problem, not as a policy violation (955.158631ms)
+✔ workflow run: a coder that changes or deletes an existing check input fails the run, and a new file next to it does not (3303.59809ms)
+✔ workflow run: a check that changes a check input is found at the seal (1155.279903ms)
+warning the auditor call: failed
+warning the auditor call: failed
+warning the auditor call: failed
+✔ workflow resume: a protected file changed after the seal fails the run (1849.643826ms)
+✔ workflow run: a review fix that passes its checks seals the new result, so the reviews are not repeated for it (2336.910085ms)
+warning the auditor call: failed
+warning the auditor call: failed
+warning the auditor call: failed
+✔ workflow run: a record planned before baseline checks existed needs a new plan to run and can still be read (3141.127749ms)
+warning the auditor call: failed
+warning the auditor call: failed
+warning the auditor call: failed
+✔ workflow run: a stored policy edited after the plan is refused by run and resume before anything runs (2215.412812ms)
+✔ workflow run: a required check that fails after the work steps is repaired with every write path before the reviews (1893.469105ms)
+✔ workflow run: failing test names appear in the report (2084.456536ms)
+✔ workflow run: a diff too long for a request is cut and marked, for a repair coder and for the reviews (1973.48411ms)
+✔ workflow run: a coder that only says it finished does not finish the run, and the check comes from the stored policy (1035.241476ms)
+✔ workflow run: the reviews get the checks and their latest results, and a repair coder gets the diff so far (2668.077553ms)
+✔ workflow run: a check that only a work step runs keeps its own step in the results the reviews get (2348.498578ms)
+✔ workflow role guides: the reviews are told the checks already ran, and a repair coder is told about the diff (0.539643ms)
+✔ workflow run: the full commands are shown before the approval question, and without approval nothing runs (495.168096ms)
+warning the auditor call: failed
+warning the auditor call: failed
+warning the auditor call: failed
+✔ workflow resume: the notice about the preparation is shown only until the preparation has finished (2871.624361ms)
+✔ workflow report: result hashes that differ or are missing are not shown as matching (1693.165192ms)
+✔ workflow policy: defaults are filled, paths normalized and runtime protected paths added (4.40694ms)
+✔ workflow policy: setup, baseline, inputs and failedTestPattern are normalized (1.078365ms)
+✔ workflow policy: a failedTestPattern needs exactly one capture group (2.297331ms)
+✔ workflow policy: a wrong baseline or setup entry is refused, also in an add-check exception (0.754804ms)
+✔ workflow policy: maxSteps + 3 must not exceed maxAgentCalls (0.578403ms)
+✔ workflow policy: limit values, unknown fields and the provider are checked (0.333161ms)
+✔ workflow policy: the provider is a command with args, role args and environment variable names (1.459127ms)
+✔ workflow policy: old provider fields and malformed command, role args and env are refused (1.029245ms)
+✔ workflow policy: __proto__ in JSONC is an unknown field and does not reach the limits (0.739764ms)
+✔ workflow policy: checks and required checks reject duplicates, unknown ids and shell strings (1.324966ms)
+✔ workflow policy: required roles must keep reviewer and auditor (0.398562ms)
+✔ workflow policy: only replace-limit and add-check exceptions are accepted and applied (0.416482ms)
+✔ workflow paths: absolute, parent, Windows, NUL and glob forms are rejected before normalizing (0.308802ms)
+✔ workflow plan: a valid plan has no issues (1.013885ms)
+✔ workflow plan: program-owned fields, reserved ids and unknown fields are rejected (0.386042ms)
+✔ workflow plan: write paths must stay inside allowed paths and outside protected paths (0.368041ms)
+✔ workflow plan: a write path that only contains a protected subpath is accepted; protected paths win at run time (0.316641ms)
+✔ workflow plan: completion fields and check ids must be usable (0.292002ms)
+✔ workflow plan: graph errors are reported after field checks (0.489402ms)
+✔ workflow plan: step count and remaining agent calls are checked at their exact limits (1.105845ms)
+✔ workflow plan: malformed model output returns issues instead of throwing (0.334562ms)
+✔ workflow result: valid results pass and needs_changes findings must carry a path (0.638483ms)
+✔ workflow result: missing, unknown and invalid fields are reported (0.374082ms)
+✔ workflow hash: key order does not change the hash and non-JSON values are refused (0.813404ms)
+✔ workflow store: a secret in the provider arguments is an issue, and a run is not created with one (7.313433ms)
+✔ workflow store: a secret in a setup argument is an issue, and a run is not created with one (2.027369ms)
+✔ workflow store: createRun writes plan, policy, state and the first event with checkable hashes (41.434629ms)
+✔ workflow store: invalid policy, plan and run inputs are refused before anything is written (4.758221ms)
+✔ workflow store: run ids must be lowercase UUID v4 before they become paths (1.436246ms)
+✔ workflow store: events come first, state follows, and invalid states are never written (54.589969ms)
+✔ workflow store: the same run and the same workspace cannot be held twice (140.462159ms)
+✔ workflow store: budgets persist across release and acquire (82.817657ms)
+✔ workflow store: secret-looking string fields are masked in events, usage and test counts are kept (48.524821ms)
+✔ workflow store: a state left one event behind is recovered as interrupted and keeps the event (68.243551ms)
+✔ workflow store: an event without a usable state snapshot is not replayed (44.301202ms)
+✔ workflow store: secrets are refused in state, step ids are not field names, and quoted JSON keys are detected (65.538418ms)
+✔ workflow store: text with a secret-looking assignment is replaced whole in events and refused in state (55.889134ms)
+✔ workflow store: secret detection stays linear on long input (212.86001ms)
+✔ workflow store: deeply nested data is refused before anything is written (40.402904ms)
+✔ workflow store: createRun checks the initial state before it writes any file (1.062164ms)
+✔ workflow store: recovery stays resumable when any state write during acquire fails (120.124427ms)
+✔ workflow store: a lock published before a cleanup failure is removed and the first error is kept (150.931608ms)
+✔ workflow store: a failed state write stops the handle, release keeps seq order, and recovery keeps the budget (70.29148ms)
+✔ workflow store: an unfinished last event is kept as evidence, and readRun never repairs (72.900092ms)
+✔ workflow store: an unfinished event cut inside a multi-byte character is kept byte for byte (67.202387ms)
+✔ workflow store: other inconsistencies are refused and the locks are released (103.051189ms)
+✔ workflow store: stale lock rules follow the owner process, host and readable content (132.134242ms)
+✔ workflow store: the owner state follows the lock, the process and the host without taking the lock (59.694912ms)
+✔ workflow store: a cancel request belongs to one owner, can be repeated and refuses an unusable owner id (66.334622ms)
+✔ workflow store: stale lock reclaim is serialized and never removes a lock that changed owner (64.418533ms)
+✔ workflow store: record files that are links are refused (54.111006ms)
+✔ workflow store: step ids that are Object property names keep integer repair counts (75.754346ms)
+✔ workflow store: artifacts are written once with safe names and never overwritten (53.754525ms)
+✔ workflow store: on Linux a reused pid with a different start time counts as stale (61.321239ms)
+✔ workflow store: a killed owner process is detected and its run is marked interrupted (205.766578ms)
+✔ workflow store: uninstall after apply leaves workflow records in place (262.897438ms)
+✔ workflow store: authorization headers and bearer tokens count as secrets, plain mentions do not (0.528082ms)
+✔ workflow store: a bearer token without digits counts as a secret by its shape or its quotes, plain words do not (0.239401ms)
+✔ workflow store: readArtifact returns a written artifact and refuses names outside the artifacts folder (45.840369ms)
+✔ workflow store: readRun reports a state that is invalid or differs from the last event snapshot (19.76273ms)
+✔ workflow store: readRun lists a step entry that is not an object instead of crashing (19.893851ms)
+✔ workflow verify: checks run in the given order in the worktree and keep their exit codes (160.32737ms)
+✔ workflow verify: a check past its timeout reports exit code 124, a check that is not in the policy throws (1072.884527ms)
+✔ workflow verify: logs are kept line by line, and only the lines that look like secrets are masked (50.042148ms)
+✔ workflow verify: a cancelled check throws a cancel error and the next check does not start (118.286739ms)
+✔ workflow verify: a cancel counts as finished only when the end of the processes is confirmed or none started (0.771964ms)
+✔ workflow verify: a tracked process is reported as starting, started and ended, and a failed start still ends the record (89.246687ms)
+✔ workflow verify: a check that cannot start is a start error, and only the named environment variables are passed on (51.940957ms)
+✔ workflow verify: failedTestPattern names the failures of a failing check from its cleaned log (442.348215ms)
+✔ workflow verify: only a check that ended by itself counts as completed, and a start failure is a result only when asked (1128.848101ms)
+✔ workflow verify: setup runs in order, stops at the first failure and is not tracked as a check (65.504219ms)
+✔ workflow verify: a cancelled setup command is reported by its name (168.181766ms)
+✔ workflow verify: command problems name a missing program and skip paths relative to the worktree (1.070645ms)
+﹣ workflow verify: a batch file is named as a problem on Windows (0.07272ms) # SKIP
+✔ workflow workspace: removeWorktree removes a worktree that has changes and its registration (64.067131ms)
+✔ workflow workspace: the repository check finds the top folder, the base commit and the uncommitted changes (51.935916ms)
+✔ workflow workspace: variables that point git at another repository are ignored (68.13899ms)
+✔ workflow workspace: reading the source does not rewrite its index or run programs from its configuration (87.630039ms)
+✔ workflow workspace: a folder outside git or a repository without commits is refused (48.25454ms)
+✔ workflow workspace: the lock key is the real git common directory, so a linked worktree shares it (77.494633ms)
+✔ workflow workspace: a worktree starts detached at the base commit without the uncommitted changes of the source (58.571027ms)
+✔ workflow workspace: a worktree is detached even when the base is given as a branch name (97.807646ms)
+✔ workflow workspace: a link in place of the worktrees folder is refused (27.968368ms)
+✔ workflow workspace: the worktree path needs a valid run id and an existing worktree is not reused (73.968977ms)
+✔ workflow workspace: repository hooks do not run when the worktree is created (59.024629ms)
+✔ workflow workspace: the fingerprint of the source stays the same across worktree creation and work inside the worktree (168.333927ms)
+▶ workflow workspace: every change to the source is found by the fingerprint
+  ✔ edit a tracked file (73.862976ms)
+  ✔ edit a file again (135.864298ms)
+  ✔ new untracked file (90.580333ms)
+  ✔ delete a tracked file (83.323059ms)
+  ✔ stage a file (92.592342ms)
+  ✔ new commit (93.415945ms)
+  ✔ new branch (85.237348ms)
+  ✔ new tag (87.245118ms)
+  ✔ switch branch (88.309762ms)
+  ✔ repository config (78.556877ms)
+  ✔ new hook (72.49173ms)
+  ✔ exclude file (110.425583ms)
+  ✔ another worktree (83.33282ms)
+  ✔ alternates file (76.104826ms)
+  ✔ mark a file as unchanged (83.205979ms)
+  ✔ file mode of a git file (81.546891ms)
+✔ workflow workspace: every change to the source is found by the fingerprint (1420.571271ms)
+▶ workflow workspace: an edit to a tracked file that git status is told to ignore is still found
+  ✔ --assume-unchanged (91.970299ms)
+  ✔ --skip-worktree (87.79072ms)
+✔ workflow workspace: an edit to a tracked file that git status is told to ignore is still found (180.434102ms)
+✔ workflow workspace: activity that does not change the repository state leaves the fingerprint the same (89.88377ms)
+✔ workflow workspace: on systems with file links a changed link target is found by the fingerprint (80.079565ms)
+✔ workflow workspace: a file named like an object property is still compared (86.484114ms)
+✔ workflow workspace: changes inside the write paths are listed without violations (86.469513ms)
+✔ workflow workspace: a worktree without changes has no changes and no violations (61.6254ms)
+✔ workflow workspace: changes, new files and deletions outside the write paths are violations (66.843744ms)
+✔ workflow workspace: protected paths win over write paths and the runtime protected paths always apply (65.050697ms)
+✔ workflow workspace: a rename is checked at both its old and its new path (73.196733ms)
+✔ workflow workspace: a change that was committed inside the worktree is still found (75.504384ms)
+✔ workflow workspace: new ignored files are listed and checked like other new files (61.560601ms)
+✔ workflow workspace: changing .gitignore does not hide a new file (62.765886ms)
+✔ workflow workspace: checking leaves the index and the status of the worktree alone (89.011646ms)
+✔ workflow workspace: the temporary index is removed after a check, also when git fails (64.786375ms)
+✔ workflow workspace: an existing check input cannot be changed, deleted or renamed, and a new file next to it can (186.029088ms)
+✔ workflow workspace: a changed .git file of the worktree is a violation and git is not run there (48.617181ms)
+✔ workflow workspace: a new link that points outside the worktree is a violation (64.554414ms)
+✔ workflow workspace: a new link that stays inside the worktree is not a violation (63.067687ms)
+✔ workflow workspace: on systems with file links a chain, a relative escape, a dangling link and a loop are violations (63.173687ms)
+✔ workflow workspace: the real path check uses the nearest existing parent for new paths (56.092015ms)
+✔ workflow workspace: the real path check follows a link out of the worktree for existing and new paths (59.28051ms)
+✔ workflow workspace: the result patch rebuilds the same files on a clean copy of the base commit (90.267332ms)
+✔ workflow workspace: a commit inside the worktree is part of the patch, and no change gives an empty patch (83.353899ms)
+✔ workflow workspace: the size report counts files and the worktree is kept (79.522762ms)
+ℹ tests 514
+ℹ suites 0
+ℹ pass 505
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 9
+ℹ todo 0
+ℹ duration_ms 252744.804109

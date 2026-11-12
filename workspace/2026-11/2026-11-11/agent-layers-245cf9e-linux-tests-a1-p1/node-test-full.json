@@ -1,0 +1,10 @@
+{
+  "command": [
+    "node",
+    "--test"
+  ],
+  "cwd": "clone",
+  "exitCode": 0,
+  "elapsedSeconds": 252.791,
+  "log": "logs/node-test-full.log"
+}

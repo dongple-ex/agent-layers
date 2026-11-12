@@ -1,0 +1,149 @@
+{
+  "sourceTestCommit": "245cf9e2662a982f50c298946e8feda045b19058",
+  "scope": "workspace/2026-11/2026-11-11/agent-layers-245cf9e-linux-tests-a1-p1",
+  "productFilesChanged": false,
+  "originalRecordsChanged": false,
+  "newAITestCalls": 0,
+  "normalization": "Replace absolute task root only with <TASK_ROOT> in copied text; append sharing instructions and metadata; add local gitattributes.",
+  "files": [
+    {
+      "path": "README.md",
+      "originalSha256": "0215c6dcd47cbb93e550c1f1d0e40fe505018a938c99a9173665d4b4c7a97144",
+      "sharedSha256": "d3dc1b2dd393e19c3a68d134ebcc8748f8fd1e343f4ce025ebaaa9601567f2bd",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": true
+    },
+    {
+      "path": "checkout.json",
+      "originalSha256": "656cf84a0acdee0f3a30b52f627ac2fd415ae415959dfbd6b67b1a56d8e36e18",
+      "sharedSha256": "656cf84a0acdee0f3a30b52f627ac2fd415ae415959dfbd6b67b1a56d8e36e18",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "clone-final-diff.json",
+      "originalSha256": "3300e7b1bd0ee500d3d390077553fcaf21dd63d623354ff0982343e850a58815",
+      "sharedSha256": "3300e7b1bd0ee500d3d390077553fcaf21dd63d623354ff0982343e850a58815",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "clone-final-status.json",
+      "originalSha256": "6e2c1eddbe9d103961819e8cd46535ba01cabc21b676a9424bdd914af3ec70dc",
+      "sharedSha256": "6e2c1eddbe9d103961819e8cd46535ba01cabc21b676a9424bdd914af3ec70dc",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "clone.json",
+      "originalSha256": "c856bd63e028539a165f24e416fc6e3b33314f8d1bbdb4974ceb3a9a66c74457",
+      "sharedSha256": "c856bd63e028539a165f24e416fc6e3b33314f8d1bbdb4974ceb3a9a66c74457",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "environment.json",
+      "originalSha256": "8140e780112709eff0abd5ffa0f70d8494f06194436a104717984fa45590d24f",
+      "sharedSha256": "8140e780112709eff0abd5ffa0f70d8494f06194436a104717984fa45590d24f",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "finish.py",
+      "originalSha256": "c1b74f6e46e34486f956a5d20d26edca11e89ebaa2a9b9120d43acb20bb4c6f7",
+      "sharedSha256": "c1b74f6e46e34486f956a5d20d26edca11e89ebaa2a9b9120d43acb20bb4c6f7",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "logs/checkout.log",
+      "originalSha256": "d7b6270c7c588a2a7815fd92b52f0a705cd4c547010a6558b890d47ff1ffdb92",
+      "sharedSha256": "d7b6270c7c588a2a7815fd92b52f0a705cd4c547010a6558b890d47ff1ffdb92",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "logs/clone-final-diff.log",
+      "originalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sharedSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "logs/clone-final-status.log",
+      "originalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sharedSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "logs/clone.log",
+      "originalSha256": "735f315f536c9b89d57ffa537b8adc10b36117563b8bb0686ebcda8851fce3e9",
+      "sharedSha256": "735f315f536c9b89d57ffa537b8adc10b36117563b8bb0686ebcda8851fce3e9",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "logs/node-test-full.log",
+      "originalSha256": "c464fe7b7fcbe748101729113580b7163e3efe9b2297d7d298c083ff08a1d8d4",
+      "sharedSha256": "f4557b12603aad49432879a209b38676131c77e10dec6df6b8acb7f7fe002da6",
+      "taskRootReplaced": true,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "logs/remaining-processes.log",
+      "originalSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sharedSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "logs/tree-kill-capability.log",
+      "originalSha256": "5a324cd99b20bbb50eead61e64c1ce80ca77dd2a1055e90a829d193875058270",
+      "sharedSha256": "5a324cd99b20bbb50eead61e64c1ce80ca77dd2a1055e90a829d193875058270",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "node-test-full.json",
+      "originalSha256": "3242ef52f4cd439da704ddff0992995492f9c48a895f7c4dc6fae60055a90b0c",
+      "sharedSha256": "3242ef52f4cd439da704ddff0992995492f9c48a895f7c4dc6fae60055a90b0c",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "remaining-processes.json",
+      "originalSha256": "49e692ec0d01fc48022f1ad50a3c8efbe25690ee5eed007485fb44637268e87f",
+      "sharedSha256": "49e692ec0d01fc48022f1ad50a3c8efbe25690ee5eed007485fb44637268e87f",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "result.json",
+      "originalSha256": "f3d8a6b9eef5ee074db3c03590eab49240ef627732a6d2f2ed598f36ce110c4b",
+      "sharedSha256": "146944cdc1f599016b5b94635245ddde1fb7f4c8bbce4a609b986cecf55e9c66",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": true
+    },
+    {
+      "path": "run.py",
+      "originalSha256": "37917174787dbdab296aefd0dee20f5a4ca102daced7ba33c429453609912eef",
+      "sharedSha256": "37917174787dbdab296aefd0dee20f5a4ca102daced7ba33c429453609912eef",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": "tree-kill-capability.json",
+      "originalSha256": "5a431043a17c87d9f3c039cb886490fa866518863b876035a950049048ee772c",
+      "sharedSha256": "5a431043a17c87d9f3c039cb886490fa866518863b876035a950049048ee772c",
+      "taskRootReplaced": false,
+      "reportMetadataAdded": false
+    },
+    {
+      "path": ".gitattributes",
+      "originalSha256": null,
+      "sharedSha256": "7dbc156a033dbeda85defde8588c6e4f2b6a5a62d2028af5294e4c87558111de",
+      "purpose": "Preserve evidence bytes on Windows checkout"
+    }
+  ]
+}

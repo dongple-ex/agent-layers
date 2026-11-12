@@ -1,0 +1,11 @@
+{
+  "command": [
+    "node",
+    "-e",
+    "import('./src/workflow/process.js').then((m) => console.log(m.TREE_KILL_SUPPORTED, m.TREE_KILL_METHOD))"
+  ],
+  "cwd": "clone",
+  "exitCode": 0,
+  "elapsedSeconds": 0.045,
+  "log": "logs/tree-kill-capability.log"
+}

@@ -1,0 +1,12 @@
+{
+  "command": [
+    "git",
+    "checkout",
+    "--detach",
+    "245cf9e2662a982f50c298946e8feda045b19058"
+  ],
+  "cwd": "clone",
+  "exitCode": 0,
+  "elapsedSeconds": 0.02,
+  "log": "logs/checkout.log"
+}

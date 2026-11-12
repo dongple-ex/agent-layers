@@ -1,0 +1,14 @@
+{
+  "os": "Linux",
+  "unameMachine": "aarch64",
+  "node": "v24.15.0",
+  "git": "git version 2.43.0",
+  "nodeExecutable": "/usr/bin/node",
+  "targetCommit": "245cf9e2662a982f50c298946e8feda045b19058",
+  "previousCommit": "daf4a18c9b5b058cd4d776c691a9d2d74894e807",
+  "isolatedHomeAndState": true,
+  "actualAIInvocations": 0,
+  "verifiedHead": "245cf9e2662a982f50c298946e8feda045b19058",
+  "verifiedParent": "daf4a18c9b5b058cd4d776c691a9d2d74894e807",
+  "detached": true
+}
