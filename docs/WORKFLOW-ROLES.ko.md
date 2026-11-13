@@ -332,6 +332,6 @@ agent-layers workflow report <run-id> --home "$AL_WF_HOME"
 
 workflow는 preview입니다. 경로 위반 검사는 호출 후 수행되며 OS 샌드박스가 아니고, `SUCCEEDED`는 정해 둔 검사·검토 조건을 통과했다는 뜻입니다. 격리·프로세스 정리 등 나머지 한계는 [가이드의 「보장하지 않는 범위」](GUIDE.ko.md#보장하지-않는-범위)를 확인하십시오.
 
-## 서로 다른 CLI에 배정하기 (schema v2, 소스 checkout)
+## 서로 다른 CLI에 배정하기 (schema v2)
 
-Claude에 배포하는 역할 정의와 작업별 CLI 배정은 별개입니다. 선택적인 v2 정책으로 Claude가 계획·최종 점검을 맡고 Codex·Gemini·Kimi가 서로 다른 coder 단계를 수행할 수 있습니다. 고정 계획에 따라 별도 CLI 세션을 선택하며 다른 제품을 Claude의 네이티브 자식 에이전트로 등록하는 방식은 아닙니다. 실행은 순차입니다. [작업별 배정 가이드](GUIDE.ko.md#작업별-ai-배정-schema-v2-소스-checkout)와 [v2 정책 예시](../templates/workflow/policy.multi-agent.example.jsonc)를 참고해 모델 ID와 권한부터 정합니다. v1 정책·기록은 유지합니다. 가짜 CLI의 배정·복구만 검증했으며 실제 혼합 추론은 아직 실행하지 않았습니다.
+Claude에 배포하는 역할 정의와 작업별 CLI 배정은 별개입니다. 선택적인 v2 정책으로 Claude가 계획·최종 점검을 맡고 Codex·Gemini·Kimi가 서로 다른 coder 단계를 수행할 수 있습니다. 고정 계획에 따라 별도 CLI 세션을 선택하며 다른 제품을 Claude의 네이티브 자식 에이전트로 등록하는 방식은 아닙니다. 실행은 순차입니다. [작업별 배정 가이드](GUIDE.ko.md#작업별-ai-배정-schema-v2)와 [v2 정책 예시](../templates/workflow/policy.multi-agent.example.jsonc)를 참고해 모델 ID와 권한부터 정합니다. v1 정책·기록은 유지합니다. 가짜 CLI의 배정·복구만 검증했으며 실제 혼합 추론은 아직 실행하지 않았습니다.

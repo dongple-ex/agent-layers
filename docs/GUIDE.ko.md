@@ -465,9 +465,9 @@ agent-layers의 중심 목적은 여러 AI 도구에서 팀의 규칙과 설정�
 
 `agent-layers workflow`는 정책 파일에 적은 AI CLI를 실행해서, 목표를 단계별 계획으로 나누고 별도 git worktree에서 구현합니다. 필수 검사와 Reviewer, Auditor 역할의 검토를 모두 통과해야 실행을 완료로 판정합니다. 설정을 배포하는 `plan`, `apply`, `sync`와는 별개의 기능입니다. preview 기능이므로 다음 버전에서 명령과 출력이 바뀔 수 있습니다.
 
-### 작업별 AI 배정 (schema v2, 소스 checkout)
+### 작업별 AI 배정 (schema v2)
 
-[`policy.multi-agent.example.jsonc`](../templates/workflow/policy.multi-agent.example.jsonc)를 수정해 사용합니다. 선택적인 소스 checkout 기능이며 실제 네 CLI를 함께 실행한 검증은 아직 없습니다. 모델 ID·인증·권한은 환경별로 정하고 `SET_*_MODEL` 표시를 채운 뒤 실행합니다.
+[`policy.multi-agent.example.jsonc`](../templates/workflow/policy.multi-agent.example.jsonc)를 수정해 사용합니다. 0.1.9에 추가된 선택 기능이며 실제 네 CLI를 함께 실행한 검증은 아직 없습니다. 모델 ID·인증·권한은 환경별로 정하고 `SET_*_MODEL` 표시를 채운 뒤 실행합니다.
 
 | 설정 | 계약 |
 | --- | --- |
@@ -518,6 +518,12 @@ agent-layers workflow report <run-id>
 - `--yes`는 이 확인을 건너뜁니다. 표시되는 내용을 먼저 확인한 뒤에 붙입니다.
 - 호출 상한 `limits.maxAgentCalls`(기본값 20)는 AI CLI를 실행한 횟수입니다. 한 번의 실행 안에서 일어나는 모델 요청, 토큰, 금액의 상한이 아닙니다.
 - 시간 상한은 호출마다 `limits.stepTimeoutSeconds`(기본값 900초), 실행 전체에 `limits.runTimeoutSeconds`(기본값 3600초)입니다.
+- `limits.maxBlockedRulings`는 선택 항목이며, 정하지 않으면 0입니다. Coder가 `blocked`로 멈췄을 때 그 멈춤이 필요한지 판정하는 호출을 한 실행에서 몇 번까지 할지 정합니다. 판정은 파일을 고치지 않는 `arbiter` 역할이 맡고, Planner의 명령으로 AI CLI를 1번 실행하므로 `maxAgentCalls`에 포함됩니다.
+  - 판정이 `completed`이고 그 단계의 검사가 모두 통과하면 실행을 이어 갑니다.
+  - 판정이 `needs_changes`이면 수정 시도 1번을 써서 Coder를 다시 호출합니다.
+  - 판정이 `blocked`이거나, 판정 결과가 올바른 형식이 아니거나, 검사가 실패한 상태의 `completed`이면 `BLOCKED`로 멈춥니다. 판정 기록은 `artifacts/ruling-*.json`에 남습니다.
+  - 이 값이 0이면 Coder가 `blocked`를 반환하는 즉시 `BLOCKED`로 멈춥니다. `run`과 `resume`의 확인 화면은 이 값이 1 이상일 때 함께 보여 줍니다.
+  - 이 판정은 모의 CLI 프로세스로만 시험했습니다.
 
 ### 정책 파일
 

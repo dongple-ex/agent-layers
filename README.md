@@ -285,13 +285,13 @@ definitions extend that configuration management. If your AI tool's built-in tas
 is enough, use it. Choose workflow when repeated tasks need fixed checks, recorded results and
 a way to resume. Task length alone is not a reason to use it.
 
-### Task-level AI assignments (schema v2, source checkout)
+### Task-level AI assignments (schema v2)
 
 A v2 policy can assign different CLI tools and models to individual work steps. Start from [`policy.multi-agent.example.jsonc`](templates/workflow/policy.multi-agent.example.jsonc), replace every `SET_*_MODEL` value and review each CLI's permissions before making a plan. `roleAgents` supplies role defaults; a work step's `agent` overrides the coder default. `repairAgent` handles integration fixes. Unknown agents and role mismatches are rejected instead of silently switching tools.
 
 The executor runs sequentially and passes the original goal, transitive dependency results, file hashes, current changes and check evidence. It fixes assignments in the saved plan and records CLI-reported model metadata separately from requested settings. Missing usage remains unknown. Kimi-style prompt arguments may be visible in process listings; prompts must not contain secrets. Four named CLI profiles have been tested with local fake processes; real Claude/Codex/Gemini/Kimi mixed execution is still unverified.
 
-V1 policies and existing v1 runs keep their command, hash and report contracts. V2 records require this newer executor; do not open them with an older release. Changing an assigned tool, model or policy requires a new plan. Read [the guide](docs/GUIDE.en.md#task-level-ai-assignments-schema-v2-source-checkout) for the policy and result contracts.
+V1 policies and existing v1 runs keep their command, hash and report contracts. V2 records need agent-layers 0.1.9 or later; do not open them with an older release. Changing an assigned tool, model or policy requires a new plan. Read [the guide](docs/GUIDE.en.md#task-level-ai-assignments-schema-v2) for the policy and result contracts.
 
 `agent-layers workflow` runs the AI CLI named in a policy file: it turns a goal into a plan of
 steps and implements them in a separate git worktree. A run counts as complete only after the

@@ -465,9 +465,9 @@ agent-layers primarily keeps your team's rules and settings consistent across AI
 
 `agent-layers workflow` runs the AI CLI named in a policy file: it turns a goal into a plan of steps and implements them in a separate git worktree. A run counts as complete only after the required checks and the Reviewer and Auditor roles pass. It is separate from the `plan`, `apply` and `sync` commands that deploy your setup. It is a preview, so commands and output can change in a later version.
 
-### Task-level AI assignments (schema v2, source checkout)
+### Task-level AI assignments (schema v2)
 
-Use [`policy.multi-agent.example.jsonc`](../templates/workflow/policy.multi-agent.example.jsonc) as an editable starting point. This is an optional source-checkout feature; the four real CLIs have not yet been tested together. Model ids, authentication and permissions are deployment-specific. Replace the `SET_*_MODEL` markers before running.
+Use [`policy.multi-agent.example.jsonc`](../templates/workflow/policy.multi-agent.example.jsonc) as an editable starting point. This is an optional feature added in 0.1.9; the four real CLIs have not yet been tested together. Model ids, authentication and permissions are deployment-specific. Replace the `SET_*_MODEL` markers before running.
 
 | Setting | Contract |
 | --- | --- |
@@ -518,6 +518,12 @@ The status of the run and the `last error` column of the step say why a run stop
 - `--yes` skips this confirmation. Read what is shown before you add it.
 - The call limit `limits.maxAgentCalls` (default 20) counts how many times the AI CLI is run. It does not limit the model requests inside one run of the CLI, tokens or money.
 - The time limits are `limits.stepTimeoutSeconds` per call (default 900 seconds) and `limits.runTimeoutSeconds` for the whole run (default 3600 seconds).
+- `limits.maxBlockedRulings` is optional and is 0 when it is not set. It limits how many times in one run a ruling is made on whether a Coder that stopped with `blocked` really has to stop. The read-only `arbiter` role makes the ruling. Each ruling runs the AI CLI once with the Planner command, so it counts toward `maxAgentCalls`.
+  - A `completed` ruling with every check of that step passing continues the run.
+  - A `needs_changes` ruling uses one repair attempt and calls the Coder again.
+  - A `blocked` ruling, a ruling that is not a valid result, or a `completed` ruling while a check fails stops the run as `BLOCKED`. The ruling is kept in `artifacts/ruling-*.json`.
+  - With 0, the run stops as `BLOCKED` as soon as a Coder returns `blocked`. The confirmation of `run` and `resume` shows this limit when it is 1 or more.
+  - This ruling was tested with fake CLI processes only.
 
 ### The policy file
 

@@ -343,13 +343,13 @@ agent-layers review --strict
 
 agent-layers의 중심 목적은 여러 AI 도구에서 팀의 규칙과 설정을 일관되게 사용하는 것입니다. 공통 설정과 역할 정의는 workflow 없이 관리하고 배포할 수 있으며, 역할 정의는 이 설정 관리의 확장입니다. 사용하는 AI의 기본 작업 분배 기능으로 충분하면 그 기능을 사용합니다. 반복 작업에 고정된 검사·결과 기록·재개 절차가 필요할 때 workflow를 선택합니다. 작업이 길다는 이유만으로 선택할 필요는 없습니다.
 
-### 작업별 AI 배정 (schema v2, 소스 checkout)
+### 작업별 AI 배정 (schema v2)
 
 v2 정책으로 각 업무 단계에 서로 다른 CLI와 모델을 배정할 수 있습니다. [`policy.multi-agent.example.jsonc`](templates/workflow/policy.multi-agent.example.jsonc)의 `SET_*_MODEL` 값을 채우고 각 CLI의 권한을 검토한 뒤 계획을 만듭니다. `roleAgents`는 역할 기본값이며 단계의 `agent`가 coder 기본값보다 우선합니다. `repairAgent`는 통합 수정을 맡습니다. 미등록 담당이나 역할 불일치는 다른 도구로 바꾸지 않고 거부합니다.
 
 실행은 순차이며 원래 목표·직접 및 간접 선행 결과·파일 해시·현재 변경·검사 근거를 전달합니다. 배정은 저장 계획에 고정합니다. 요청 모델과 CLI가 보고한 모델 근거는 분리하고 사용량이 없으면 미확인으로 남깁니다. Kimi형 prompt 인자는 프로세스 목록에 보일 수 있으므로 비밀값을 넣지 않습니다. 네 CLI 프로필의 연결은 로컬 가짜 프로세스로 검증했으며 실제 Claude·Codex·Gemini·Kimi 혼합 실행은 아직 확인하지 않았습니다.
 
-v1 정책과 기존 v1 기록의 명령·해시·보고 계약은 유지합니다. v2 기록은 새 실행기가 필요하며 이전 출시 버전으로 열지 않습니다. 담당·모델·정책을 바꾸려면 새 계획을 만듭니다. 계약은 [가이드](docs/GUIDE.ko.md#작업별-ai-배정-schema-v2-소스-checkout)를 참고하십시오.
+v1 정책과 기존 v1 기록의 명령·해시·보고 계약은 유지합니다. v2 기록은 agent-layers 0.1.9 이상이 필요하며 이전 버전으로 열지 않습니다. 담당·모델·정책을 바꾸려면 새 계획을 만듭니다. 계약은 [가이드](docs/GUIDE.ko.md#작업별-ai-배정-schema-v2)를 참고하십시오.
 
 `agent-layers workflow`는 정책 파일에 적은 AI CLI를 실행해서, 목표를 단계별 계획으로 나누고 별도 git worktree에서 구현합니다. 필수 검사와 Reviewer, Auditor 역할의 검토를 모두 통과해야 실행을 완료로 판정합니다. preview 기능이므로 다음 버전에서 명령과 출력이 바뀔 수 있습니다.
 
