@@ -506,10 +506,10 @@ agent-layers workflow report <run-id>
 | `workflow run <run-id>` | 별도 worktree에서 계획을 실행합니다 | 있음 |
 | `workflow status <run-id>` | 단계 상태, 시도 횟수, 사용량을 보여 줍니다 | 없음 |
 | `workflow report <run-id>` | 검사 결과, 산출물, 남은 단계, 보장하지 않는 범위를 보여 줍니다 | 없음 |
-| `workflow resume <run-id>` | 멈춘 실행을 이어 갑니다. 이어 갈 수 없는 이유로 멈췄으면 AI를 호출하지 않고 끝납니다 | 이어 갈 때만 |
+| `workflow resume <run-id>` | 멈춘 실행을 이어 갑니다. 이어 갈 수 없는 이유로 멈췄으면 AI를 호출하지 않고 끝납니다. 상한에 닿아 멈춘 실행은 `--add-agent-calls <n>`이나 `--add-seconds <n>`으로 더할 값을 승인해야 이어 갑니다 | 이어 갈 때만 |
 | `workflow cancel <run-id>` | 진행 중인 실행에 중단을 요청하고 결과를 기다립니다. 실행 중인 터미널의 Ctrl+C도 같은 일을 합니다 | 없음 |
 
-실행이 멈춘 이유는 실행 상태와 단계의 `last error` 열에 나옵니다. `BLOCKED`로 멈췄을 때는 대부분 `workflow report`의 `next:` 줄에 다음에 할 일이 나옵니다. AI CLI 호출이 오류로 끝나는 일이 반복되면 `transport`로 멈춥니다. 네트워크 오류만이 아니라 0이 아닌 종료 코드나 신호로 끝난 호출이 모두 해당합니다. 원인을 고친 뒤에 `resume`하면 같은 worktree에서 이어 갑니다. `FAILED`나 `CANCELLED`로 끝난 실행은 재개되지 않으므로 새 계획을 만듭니다. 모든 명령에 `--json`을 붙일 수 있습니다.
+실행이 멈춘 이유는 실행 상태와 단계의 `last error` 열에 나옵니다. `BLOCKED`로 멈췄을 때는 대부분 `workflow report`의 `next:` 줄에 다음에 할 일이 나옵니다. AI CLI 호출이 오류로 끝나는 일이 반복되면 `transport`로 멈춥니다. 네트워크 오류만이 아니라 0이 아닌 종료 코드나 신호로 끝난 호출이 모두 해당합니다. 원인을 고친 뒤에 `resume`하면 같은 worktree에서 이어 갑니다. 호출 상한이나 실행 전체의 시간 상한에 닿으면 `maxAgentCalls`나 `runTimeoutSeconds`로 멈추며, 이어 가는 방법은 아래 「승인과 호출 상한」에 있습니다. `FAILED`나 `CANCELLED`로 끝난 실행은 재개되지 않으므로 새 계획을 만듭니다. 모든 명령에 `--json`을 붙일 수 있습니다.
 
 ### 승인과 호출 상한
 
@@ -518,6 +518,13 @@ agent-layers workflow report <run-id>
 - `--yes`는 이 확인을 건너뜁니다. 표시되는 내용을 먼저 확인한 뒤에 붙입니다.
 - 호출 상한 `limits.maxAgentCalls`(기본값 20)는 AI CLI를 실행한 횟수입니다. 한 번의 실행 안에서 일어나는 모델 요청, 토큰, 금액의 상한이 아닙니다.
 - 시간 상한은 호출마다 `limits.stepTimeoutSeconds`(기본값 900초), 실행 전체에 `limits.runTimeoutSeconds`(기본값 3600초)입니다.
+- `limits.maxAgentCalls`나 `limits.runTimeoutSeconds`에 닿으면 실행은 `BLOCKED`로 멈추고 종료 코드는 3입니다. 남은 단계를 확인한 뒤, 이어 가려면 더할 값을 명시해서 `workflow resume <run-id> --add-agent-calls <n> --add-seconds <n>`으로 재개합니다. 두 인자는 1 이상의 정수이며 필요한 것만 써도 됩니다.
+  - 더한 값은 정책의 상한에 더해지고, 여러 번 승인하면 누적됩니다. 정책과 계획은 바뀌지 않으며, 승인한 값은 실행 기록에 `budget.extended` 이벤트로 남습니다. 재개한 실행은 같은 worktree에서 이미 끝난 단계를 다시 하지 않고 이어 갑니다.
+  - 확인 화면은 이번에 더하는 값, 지금까지 더한 값, 더한 뒤에 남는 값을 보여 줍니다. `status`와 `report`는 `agent calls 5/4+1`처럼 정책의 상한과 더한 값을 나누어 보여 줍니다.
+  - 더할 값 없이 `resume`하거나 더한 값이 모자라면 AI CLI를 호출하지 않고 종료 코드 2로 끝나며, 필요한 인자를 알려 줍니다. 시간은 이미 상한을 넘겨 쓴 초보다 많이 더해야 합니다.
+  - agent-layers는 상한을 스스로 늘리지 않습니다. 두 인자는 이 두 상한에 닿아 멈춘 실행의 `resume`에만 쓸 수 있고, `workflow run`에는 쓸 수 없습니다.
+  - 같은 실패의 반복(`same-failure`), 수정 횟수 소진(`repair-limit`), 정책 위반(`policy-violation`)은 `FAILED`로 끝나며 재개되지 않습니다. 이 기능이 없는 버전에서 상한에 닿아 `FAILED`로 끝난 실행도 재개되지 않습니다.
+  - 이 재개는 모의 CLI 프로세스로만 시험했습니다.
 - `limits.maxBlockedRulings`는 선택 항목이며, 정하지 않으면 0입니다. Coder가 `blocked`로 멈췄을 때 그 멈춤이 필요한지 판정하는 호출을 한 실행에서 몇 번까지 할지 정합니다. 판정은 파일을 고치지 않는 `arbiter` 역할이 맡고, Planner의 명령으로 AI CLI를 1번 실행하므로 `maxAgentCalls`에 포함됩니다.
   - 판정이 `completed`이고 그 단계의 검사가 모두 통과하면 실행을 이어 갑니다.
   - 판정이 `needs_changes`이면 수정 시도 1번을 써서 Coder를 다시 호출합니다.
@@ -576,7 +583,7 @@ workflow 명령의 종료 코드는 다른 agent-layers 명령과 뜻이 다릅�
 | --- | --- | --- |
 | 0 | 완료 또는 정상 조회 | `SUCCEEDED`. `status`와 `report`는 실행이 실패했어도 조회에 성공하면 0입니다 |
 | 1 | 실행 실패 | `FAILED` |
-| 2 | 잘못된 입력 또는 실행할 수 없는 상태 | 잘못된 옵션, 커밋하지 않은 변경, 이미 끝난 실행의 `resume` |
+| 2 | 잘못된 입력 또는 실행할 수 없는 상태 | 잘못된 옵션, 커밋하지 않은 변경, 이미 끝난 실행의 `resume`, 상한에 닿은 실행을 더할 값 없이 `resume` |
 | 3 | 사람의 입력, 승인, 복구를 기다림 | `BLOCKED`, `INTERRUPTED`, 터미널 없이 `--yes`를 주지 않은 경우, 다른 프로세스가 진행 중인 실행 |
 | 130 | 취소 | `CANCELLED` |
 

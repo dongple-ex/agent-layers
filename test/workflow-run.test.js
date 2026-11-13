@@ -1579,3 +1579,122 @@ test('workflow report: result hashes that differ or are missing are not shown as
   const noHash = reportView({ ...run, events: run.events.filter((e) => !['checks.sealed', 'call.baseline', 'run.outcome'].includes(e.type)) });
   assert.equal(noHash.verdict.matched, false);
 });
+
+function resumeCli(s, runId, ...extra) {
+  return cli(s, ['resume', runId, '--path', s.repo, '--yes', '--json', ...extra]);
+}
+
+test('workflow resume: a run stopped at maxAgentCalls needs --add-agent-calls, then continues in the same worktree', async (t) => {
+  const s = setup(t, { 'coder:impl': [{ exit: 1 }, { write: { 'src/new.txt': 'new\n' } }] }, { policy: { limits: { maxSteps: 1, maxAgentCalls: 4 } } });
+  const runId = planned(s);
+  assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, retryDelayMs: 0 }), 3);
+  const stopped = readRun(s.ctx, runId);
+  assert.equal(stopped.state.status, 'BLOCKED');
+  assert.equal(stopped.state.stopReason, 'maxAgentCalls');
+  assert.deepEqual(s.keys(), ['planner:plan:1', 'coder:impl:1', 'coder:impl:1', 'reviewer:review:1']);
+  const worktree = s.calls().at(-1).cwd;
+
+  const report = cli(s, ['report', runId]);
+  const next = report.stdout.split('\n').find((l) => l.startsWith('next: '));
+  assert.ok(next, 'maxAgentCalls has no next line');
+  assert.match(next, /workflow resume <run-id> --add-agent-calls <n>/);
+  assert.match(next, /same worktree/);
+  assert.match(next, /new plan/);
+  assert.match(report.stdout, /agent calls 4\/4,/);
+
+  const refusals = [
+    [resumeCli(s, runId), /stopped at maxAgentCalls: no agent call is left; pass --add-agent-calls <n>/],
+    [resumeCli(s, runId, '--add-seconds', '60'), /no agent call is left/],
+    [resumeCli(s, runId, '--add-agent-calls', '0'), /--add-agent-calls must be a positive integer/],
+    [resumeCli(s, runId, '--add-agent-calls', '1.5'), /--add-agent-calls must be a positive integer/],
+    [resumeCli(s, runId, '--add-agent-calls'), /--add-agent-calls needs a value/],
+    [runCli(s, runId, '--add-agent-calls', '1'), /unknown option --add-agent-calls/],
+  ];
+  for (const [r, message] of refusals) {
+    assert.equal(r.code, 2, r.stderr);
+    assert.match(r.stderr, message);
+  }
+  const untouched = readRun(s.ctx, runId);
+  assert.equal(untouched.events.length, stopped.events.length);
+  assert.equal(s.calls().length, 4);
+
+  const asked = [];
+  const declined = await cmdRun(s.ctx, { ...s.flags, 'add-agent-calls': '1' }, runId, { confirm: async (question) => { asked.push(question); return false; }, resume: true });
+  assert.equal(declined, 3);
+  assert.deepEqual(asked, ['Resume this run with 1 more agent call?']);
+  assert.equal(readRun(s.ctx, runId).events.length, stopped.events.length);
+
+  const resumed = cli(s, ['resume', runId, '--path', s.repo, '--yes', '--json', '--add-agent-calls', '1']);
+  assert.equal(resumed.code, 0, resumed.stderr);
+  assert.match(resumed.stderr, /added to the limits: this resume adds 1 agent call and 0s; 1 agent call and 0s in all; left after that: 1 agent call,/);
+  const view = JSON.parse(resumed.stdout);
+  assert.equal(view.status, 'SUCCEEDED');
+  assert.deepEqual(view.budget.agentCalls, { used: 5, limit: 4, added: 1, remaining: 0 });
+  assert.equal(view.budget.activeSeconds.added, 0);
+  const done = readRun(s.ctx, runId);
+  assert.deepEqual(done.issues, []);
+  assert.deepEqual(done.events.filter((e) => e.type === 'budget.extended').map((e) => e.data), [{ agentCalls: 1, activeSeconds: 0, stopReason: 'maxAgentCalls' }]);
+  assert.deepEqual(done.state.budget.extended, { agentCalls: 1, activeSeconds: 0 });
+  assert.equal(done.events.filter((e) => e.type === 'workspace.created').length, 1);
+  assert.deepEqual(s.keys().slice(4), ['auditor:audit:1']);
+  assert.equal(s.calls().at(-1).cwd, worktree);
+  assert.equal(hashJson(done.policy), done.plan.policyHash);
+  assert.equal(cli(s, ['validate', runId]).code, 0);
+  assert.match(cli(s, ['status', runId]).stdout, /agent calls 5\/4\+1,/);
+
+  const ended = resumeCli(s, runId, '--add-agent-calls', '1');
+  assert.equal(ended.code, 2);
+  assert.match(ended.stderr, /already ended as SUCCEEDED/);
+});
+
+test('workflow resume: --add-agent-calls and --add-seconds are refused for a run that did not stop at a limit', (t) => {
+  const s = setup(t, { 'coder:impl': { result: { status: 'blocked', needsInput: ['Which file name?'] } } });
+  const runId = planned(s);
+  assert.equal(runCli(s, runId).code, 3);
+  const before = readRun(s.ctx, runId);
+  assert.equal(before.state.stopReason, 'role-blocked');
+  for (const flag of ['--add-agent-calls', '--add-seconds']) {
+    const r = resumeCli(s, runId, flag, '5');
+    assert.equal(r.code, 2, r.stderr);
+    assert.match(r.stderr, /is BLOCKED \(role-blocked\); --add-agent-calls and --add-seconds only apply to a run that stopped at maxAgentCalls or runTimeoutSeconds/);
+  }
+  const after = readRun(s.ctx, runId);
+  assert.equal(after.events.length, before.events.length);
+  assert.equal(after.state.budget.extended, undefined);
+});
+
+test('workflow resume: a run stopped at runTimeoutSeconds needs --add-seconds that covers the time already used', async (t) => {
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } });
+  const runId = planned(s);
+  const limit = readRun(s.ctx, runId).policy.limits.runTimeoutSeconds;
+  const handle = acquireRun(s.ctx, runId);
+  commitRun(handle, 'run.blocked', { reason: 'runTimeoutSeconds' }, (n) => {
+    n.status = 'BLOCKED';
+    n.stopReason = 'runTimeoutSeconds';
+    n.budget.activeSeconds = limit + 120.4;
+  });
+  releaseRun(handle);
+  const calls = s.calls().length;
+
+  const none = resumeCli(s, runId);
+  assert.equal(none.code, 2, none.stderr);
+  assert.match(none.stderr, /stopped at runTimeoutSeconds: no active time is left; pass --add-seconds <n> with more than 120; or make a new plan/);
+  const short = resumeCli(s, runId, '--add-seconds', '120');
+  assert.equal(short.code, 2, short.stderr);
+  assert.match(short.stderr, /with more than 120/);
+  assert.equal(s.calls().length, calls);
+  assert.match(cli(s, ['report', runId]).stdout, /next: .*workflow resume <run-id> --add-seconds <n>/);
+
+  const asked = [];
+  await cmdRun(s.ctx, { ...s.flags, 'add-seconds': '600', 'add-agent-calls': '2' }, runId, { confirm: async (question) => { asked.push(question); return false; }, resume: true });
+  assert.deepEqual(asked, ['Resume this run with 2 more agent calls and 600 more seconds of active time?']);
+
+  const resumed = resumeCli(s, runId, '--add-seconds', '600');
+  assert.equal(resumed.code, 0, resumed.stderr);
+  const view = JSON.parse(resumed.stdout);
+  assert.equal(view.status, 'SUCCEEDED');
+  assert.equal(view.budget.activeSeconds.limit, limit);
+  assert.equal(view.budget.activeSeconds.added, 600);
+  assert.deepEqual(readRun(s.ctx, runId).issues, []);
+  assert.match(cli(s, ['status', runId]).stdout, new RegExp(`active time \\d+s/${limit}\\+600s,`));
+});

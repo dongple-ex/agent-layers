@@ -19,6 +19,7 @@ const COMMANDS = { validate: cmdValidate, status: cmdStatus, report: cmdReport }
 const RUN_COMMANDS = ['run', 'resume'];
 const FLAG_KINDS = { json: 'switch', quiet: 'switch', q: 'switch', home: 'value', source: 'value' };
 const RUN_FLAG_KINDS = { ...FLAG_KINDS, yes: 'switch', y: 'switch', path: 'value' };
+const RESUME_FLAG_KINDS = { ...RUN_FLAG_KINDS, 'add-agent-calls': 'value', 'add-seconds': 'value' };
 const PLAN_FLAG_KINDS = { ...RUN_FLAG_KINDS, 'goal-file': 'value', config: 'value' };
 const PLAN_USAGE = 'usage: agent-layers workflow plan --goal-file <file> --config <file> [--path <repo>] [--yes] [--json]';
 
@@ -64,9 +65,9 @@ export function workflowCommand(ctx, flags, positional, { confirm } = {}) {
     return startCommand(ctx, flags, sub, null, confirm);
   }
   if (RUN_COMMANDS.includes(sub)) {
-    const issue = !runId || extra.length > 0 ? 'one run id is needed' : flagProblem(flags, RUN_FLAG_KINDS);
+    const issue = !runId || extra.length > 0 ? 'one run id is needed' : flagProblem(flags, sub === 'resume' ? RESUME_FLAG_KINDS : RUN_FLAG_KINDS);
     if (issue) {
-      error(`${issue}. usage: agent-layers workflow ${sub} <run-id> [--path <repo>] [--yes] [--json]`);
+      error(`${issue}. usage: agent-layers workflow ${sub} <run-id>${sub === 'resume' ? ' [--add-agent-calls <n>] [--add-seconds <n>]' : ''} [--path <repo>] [--yes] [--json]`);
       return 2;
     }
     return startCommand(ctx, flags, sub, runId, confirm);

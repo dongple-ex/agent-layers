@@ -9,7 +9,7 @@ import { findLeftovers, TREE_KILL_METHOD, TREE_KILL_SUPPORTED } from './process.
 import { commandVersion, createProvider, providerProblem } from './provider.js';
 import { formatReport, reportView } from './report.js';
 import { blockedRulingLimit, hashJson, normalizePolicy, validatePlan } from './schema.js';
-import { acquireRun, cancelRequested, commitRun, createRun, policySecretIssues, findSecretAssignment, readArtifact, readRun, readRunOwner, releaseRun, requestCancel, sanitizeEventData, writeArtifact } from './store.js';
+import { acquireRun, cancelRequested, commitRun, createRun, extendBudget, extendedBudget, policySecretIssues, findSecretAssignment, readArtifact, readRun, readRunOwner, releaseRun, remainingBudget, requestCancel, sanitizeEventData, writeArtifact } from './store.js';
 import { checkCommandProblem, childEnv, runChecks, runSetup } from './verify.js';
 import { checkChanges, compareFingerprints, createWorktree, describeWorktree, inspectRepository, removeWorktree, resultPatch, sourceFingerprint, worktreePath } from './workspace.js';
 import { buildHandoff, parsePolicyText, fingerprintArtifacts } from './assignment.js';
@@ -17,6 +17,8 @@ import { buildHandoff, parsePolicyText, fingerprintArtifacts } from './assignmen
 const READ_ONLY_ROLES = ['reviewer', 'auditor', 'arbiter'];
 const ENDED_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELLED'];
 const EXIT_BY_STATUS = { SUCCEEDED: 0, FAILED: 1, CANCELLED: 130 };
+const BUDGET_STOPS = ['maxAgentCalls', 'runTimeoutSeconds'];
+const BUDGET_FLAGS = [['add-agent-calls', 'agentCalls'], ['add-seconds', 'activeSeconds']];
 const EXIT_WAITING = 3;
 const EXIT_CANCELLED = 130;
 const MAX_DIFF_CHARS = 512 * 1024;
@@ -349,7 +351,76 @@ function assertRunnable(stored, repo, resume) {
   assertCommandsStart(stored.policy);
 }
 
-function describeRun(flags, stored, repo) {
+function addedBudget(flags) {
+  const added = {};
+  for (const [flag, key] of BUDGET_FLAGS) {
+    const value = flags[flag];
+    if (value === undefined) {
+      added[key] = 0;
+      continue;
+    }
+    if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value))) {
+      throw invalid(`--${flag} must be a positive integer`);
+    }
+    added[key] = Number(value);
+  }
+  return added;
+}
+
+function budgetExtension(stored, flags) {
+  const added = addedBudget(flags);
+  const asked = added.agentCalls > 0 || added.activeSeconds > 0;
+  const { status, stopReason } = stored.state;
+  if (status !== 'BLOCKED' || !BUDGET_STOPS.includes(stopReason)) {
+    if (asked) {
+      throw invalid(`run ${stored.runId} is ${status}${stopReason ? ` (${stopReason})` : ''}; --add-agent-calls and --add-seconds only apply to a run that stopped at maxAgentCalls or runTimeoutSeconds`);
+    }
+    return null;
+  }
+  const rem = remainingBudget(stored.state, stored.policy.limits);
+  const missing = [];
+  if (rem.agentCalls + added.agentCalls < 1) {
+    missing.push('no agent call is left; pass --add-agent-calls <n> to approve more');
+  }
+  if (rem.activeSeconds + added.activeSeconds <= 0) {
+    missing.push(`no active time is left; pass --add-seconds <n> with more than ${Math.floor(-rem.activeSeconds)}`);
+  }
+  if (missing.length > 0) {
+    throw invalid(`run ${stored.runId} stopped at ${stopReason}: ${missing.join('; ')}; or make a new plan`);
+  }
+  return asked ? added : null;
+}
+
+function counted(n, word) {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+function extensionLine(stored, extension) {
+  const before = extendedBudget(stored.state);
+  const now = extension || { agentCalls: 0, activeSeconds: 0 };
+  if (before.agentCalls + before.activeSeconds + now.agentCalls + now.activeSeconds === 0) {
+    return [];
+  }
+  const rem = remainingBudget(stored.state, stored.policy.limits);
+  const thisResume = extension ? `this resume adds ${counted(now.agentCalls, 'agent call')} and ${now.activeSeconds}s; ` : '';
+  return [`  added to the limits: ${thisResume}${counted(before.agentCalls + now.agentCalls, 'agent call')} and ${before.activeSeconds + now.activeSeconds}s in all; left after that: ${counted(rem.agentCalls + now.agentCalls, 'agent call')}, ${Math.floor(rem.activeSeconds + now.activeSeconds)}s of active time`];
+}
+
+function resumeQuestion(extension) {
+  if (!extension) {
+    return 'Resume this run?';
+  }
+  const parts = [];
+  if (extension.agentCalls > 0) {
+    parts.push(counted(extension.agentCalls, 'more agent call'));
+  }
+  if (extension.activeSeconds > 0) {
+    parts.push(`${counted(extension.activeSeconds, 'more second')} of active time`);
+  }
+  return `Resume this run with ${parts.join(' and ')}?`;
+}
+
+function describeRun(flags, stored, repo, extension = null) {
   const { provider, allowedWritePaths, protectedPaths, setup, checks, limits } = stored.policy;
   const notice = stored.state.preflightDone ? [] : ['  before any AI call, the setup commands run once in the worktree and the checks run once at the base commit; both use your permissions'];
   progress(flags, [
@@ -366,6 +437,7 @@ function describeRun(flags, stored, repo) {
     ...checks.map((check) => `  check ${check.id}, expected to ${check.baseline} at the base commit: ${policyCommandLine(check)}`),
     ...notice,
     `  limits: ${limits.maxAgentCalls} agent calls, ${limits.runTimeoutSeconds}s of active time${blockedRulingLimit(limits) > 0 ? `, ${blockedRulingLimit(limits)} rulings on a blocked coder, each one agent call that runs as the planner` : ''}`,
+    ...extensionLine(stored, extension),
   ].join('\n'));
   if (repo.baseCommit !== stored.plan.baseCommit) {
     warn(`HEAD is ${repo.baseCommit}, but this plan was made at ${stored.plan.baseCommit}; the result patch may not apply to HEAD`);
@@ -642,8 +714,9 @@ export async function cmdRun(ctx, flags, runId, { confirm, resume = false, signa
   const stored = readRun(ctx, runId);
   const repo = repository(flags);
   assertRunnable(stored, repo, resume);
-  describeRun(flags, stored, repo);
-  if (!(await confirm(`${resume ? 'Resume' : 'Start'} this run?`, flags))) {
+  const asked = resume ? budgetExtension(stored, flags) : null;
+  describeRun(flags, stored, repo, asked);
+  if (!(await confirm(resume ? resumeQuestion(asked) : 'Start this run?', flags))) {
     return EXIT_WAITING;
   }
   const handle = acquireRun(ctx, runId);
@@ -678,6 +751,12 @@ export async function cmdRun(ctx, flags, runId, { confirm, resume = false, signa
     const logs = resume ? restoreLogs(handle) : new Map();
     const track = processTracker(handle);
     const provider = createProvider({ policy: run.policy, cwd: worktree.path, signal: abort.signal, retryDelayMs, onDiagnostic: recordDiagnostic(handle), track, plan: run.plan, onCall: (data) => commitRun(handle, 'agent.input', data), onResult: (data) => commitRun(handle, 'agent.output', data) });
+    const extension = resume ? budgetExtension(run, flags) : null;
+    if (extension) {
+      commitRun(handle, 'budget.extended', { ...extension, stopReason: run.state.stopReason }, (n) => {
+        extendBudget(n, extension);
+      });
+    }
     started = true;
     await runWorkflow(handle, {
       provider: guardedProvider({ provider, worktree, run, handle, logs, flags }),

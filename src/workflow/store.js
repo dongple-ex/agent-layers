@@ -24,6 +24,7 @@ const BEARER_VALUE_RE = /[0-9~+=]|[^.]\.[^.]|^[A-Za-z]{20,}$/;
 const BEARER_QUOTES = ['"', "'", '`'];
 const SECRET_PAIRS = [['api', 'key'], ['private', 'key'], ['access', 'key']];
 const INTERRUPTIBLE_STEPS = ['RUNNING', 'VERIFYING'];
+const EXTENDABLE_BUDGETS = ['agentCalls', 'activeSeconds'];
 const NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
 const SECRET_KEY_TEXT_RE = /(?<![A-Za-z0-9_.-])([A-Za-z][A-Za-z0-9_.-]*)\\*["']?\s*[:=]/g;
 const NUMBER_VALUE_RE = /\s*\\*["']?\s*-?\d/y;
@@ -541,6 +542,12 @@ export function stateIssues(state, order) {
   if (!(f.signature === null || typeof f.signature === 'string') || !Number.isSafeInteger(f.count) || f.count < 0) {
     issues.push('budget.failureStreak must have a signature (string or null) and a count');
   }
+  if (b.extended !== undefined) {
+    const e = b.extended;
+    if (e === null || typeof e !== 'object' || Array.isArray(e) || EXTENDABLE_BUDGETS.some((k) => !Number.isSafeInteger(e[k]) || e[k] < 0)) {
+      issues.push(`budget.extended must have ${EXTENDABLE_BUDGETS.join(' and ')} as integers of 0 or more`);
+    }
+  }
   issues.push(...secretFieldIssues(state, 'state'));
   return issues;
 }
@@ -1042,10 +1049,29 @@ export function clearFailure(state) {
   state.budget.failureStreak = { signature: null, count: 0 };
 }
 
+export function extendedBudget(state) {
+  const e = state.budget.extended;
+  return e === undefined ? { agentCalls: 0, activeSeconds: 0 } : { agentCalls: e.agentCalls, activeSeconds: e.activeSeconds };
+}
+
+export function extendBudget(state, added) {
+  const now = extendedBudget(state);
+  for (const k of EXTENDABLE_BUDGETS) {
+    if (!Number.isSafeInteger(added[k]) || added[k] < 0) {
+      throw new Error(`extendBudget: ${k} must be an integer of 0 or more`);
+    }
+  }
+  if (EXTENDABLE_BUDGETS.every((k) => added[k] === 0)) {
+    throw new Error('extendBudget: nothing to add');
+  }
+  state.budget.extended = { agentCalls: now.agentCalls + added.agentCalls, activeSeconds: now.activeSeconds + added.activeSeconds };
+}
+
 export function remainingBudget(state, limits) {
+  const extended = extendedBudget(state);
   return {
-    agentCalls: limits.maxAgentCalls - state.budget.agentCalls,
-    activeSeconds: limits.runTimeoutSeconds - state.budget.activeSeconds,
+    agentCalls: limits.maxAgentCalls + extended.agentCalls - state.budget.agentCalls,
+    activeSeconds: limits.runTimeoutSeconds + extended.activeSeconds - state.budget.activeSeconds,
     planRepairs: limits.maxPlanRepairs - state.budget.planRepairs,
     repairAttempts: (target) => limits.maxRepairAttempts - repairCount(state, target),
   };

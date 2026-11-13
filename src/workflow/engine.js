@@ -19,6 +19,7 @@ const ACTIVE_STEP_STATUSES = ['RUNNING', 'VERIFYING'];
 const STREAK_KINDS = ['check', 'review'];
 const RECOVERY_REASONS = ['interrupted', 'process-left', 'process-unconfirmed'];
 const PREFLIGHT_STOPS = ['setup-failed', 'preflight-changed-files', 'baseline-failed', 'baseline-unexpected'];
+const BUDGET_STOPS = ['maxAgentCalls', 'runTimeoutSeconds'];
 const REQUIRED_CHECKS_ROLE = 'required-checks';
 const SEAL_STALE = 'stale';
 const VERIFIER_METHODS = ['run', 'setup', 'baseline', 'seal'];
@@ -146,9 +147,9 @@ function clearFailureOf(n, target) {
 
 function stopOnTime(rt, id, message) {
   if (ACTIVE_STEP_STATUSES.includes(rt.handle.state.steps[id].status)) {
-    return stopStep(rt, id, 'FAILED', 'runTimeoutSeconds', message);
+    return stopStep(rt, id, 'BLOCKED', 'runTimeoutSeconds', message);
   }
-  return stopRun(rt, 'FAILED', 'runTimeoutSeconds', null, { stepId: id });
+  return stopRun(rt, 'BLOCKED', 'runTimeoutSeconds', null, { stepId: id });
 }
 
 function overrun(rt, id, what) {
@@ -168,6 +169,10 @@ function limitReached(rt) {
     return 'runTimeoutSeconds';
   }
   return null;
+}
+
+function stopStatus(reason) {
+  return BUDGET_STOPS.includes(reason) ? 'BLOCKED' : 'FAILED';
 }
 
 function stopRun(rt, status, reason, mutate = null, data = {}) {
@@ -238,6 +243,12 @@ function prepare(rt, resume) {
       return resumeSteps(rt, []);
     }
     const blocked = s.order.filter((id) => s.steps[id].status === 'BLOCKED');
+    if (BUDGET_STOPS.includes(s.stopReason)) {
+      if (!resume || limitReached(rt) || blocked.some((id) => !BUDGET_STOPS.includes(s.steps[id].reason))) {
+        return false;
+      }
+      return resumeSteps(rt, blocked);
+    }
     const retry = blocked.filter((id) => s.steps[id].reason === 'transport');
     if (!resume || retry.length === 0 || retry.length !== blocked.length) {
       return false;
@@ -269,7 +280,7 @@ async function runSetup(rt) {
   });
   rt.inflight = null;
   if (outOfTime(rt)) {
-    return stopRun(rt, 'FAILED', 'runTimeoutSeconds');
+    return stopRun(rt, 'BLOCKED', 'runTimeoutSeconds');
   }
   const failed = results.find((r) => r.exitCode !== 0);
   return failed ? stopRun(rt, 'BLOCKED', 'setup-failed', null, { failed: failed.id, exitCode: failed.exitCode }) : true;
@@ -300,7 +311,7 @@ async function baselineChecks(rt) {
   });
   rt.inflight = null;
   if (outOfTime(rt)) {
-    return stopRun(rt, 'FAILED', 'runTimeoutSeconds');
+    return stopRun(rt, 'BLOCKED', 'runTimeoutSeconds');
   }
   const failed = results.filter((r) => !r.matched);
   if (failed.some((r) => r.expected === 'pass')) {
@@ -317,7 +328,7 @@ async function preflight(rt) {
     return true;
   }
   if (remainingBudget(rt.handle.state, rt.limits).activeSeconds <= 0) {
-    return stopRun(rt, 'FAILED', 'runTimeoutSeconds');
+    return stopRun(rt, 'BLOCKED', 'runTimeoutSeconds');
   }
   return (await runSetup(rt)) && baselineChecks(rt);
 }
@@ -352,7 +363,7 @@ async function callRole(rt, req) {
   for (let retry = 0; ; retry += 1) {
     const limit = limitReached(rt);
     if (limit) {
-      return stopStep(rt, req.statusId, 'FAILED', limit, `${limit} reached before the ${req.role} call`);
+      return stopStep(rt, req.statusId, 'BLOCKED', limit, `${limit} reached before the ${req.role} call`);
     }
     const tag = { role: req.role, stepId: req.stepId, attempt: req.attempt, retry, ...(rt.policy.schemaVersion === 2 ? { agentId: assignedAgent(rt.policy, req, rt.plan).agentId } : {}) };
     commit(rt, 'call.started', tag, (n) => {
@@ -541,7 +552,7 @@ async function runWorkStep(rt, step) {
     }
     const limit = limitReached(rt);
     if (limit) {
-      return stopRun(rt, 'FAILED', limit, null, { stepId: id });
+      return stopRun(rt, 'BLOCKED', limit, null, { stepId: id });
     }
     markReady(rt, id);
     const attempt = startStep(rt, id);
@@ -615,10 +626,12 @@ async function gateFix(rt, failures) {
     n.steps[id].lastError = clean(failureText(failures));
     if (!stop) {
       n.steps[id].status = 'RETRY_PENDING';
+    }
+    if (!stop || BUDGET_STOPS.includes(stop.reason)) {
       n.reviewFix = { stepId: id, role: REQUIRED_CHECKS_ROLE, artifact: null, attempt: null };
     }
   });
-  return stop ? stopStep(rt, id, 'FAILED', stop.reason, stop.message) : fixLoop(rt, id, REQUIRED_CHECKS_ROLE, [], rt.stepIds, { failures });
+  return stop ? stopStep(rt, id, stopStatus(stop.reason), stop.reason, stop.message) : fixLoop(rt, id, REQUIRED_CHECKS_ROLE, [], rt.stepIds, { failures });
 }
 
 async function requiredGate(rt) {
@@ -681,7 +694,7 @@ async function reviewCycle(rt) {
       }
       const limit = limitReached(rt);
       if (limit) {
-        return stopRun(rt, 'FAILED', limit, null, { stepId: id });
+        return stopRun(rt, 'BLOCKED', limit, null, { stepId: id });
       }
       const sealed = compareSeal(rt, id);
       if (sealed !== true) {
@@ -760,10 +773,12 @@ async function reviewFix(rt, id, role, findings, artifact) {
     stop = same ? { reason: 'same-failure', message: `the ${role} asked for the same changes 3 times in a row` } : fixStop(rt);
     if (!stop) {
       n.steps[id].status = 'RETRY_PENDING';
+    }
+    if (!stop || BUDGET_STOPS.includes(stop.reason)) {
       n.reviewFix = { stepId: id, role, artifact, attempt: null };
     }
   });
-  return stop ? stopStep(rt, id, 'FAILED', stop.reason, stop.message) : fixLoop(rt, id, role, findings, scope.owners);
+  return stop ? stopStep(rt, id, stopStatus(stop.reason), stop.reason, stop.message) : fixLoop(rt, id, role, findings, scope.owners);
 }
 
 async function resumeReviewFix(rt, pending) {
@@ -879,7 +894,7 @@ async function fixLoop(rt, id, role, findings, owners, firstFeedback = { finding
       }
     });
     if (stop) {
-      return stopStep(rt, id, 'FAILED', stop.reason, stop.message);
+      return stopStep(rt, id, stopStatus(stop.reason), stop.reason, stop.message);
     }
     feedback = findings.length > 0 ? { findings, failures: checks.failures } : { failures: checks.failures };
   }

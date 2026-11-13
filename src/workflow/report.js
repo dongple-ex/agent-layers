@@ -1,4 +1,4 @@
-import { remainingBudget } from './store.js';
+import { extendedBudget, remainingBudget } from './store.js';
 
 const NOT_GUARANTEED = [
   'isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions',
@@ -12,6 +12,8 @@ const NEW_PLAN_NOTE = 'The worktree stays at the base commit, so a fix committed
 const NEW_PLAN_ONLY_NOTE = 'workflow resume does not continue this run, so make a new plan. It starts from the repository HEAD, not from this worktree, so first see what this run left there';
 const STOP_HINTS = {
   'input-invalid': 'The fixed input or dependency evidence is invalid. Inspect the evidence and make a new plan if the context, policy or assignment must change. This run does not replace its assigned agent.',
+  maxAgentCalls: 'the run used every approved AI CLI call, and no check or review failed because of that. See which steps are left, then either approve more calls with workflow resume <run-id> --add-agent-calls <n>, which continues in the same worktree, or make a new plan',
+  runTimeoutSeconds: 'the run used all of its approved active time, and no check or review failed because of that. See which steps are left, then either approve more time with workflow resume <run-id> --add-seconds <n>, which continues in the same worktree, or make a new plan',
   transport: "the AI CLI call kept ending with an error; the step's last error has the code, and artifacts/call-failed-* in the run folder keep the output. Fix the cause, then run workflow resume, which continues in the same worktree; with the same error it stops again after one more call. A run keeps the policy it was planned with, so a wrong command or argument in the policy needs a new plan",
   'role-blocked': `an AI role needs an answer; see result.needsInput in its file in the artifacts list, and put the answer in the goal. ${NEW_PLAN_ONLY_NOTE}`,
   timeout: `an AI CLI call ran past limits.stepTimeoutSeconds; raise that limit in the policy or make the step smaller in the goal. ${NEW_PLAN_ONLY_NOTE}`,
@@ -28,6 +30,7 @@ export function statusView(run) {
   const { state, policy } = run;
   const limits = policy.limits;
   const rem = remainingBudget(state, limits);
+  const added = extendedBudget(state);
   return {
     runId: run.runId,
     status: state.status,
@@ -38,8 +41,8 @@ export function statusView(run) {
       return { id, status: s.status, attempts: s.attempts, reason: s.reason === undefined ? null : s.reason, lastError: s.lastError === undefined ? null : s.lastError };
     }),
     budget: {
-      agentCalls: { used: state.budget.agentCalls, limit: limits.maxAgentCalls, remaining: rem.agentCalls },
-      activeSeconds: { used: state.budget.activeSeconds, limit: limits.runTimeoutSeconds, remaining: rem.activeSeconds },
+      agentCalls: { used: state.budget.agentCalls, limit: limits.maxAgentCalls, added: added.agentCalls, remaining: rem.agentCalls },
+      activeSeconds: { used: state.budget.activeSeconds, limit: limits.runTimeoutSeconds, added: added.activeSeconds, remaining: rem.activeSeconds },
       planRepairs: { used: state.budget.planRepairs, limit: limits.maxPlanRepairs },
       repairAttempts: { used: { ...state.budget.repairAttempts }, limitPerTarget: limits.maxRepairAttempts },
       failureStreak: { ...state.budget.failureStreak },
@@ -133,7 +136,7 @@ export function formatStatus(view) {
   const lines = [
     `run ${view.runId}: ${view.status}${view.stopReason ? ` (${view.stopReason})` : ''}`,
     ...stepLines(view),
-    `agent calls ${b.agentCalls.used}/${b.agentCalls.limit}, active time ${Math.round(b.activeSeconds.used)}s/${b.activeSeconds.limit}s, plan repairs ${b.planRepairs.used}/${b.planRepairs.limit}`,
+    `agent calls ${b.agentCalls.used}/${b.agentCalls.limit}${b.agentCalls.added > 0 ? `+${b.agentCalls.added}` : ''}, active time ${Math.round(b.activeSeconds.used)}s/${b.activeSeconds.limit}${b.activeSeconds.added > 0 ? `+${b.activeSeconds.added}` : ''}s, plan repairs ${b.planRepairs.used}/${b.planRepairs.limit}`,
   ];
   const repairs = Object.entries(b.repairAttempts.used);
   if (repairs.length > 0) {

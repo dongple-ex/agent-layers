@@ -1231,8 +1231,9 @@ Workflow (preview: runs the AI CLI named in the policy file; stop a run with Ctr
                                        ask the AI CLI for a plan and store a new run
   workflow run <run-id> [--path <repo>] [--yes] [--json]
                                        run the plan in its own worktree
-  workflow resume <run-id> [--path <repo>] [--yes] [--json]
-                                       continue a run stopped by a failed AI CLI call or an interruption
+  workflow resume <run-id> [--add-agent-calls <n>] [--add-seconds <n>] [--path <repo>] [--yes] [--json]
+                                       continue a run stopped by a failed AI CLI call or an interruption;
+                                       a run stopped at maxAgentCalls or runTimeoutSeconds needs the amount to add
   workflow cancel <run-id> [--json]    ask a running run to stop and wait for the result
   workflow validate <run-id> [--json]  check a stored run's plan, policy and records
   workflow status <run-id> [--json]    show step states, attempts and budget use

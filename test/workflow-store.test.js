@@ -10,7 +10,7 @@ import { hashJson, PROGRAM_PLAN_FIELDS } from '../src/workflow/schema.js';
 import {
   createRun, readRun, acquireRun, commitRun, releaseRun, runDir, workflowsDir, isSecretKey, sanitizeEventData,
   findSecretAssignment, policySecretIssues, REDACTED_TEXT, readRunOwner, requestCancel, cancelRequested,
-  chargeAgentCall, addActiveSeconds, addRepairAttempt, recordFailure, clearFailure, remainingBudget, writeArtifact, readArtifact,
+  chargeAgentCall, addActiveSeconds, addRepairAttempt, recordFailure, clearFailure, remainingBudget, extendBudget, extendedBudget, writeArtifact, readArtifact,
 } from '../src/workflow/store.js';
 
 const BIN = fileURLToPath(new URL('../bin/agent-layers.js', import.meta.url));
@@ -944,5 +944,52 @@ test('workflow store: readRun lists a step entry that is not an object instead o
     fs.writeFileSync(file, JSON.stringify({ ...state, steps: { ...state.steps, impl: bad } }));
     const { issues } = readRun(ctx, run.runId);
     assert.ok(issues.includes('state.json: step impl must be an object'), issues.join('\n'));
+  }
+});
+
+test('workflow store: approved extra calls and seconds add up, raise what is left and survive a reload', (t) => {
+  const { ctx } = tempCtx(t);
+  const run = newRun(ctx, { usedAgentCalls: 2 });
+  const limits = { maxAgentCalls: 4, runTimeoutSeconds: 100, maxPlanRepairs: 1, maxRepairAttempts: 2 };
+  let h = acquireRun(ctx, run.runId);
+  assert.deepEqual(extendedBudget(h.state), { agentCalls: 0, activeSeconds: 0 });
+  assert.equal(h.state.budget.extended, undefined);
+  commitRun(h, 'budget.charged', {}, (s) => {
+    chargeAgentCall(s, 2);
+    addActiveSeconds(s, 130.5);
+  });
+  assert.equal(remainingBudget(h.state, limits).agentCalls, 0);
+  assert.equal(remainingBudget(h.state, limits).activeSeconds, -30.5);
+  commitRun(h, 'budget.extended', { agentCalls: 3, activeSeconds: 0 }, (s) => {
+    extendBudget(s, { agentCalls: 3, activeSeconds: 0 });
+  });
+  commitRun(h, 'budget.extended', { agentCalls: 1, activeSeconds: 60 }, (s) => {
+    extendBudget(s, { agentCalls: 1, activeSeconds: 60 });
+    for (const bad of [{ agentCalls: 0, activeSeconds: 0 }, { agentCalls: -1, activeSeconds: 5 }, { agentCalls: 1.5, activeSeconds: 0 }, { agentCalls: 1 }, { agentCalls: '2', activeSeconds: 0 }]) {
+      assert.throws(() => extendBudget(s, bad), /extendBudget: /, JSON.stringify(bad));
+    }
+  });
+  releaseRun(h);
+  h = acquireRun(ctx, run.runId);
+  assert.deepEqual(h.state.budget.extended, { agentCalls: 4, activeSeconds: 60 });
+  assert.deepEqual(extendedBudget(h.state), { agentCalls: 4, activeSeconds: 60 });
+  const left = remainingBudget(h.state, limits);
+  assert.equal(left.agentCalls, 4);
+  assert.equal(left.activeSeconds, 29.5);
+  assert.equal(left.planRepairs, 1);
+  assert.equal(left.repairAttempts('impl'), 2);
+  releaseRun(h);
+  assert.deepEqual(readRun(ctx, run.runId).issues, []);
+});
+
+test('workflow store: readRun reports a budget.extended that is not two integers of 0 or more', (t) => {
+  const { ctx } = tempCtx(t);
+  const run = newRun(ctx);
+  const file = path.join(run.dir, 'state.json');
+  const state = JSON.parse(fs.readFileSync(file, 'utf8'));
+  for (const bad of [null, [], 3, {}, { agentCalls: 1 }, { agentCalls: -1, activeSeconds: 0 }, { agentCalls: 1, activeSeconds: 0.5 }, { agentCalls: '1', activeSeconds: 0 }]) {
+    fs.writeFileSync(file, JSON.stringify({ ...state, budget: { ...state.budget, extended: bad } }));
+    const { issues } = readRun(ctx, run.runId);
+    assert.ok(issues.includes('state.json: budget.extended must have agentCalls and activeSeconds as integers of 0 or more'), `${JSON.stringify(bad)}: ${issues.join('\n')}`);
   }
 });

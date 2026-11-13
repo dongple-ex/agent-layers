@@ -65,7 +65,7 @@ test('workflow cli: status, report and validate read a stored run, print JSON on
   assert.equal(view.runId, run.runId);
   assert.equal(view.status, 'PLANNED');
   assert.deepEqual(view.steps.map((s) => s.id), ['impl', 'tests', 'review', 'audit']);
-  assert.deepEqual(view.budget.agentCalls, { used: 1, limit: 20, remaining: 19 });
+  assert.deepEqual(view.budget.agentCalls, { used: 1, limit: 20, added: 0, remaining: 19 });
   assert.equal(status.stderr, '');
 
   const report = cli(home, 'workflow', 'report', run.runId, '--json');

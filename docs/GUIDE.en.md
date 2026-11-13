@@ -506,10 +506,10 @@ agent-layers workflow report <run-id>
 | `workflow run <run-id>` | Runs the plan in a separate worktree | yes |
 | `workflow status <run-id>` | Shows step states, attempts and budget use | no |
 | `workflow report <run-id>` | Shows check results, artifacts, remaining steps and what is not guaranteed | no |
-| `workflow resume <run-id>` | Continues a stopped run. If the reason for the stop cannot be continued, it ends without a call | only when it continues |
+| `workflow resume <run-id>` | Continues a stopped run. If the reason for the stop cannot be continued, it ends without a call. A run that stopped at a limit continues only after you approve more with `--add-agent-calls <n>` or `--add-seconds <n>` | only when it continues |
 | `workflow cancel <run-id>` | Asks a running run to stop and waits for the result. Ctrl+C in the terminal of the run does the same | no |
 
-The status of the run and the `last error` column of the step say why a run stopped. For most `BLOCKED` reasons, the `next:` line of `workflow report` says what to do next. A run stops with `transport` when AI CLI calls keep ending with an error. That covers every call that ends with a non-zero exit code or a signal, not only network errors. Fix the cause, then run `resume`, which continues in the same worktree. A run that ended as `FAILED` or `CANCELLED` does not resume, so make a new plan. Every command accepts `--json`.
+The status of the run and the `last error` column of the step say why a run stopped. For most `BLOCKED` reasons, the `next:` line of `workflow report` says what to do next. A run stops with `transport` when AI CLI calls keep ending with an error. That covers every call that ends with a non-zero exit code or a signal, not only network errors. Fix the cause, then run `resume`, which continues in the same worktree. A run that reaches the call limit or the time limit of the whole run stops with `maxAgentCalls` or `runTimeoutSeconds`, and "Approval and call limits" below says how to continue it. A run that ended as `FAILED` or `CANCELLED` does not resume, so make a new plan. Every command accepts `--json`.
 
 ### Approval and call limits
 
@@ -518,6 +518,13 @@ The status of the run and the `last error` column of the step say why a run stop
 - `--yes` skips this confirmation. Read what is shown before you add it.
 - The call limit `limits.maxAgentCalls` (default 20) counts how many times the AI CLI is run. It does not limit the model requests inside one run of the CLI, tokens or money.
 - The time limits are `limits.stepTimeoutSeconds` per call (default 900 seconds) and `limits.runTimeoutSeconds` for the whole run (default 3600 seconds).
+- A run that reaches `limits.maxAgentCalls` or `limits.runTimeoutSeconds` stops as `BLOCKED` with exit code 3. See which steps are left, then, to continue, state how much to add: `workflow resume <run-id> --add-agent-calls <n> --add-seconds <n>`. Both options take an integer of 1 or more, and you can pass only the one you need.
+  - What you add is put on top of the limit in the policy, and repeated approvals add up. The policy and the plan do not change, and each approval is kept in the run records as a `budget.extended` event. The resumed run continues in the same worktree and does not repeat the steps that already finished.
+  - The confirmation shows what this resume adds, what has been added in all, and what is left after that. `status` and `report` show the limit in the policy and the added amount apart, as in `agent calls 5/4+1`.
+  - `resume` without an amount, or with too small an amount, ends with exit code 2 without calling the AI CLI and names the option it needs. For time, add more than the seconds already used past the limit.
+  - agent-layers never raises a limit by itself. The two options apply only to `resume` of a run that stopped at one of these two limits, and `workflow run` does not accept them.
+  - The same failure repeating (`same-failure`), repair attempts used up (`repair-limit`) and a policy violation (`policy-violation`) end the run as `FAILED`, and it does not resume. A run that ended as `FAILED` at a limit under a version without this feature does not resume either.
+  - This resume was tested with fake CLI processes only.
 - `limits.maxBlockedRulings` is optional and is 0 when it is not set. It limits how many times in one run a ruling is made on whether a Coder that stopped with `blocked` really has to stop. The read-only `arbiter` role makes the ruling. Each ruling runs the AI CLI once with the Planner command, so it counts toward `maxAgentCalls`.
   - A `completed` ruling with every check of that step passing continues the run.
   - A `needs_changes` ruling uses one repair attempt and calls the Coder again.
@@ -576,7 +583,7 @@ Exit codes of the workflow commands mean something different from the other agen
 | --- | --- | --- |
 | 0 | Completed, or a query succeeded | `SUCCEEDED`. `status` and `report` return 0 when the query works, even if the run failed |
 | 1 | The run failed | `FAILED` |
-| 2 | Bad input, or a state that cannot run | A bad option, uncommitted changes, `resume` of a run that has ended |
+| 2 | Bad input, or a state that cannot run | A bad option, uncommitted changes, `resume` of a run that has ended, `resume` of a run that stopped at a limit without an amount to add |
 | 3 | Waiting for input, approval or recovery by a person | `BLOCKED`, `INTERRUPTED`, no terminal and no `--yes`, a run another process is working on |
 | 130 | Cancelled | `CANCELLED` |
 

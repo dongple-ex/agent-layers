@@ -263,7 +263,8 @@ test('v2: the shared call limit is not multiplied by agent count', async (t) => 
   const s = setup(t, { reviewer: { result: { status: 'needs_changes', findings: [{ code: 'FIX', severity: 'low', path: 'src/existing', evidence: 'fixture' }] } } });
   s.raw.limits.maxAgentCalls = 6; s.save();
   await cmdPlan(s.ctx, s.flags, YES); const id = s.runId();
-  assert.equal(await cmdRun(s.ctx, s.flags, id, YES), 1);
+  assert.equal(await cmdRun(s.ctx, s.flags, id, YES), 3);
+  assert.equal(readRun(s.ctx, id).state.status, 'BLOCKED');
   assert.equal(readRun(s.ctx, id).state.stopReason, 'maxAgentCalls');
   assert.equal(readRun(s.ctx, id).state.budget.agentCalls, 6);
   assert.equal(s.calls().length, 6);
