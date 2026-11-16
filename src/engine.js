@@ -8,7 +8,7 @@ import { TomlDocument, toPlain } from './formats/toml.js';
 import { run, which } from './util/proc.js';
 import { formatDiff } from './util/diff.js';
 import { recordsForScope } from './state.js';
-import { normalizeKey } from './render.js';
+import { normalizeKey, isWithinPath } from './render.js';
 
 const NEUTRAL_OWNERS = new Set(['git', 'home', 'project']);
 
@@ -605,6 +605,11 @@ function removable(rec, selected) {
   return owners.every((a) => selected.includes(a));
 }
 
+function userRoots(ctx) {
+  const p = ctx?.paths || {};
+  return Object.entries(p).filter(([, v]) => typeof v === 'string').map(([k, v]) => (k === 'claudeJson' ? path.dirname(v) : v));
+}
+
 export function buildPlan(ctx, { outputs, state, scopeKey, removals = true, selected = null, backup = true, forget = [] }) {
   const plan = { stamp: timestamp(), items: [], backups: [], scopeKey, backup };
   const forgetByPath = new Map();
@@ -627,8 +632,13 @@ export function buildPlan(ctx, { outputs, state, scopeKey, removals = true, sele
     plan.items.push({ ...item, id: o.id, type: o.type, path: o.path, adapters: [...o.adapters], output: o });
   }
   if (removals) {
+    const roots = scopeKey === 'user' ? userRoots(ctx) : null;
     for (const rec of recordsForScope(state, scopeKey)) {
       if (desiredIds.has(rec.id)) {
+        continue;
+      }
+      if (roots && roots.length > 0 && !roots.some((r) => isWithinPath(rec.path, r))) {
+        plan.items.push({ action: 'keep', id: rec.id, type: rec.type, path: rec.path, adapters: rec.adapters || [], record: rec, reason: `outside this home (${ctx.paths.home}) and its agent folders; not removed. If this home was copied, delete its .agent-layers/state.json and apply again` });
         continue;
       }
       if (!removable(rec, selected)) {

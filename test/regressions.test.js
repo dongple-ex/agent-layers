@@ -1651,3 +1651,30 @@ test('the README of a new setup repository links to the agent-layers repository'
   assert.equal(r.code, 0, r.out);
   assert.ok(read(path.join(sb.source, 'README.md')).includes(`[agent-layers](${repository})`));
 });
+
+test('apply and uninstall on a copied home keep the outputs of the original home', () => {
+  const sb = sandbox();
+  manifest(sb, ['claude']);
+  write(path.join(sb.source, 'base', 'instructions', '10-extra.md'), '- Extra rule.\n');
+  const first = cli(sb, ['apply', '--yes']);
+  assert.equal(first.code, 0, first.out);
+  const original = snapshot(sb.home, ['backups']);
+  assert.ok(Object.keys(original).some((f) => f.includes('00-core.md')), JSON.stringify(Object.keys(original)));
+  const copy = { ...sb, home: path.join(sb.root, 'copy') };
+  fs.cpSync(sb.home, copy.home, { recursive: true });
+  const plan = cli(copy, ['plan']);
+  assert.equal(plan.code, 0, plan.out);
+  assert.match(plan.out, /keep[^\n]*00-core\.md/, plan.out);
+  assert.match(plan.out, /outside this home/, plan.out);
+  let r = cli(copy, ['apply', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.deepEqual(snapshot(sb.home, ['backups']), original, 'apply on the copy changed the original home');
+  assert.match(read(path.join(copy.home, '.claude', 'rules', 'agent-layers', '10-extra.md')), /Extra rule/);
+  fs.rmSync(path.join(sb.source, 'base', 'instructions', '10-extra.md'));
+  r = cli(copy, ['apply', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.equal(fs.existsSync(path.join(copy.home, '.claude', 'rules', 'agent-layers', '10-extra.md')), false, 'a removed rule inside the copy is still removed');
+  assert.deepEqual(snapshot(sb.home, ['backups']), original, 'the second apply on the copy changed the original home');
+  r = cli(copy, ['uninstall', '--yes']);
+  assert.deepEqual(snapshot(sb.home, ['backups']), original, `uninstall on the copy changed the original home\n${r.out}`);
+});
