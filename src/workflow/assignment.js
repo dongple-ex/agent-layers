@@ -205,7 +205,7 @@ export function fieldValue(value, keys) {
   return value;
 }
 
-export function fingerprintArtifacts(items, cwd) {
+export function fingerprintArtifacts(items, cwd, { allowMissing = false } = {}) {
   const root = fs.realpathSync(cwd);
   return items.map(({ path: file, purpose }) => {
     if (typeof file !== 'string' || path.isAbsolute(file) || file.split(/[\\/]/).includes('..')) {
@@ -215,6 +215,9 @@ export function fingerprintArtifacts(items, cwd) {
     try {
       resolved = fs.realpathSync(path.resolve(root, file));
     } catch (err) {
+      if (err.code === 'ENOENT' && allowMissing) {
+        return { path: file, purpose, missing: true };
+      }
       if (err.code === 'ENOENT') {
         throw assignmentError('dependency artifact is missing');
       }
@@ -262,8 +265,11 @@ export function buildHandoff(run, request, cwd, hashJson) {
       throw assignmentError(`dependency ${id} evidence hash changed`);
     }
     const result = JSON.parse(bytes).result;
-    const artifacts = fingerprintArtifacts(result.artifacts || [], cwd);
-    if (artifacts.some((item) => fileEvidence.find((f) => f.path === item.path)?.sha256 !== item.sha256)) {
+    const artifacts = fingerprintArtifacts(result.artifacts || [], cwd, { allowMissing: true });
+    if (artifacts.some((item) => {
+      const evidence = fileEvidence.find((f) => f.path === item.path);
+      return !evidence || evidence.sha256 !== item.sha256 || Boolean(evidence.missing) !== Boolean(item.missing);
+    })) {
       throw assignmentError('dependency file changed since its last validated result');
     }
     const checks = run.events.filter((e) => e.type === 'checks.finished' && e.data.stepId === id).at(-1)?.data.results || [];

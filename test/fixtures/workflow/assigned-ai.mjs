@@ -21,6 +21,9 @@ if (args.includes('--fixture')) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, content);
   }
+  for (const file of action.remove || []) {
+    fs.rmSync(file, { force: true });
+  }
   if (action.sleep) {
     await new Promise((resolve) => setTimeout(resolve, action.sleep));
   }

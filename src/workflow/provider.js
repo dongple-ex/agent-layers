@@ -153,7 +153,9 @@ function assignmentPrompt(request, policy) {
   if (Buffer.byteLength(prompt) > policy.contextLimits.maxPromptBytes) {
     throw assignmentError('prompt exceeds maxPromptBytes; make a smaller plan');
   }
-  if (findSecretAssignment(prompt) !== null) {
+  const checked = { ...extended };
+  delete checked.diff;
+  if (findSecretAssignment(`${instruction}\n\n${buildPrompt(checked, 2)}`) !== null) {
     throw assignmentError('prompt contains a secret-looking assignment');
   }
   return prompt;

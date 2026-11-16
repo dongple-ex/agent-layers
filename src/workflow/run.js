@@ -602,7 +602,7 @@ function guardedProvider({ provider, worktree, run, handle, logs, flags }) {
       for (const item of result.artifacts) {
         all.set(item.path, item);
       }
-      commitRun(handle, 'agent.files', { stepId: req.stepId, attempt: req.attempt, files: fingerprintArtifacts([...all.values()], worktree.path) });
+      commitRun(handle, 'agent.files', { stepId: req.stepId, attempt: req.attempt, files: fingerprintArtifacts([...all.values()], worktree.path, { allowMissing: true }) });
     }
     return result;
   }

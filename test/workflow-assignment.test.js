@@ -408,3 +408,53 @@ test('v2: the four-CLI example validates without invoking a real CLI', () => {
   assert.deepEqual(policySecretIssues(policy), []);
   assert.equal(Object.keys(policy.agents).length, 4);
 });
+
+test('v2: ordinary code in the accumulated diff does not stop later steps as a secret', async (t) => {
+  const s = setup(t, {
+    'coder:one': { write: { 'src/auth.js': 'const token = readTokenFromHeader(req);\nmodule.exports = { token };\n', 'src/user.d.ts': 'export interface Login {\n  user: string;\n  password: string;\n}\n' } },
+  });
+  await cmdPlan(s.ctx, s.flags, YES); const id = s.runId();
+  const code = await cmdRun(s.ctx, s.flags, id, YES);
+  const run = readRun(s.ctx, id);
+  assert.equal(code, 0, `${run.state.status} ${run.state.stopReason}`);
+  assert.equal(run.state.status, 'SUCCEEDED');
+  const coders = s.calls().filter((c) => c.request.role === 'coder').map((c) => c.request.stepId);
+  assert.deepEqual(coders, ['one', 'two', 'three']);
+  assert.match(s.calls().find((c) => c.request.stepId === 'two').request.diff, /readTokenFromHeader/);
+});
+
+test('v2: the goal is still checked for secret-looking assignments when the diff is not', async (t) => {
+  const s = setup(t);
+  await assert.rejects(createProvider({ policy: s.policy(), cwd: s.repo }).call({ ...REQUEST, goal: 'password=fixture-secret-value', diff: 'const token = readTokenFromHeader(req);\n' }), /secret-looking/);
+  await assert.rejects(createProvider({ policy: s.policy(), cwd: s.repo }).call({ ...REQUEST, dependencies: [{ stepId: 'one', summary: 'api_key=fixture-secret-value', artifacts: [], checks: [] }] }), /secret-looking/);
+  assert.deepEqual(s.calls(), []);
+});
+
+test('v2: a later step may rename or delete a file that an earlier step listed in its artifacts', async (t) => {
+  const s = setup(t, {
+    'coder:one': { write: { 'src/tmp.js': 'module.exports = 1;\n' }, result: { artifacts: [{ path: 'src/tmp.js', purpose: 'first draft' }] } },
+    'coder:two': { remove: ['src/tmp.js'], write: { 'src/final.js': 'module.exports = 1;\n' }, result: { artifacts: [{ path: 'src/final.js', purpose: 'renamed from src/tmp.js' }] } },
+  });
+  await cmdPlan(s.ctx, s.flags, YES); const id = s.runId();
+  const code = await cmdRun(s.ctx, s.flags, id, YES);
+  const run = readRun(s.ctx, id);
+  assert.equal(code, 0, `${run.state.status} ${run.state.stopReason}`);
+  const three = s.calls().find((c) => c.request.role === 'coder' && c.request.stepId === 'three').request;
+  const first = three.dependencies.find((d) => d.stepId === 'one');
+  assert.deepEqual(first.artifacts, [{ path: 'src/tmp.js', purpose: 'first draft', missing: true }]);
+});
+
+test('v2: a dependency file deleted outside the run still stops resume before a downstream process', async (t) => {
+  const s = setup(t, {
+    'coder:one': { write: { 'src/result': 'original' }, result: { artifacts: [{ path: 'src/result', purpose: 'contract' }] } },
+    'coder:two': [{ exit: 73 }, {}],
+  });
+  await cmdPlan(s.ctx, s.flags, YES); const id = s.runId();
+  assert.equal(await cmdRun(s.ctx, s.flags, id, YES), 3);
+  const run = readRun(s.ctx, id);
+  const worktree = run.events.find((e) => e.type === 'workspace.created').data.path;
+  fs.rmSync(path.join(worktree, 'src/result'));
+  assert.equal(await cmdRun(s.ctx, s.flags, id, { ...YES, resume: true }), 3);
+  assert.equal(readRun(s.ctx, id).state.stopReason, 'input-invalid');
+  assert.equal(s.calls().length, 3);
+});
