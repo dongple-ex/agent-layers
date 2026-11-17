@@ -42,6 +42,8 @@ const CHECK_KEYS = [...SETUP_KEYS, 'inputs', 'baseline', 'failedTestPattern'];
 const BASELINE_EXPECTATIONS = ['pass', 'fail'];
 const STEP_KEYS = ['id', 'role', 'dependsOn', 'instruction', 'writePaths', 'checkIds', 'acceptance'];
 const RESULT_KEYS = ['schemaVersion', 'stepId', 'attempt', 'status', 'summary', 'artifacts', 'findings', 'needsInput'];
+const MAX_LEARNED_CONSTRAINTS = 3;
+const MAX_LEARNED_CONSTRAINT_CHARS = 200;
 const ARTIFACT_KEYS = ['path', 'purpose'];
 //20261030 TODO Finding field names and the needsInput type are provisional; CONTRACT 5 does not name them
 const FINDING_KEYS = ['code', 'severity', 'path', 'evidence'];
@@ -583,6 +585,12 @@ export function validateRoleResult(result, { stepIds }) {
     add('needsInput', 'must be an array of non-empty strings');
   }
   return issues;
+}
+
+export function learnedConstraintsIssue(value) {
+  const valid = Array.isArray(value) && value.length <= MAX_LEARNED_CONSTRAINTS
+    && value.every((rule) => nonEmptyString(rule) && !/[\r\n]/.test(rule) && rule.length <= MAX_LEARNED_CONSTRAINT_CHARS);
+  return valid ? null : `must be an array of at most ${MAX_LEARNED_CONSTRAINTS} single-line strings of at most ${MAX_LEARNED_CONSTRAINT_CHARS} characters`;
 }
 
 export function assertJsonValue(value, where) {

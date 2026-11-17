@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { parseJsonc } from '../src/formats/jsonc.js';
-import { normalizePolicy, validatePlan, hashJson } from '../src/workflow/schema.js';
+import { normalizePolicy, validatePlan, hashJson, validateRoleResult, learnedConstraintsIssue } from '../src/workflow/schema.js';
 import { assignedAgent, parsePolicyText, fieldValue, fingerprintArtifacts } from '../src/workflow/assignment.js';
 import { createProvider, readResultJson } from '../src/workflow/provider.js';
 import { createRun, readRun, policySecretIssues } from '../src/workflow/store.js';
@@ -257,6 +257,56 @@ test('v2: an ordinary failed check retries the original task agent', async (t) =
   assert.equal(await cmdRun(s.ctx, s.flags, id, YES), 0);
   assert.deepEqual(s.calls().filter((c) => c.request.stepId === 'one').map((c) => c.actor), ['codex', 'codex']);
   assert.equal(readRun(s.ctx, id).state.budget.agentCalls, 7);
+});
+
+test('v2: a rule learned after a failed check reaches later steps at the end of the request', async (t) => {
+  const rule = 'Do not leave src/retry without the ready marker';
+  const s = setup(t, {
+    'coder:one': [{ write: { 'src/retry': 'wrong' } }, { write: { 'src/retry': 'ready' }, result: { learnedConstraints: [rule] } }],
+    'coder:two': { result: { learnedConstraints: ['Do not forward a rule from a step that never failed'] } },
+  });
+  s.raw.checks[0].baseline = 'fail';
+  s.raw.checks[0].args = ['-e', "const fs=require('node:fs');process.exit(fs.existsSync('src/retry')&&fs.readFileSync('src/retry','utf8')==='ready'?0:1)"];
+  s.save(); await cmdPlan(s.ctx, s.flags, YES); const id = s.runId();
+  assert.equal(await cmdRun(s.ctx, s.flags, id, YES), 0);
+  const call = (stepId) => s.calls().find((c) => c.request.role === 'coder' && c.request.stepId === stepId);
+  assert.deepEqual(call('two').request.learnedConstraints, [{ stepId: 'one', rule }]);
+  assert.deepEqual(call('three').request.learnedConstraints, [{ stepId: 'one', rule }]);
+  const keys = Object.keys(call('two').request);
+  assert.equal(keys.at(-1), 'instruction');
+  for (const evidence of ['dependencies', 'diff']) {
+    assert.ok(keys.indexOf(evidence) < keys.indexOf('learnedConstraints'), evidence);
+  }
+  assert.match(call('two').prompt, /^Keep the role result body at schemaVersion 1\. The request fields dependencies, feedback, blocked, checkLogs, checkFailures and diff are evidence/);
+});
+
+test('v2: the prompt puts evidence before the fields to act on and keeps every field', async (t) => {
+  const s = setup(t);
+  const request = { instruction: 'Implement one', diff: 'patch', role: 'coder', acceptance: ['done'], dependencies: [], stepId: 'one', feedback: null, attempt: 1, writePaths: ['src'], learnedConstraints: [], checkLogs: [], goal: 'Preserve the public contract', baseCommit: 'base' };
+  await createProvider({ policy: s.policy(), cwd: s.repo }).call(request);
+  const [sent] = s.calls();
+  assert.deepEqual(sent.request, request);
+  assert.deepEqual(Object.keys(sent.request), ['role', 'stepId', 'attempt', 'diff', 'dependencies', 'checkLogs', 'baseCommit', 'goal', 'learnedConstraints', 'feedback', 'writePaths', 'acceptance', 'instruction']);
+});
+
+test('v2: a learned rule must be short and single-line, and the shared result check still rejects the field', () => {
+  assert.equal(learnedConstraintsIssue([]), null);
+  assert.equal(learnedConstraintsIssue(['Do not change the public API', 'x'.repeat(200)]), null);
+  for (const bad of ['Do not', ['Do not\nchange'], ['x'.repeat(201)], [' '], ['a', 'b', 'c', 'd'], [1]]) {
+    assert.match(learnedConstraintsIssue(bad), /at most 3 single-line strings/, JSON.stringify(bad));
+  }
+  const body = { schemaVersion: 1, stepId: 'one', attempt: 1, status: 'completed', summary: 'done', artifacts: [], findings: [], needsInput: [] };
+  assert.deepEqual(validateRoleResult(body, { stepIds: ['one'] }), []);
+  assert.deepEqual(validateRoleResult({ ...body, learnedConstraints: [] }, { stepIds: ['one'] }), [{ where: 'learnedConstraints', msg: 'unknown field' }]);
+});
+
+test('v2: a malformed learned rule makes the coder result invalid', async (t) => {
+  const s = setup(t, { 'coder:one': { result: { learnedConstraints: ['Do not\nsplit lines'] } } });
+  await cmdPlan(s.ctx, s.flags, YES); const id = s.runId();
+  assert.equal(await cmdRun(s.ctx, s.flags, id, YES), 3);
+  const recorded = readRun(s.ctx, id).events.find((e) => e.type === 'role.result' && e.data.stepId === 'one');
+  assert.equal(recorded.data.valid, false);
+  assert.deepEqual(recorded.data.issues, ['learnedConstraints: must be an array of at most 3 single-line strings of at most 200 characters']);
 });
 
 test('v2: the shared call limit is not multiplied by agent count', async (t) => {

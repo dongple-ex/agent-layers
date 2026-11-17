@@ -247,6 +247,7 @@ export function buildHandoff(run, request, cwd, hashJson) {
     visit(id);
   }
   const dependencies = [];
+  const learnedConstraints = [];
   const fileEvidence = run.events.filter((e) => e.type === 'agent.files' && run.events.some((r) => r.type === 'role.result' && r.data.valid && r.data.stepId === e.data.stepId && r.data.attempt === e.data.attempt)).at(-1)?.data.files || [];
   for (const id of wanted) {
     const latest = run.events.filter((e) => e.type === 'role.result' && e.data.stepId === id && e.data.valid).at(-1);
@@ -274,9 +275,14 @@ export function buildHandoff(run, request, cwd, hashJson) {
     }
     const checks = run.events.filter((e) => e.type === 'checks.finished' && e.data.stepId === id).at(-1)?.data.results || [];
     dependencies.push({ stepId: id, summary: result.summary, artifacts, resultHash: latest.data.sha256, checks });
+    const retried = run.events.some((e) => e.type === 'step.retry' && e.data.stepId === id && e.data.attempt < latest.data.attempt);
+    if (retried && Array.isArray(result.learnedConstraints)) {
+      learnedConstraints.push(...result.learnedConstraints.map((rule) => ({ stepId: id, rule })));
+    }
   }
-  if (Buffer.byteLength(JSON.stringify(dependencies)) > run.policy.contextLimits.maxDependencyBytes) {
+  const learnedBytes = learnedConstraints.length > 0 ? Buffer.byteLength(JSON.stringify(learnedConstraints)) : 0;
+  if (Buffer.byteLength(JSON.stringify(dependencies)) + learnedBytes > run.policy.contextLimits.maxDependencyBytes) {
     throw assignmentError('dependency context exceeds maxDependencyBytes; make a smaller plan');
   }
-  return { originalGoal: run.context.goal, dependencies, dependencyHash: hashJson(dependencies) };
+  return { originalGoal: run.context.goal, dependencies, dependencyHash: hashJson(dependencies), learnedConstraints };
 }

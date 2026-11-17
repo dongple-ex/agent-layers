@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { validateRoleResult, pathCovers, blockedRulingLimit, RESULT_STATUSES } from './schema.js';
+import { validateRoleResult, learnedConstraintsIssue, pathCovers, blockedRulingLimit, RESULT_STATUSES } from './schema.js';
 import { downstreamOf, REVIEW_STEP_ID, AUDIT_STEP_ID } from './graph.js';
 import { assignedAgent } from './assignment.js';
 import {
@@ -421,7 +421,13 @@ async function callRole(rt, req) {
 }
 
 function resultIssues(rt, req, result) {
-  const issues = validateRoleResult(result, { stepIds: rt.stepIds }).map((i) => `${i.where}: ${i.msg}`);
+  const learned = rt.policy.schemaVersion === 2 && result !== null && typeof result === 'object' && !Array.isArray(result) && Object.hasOwn(result, 'learnedConstraints');
+  const body = learned ? Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'learnedConstraints')) : result;
+  const issues = validateRoleResult(body, { stepIds: rt.stepIds }).map((i) => `${i.where}: ${i.msg}`);
+  const learnedIssue = learned ? learnedConstraintsIssue(result.learnedConstraints) : null;
+  if (learnedIssue) {
+    issues.push(`learnedConstraints: ${learnedIssue}`);
+  }
   if (result !== null && typeof result === 'object' && !Array.isArray(result)) {
     if (result.stepId !== req.stepId) {
       issues.push(`stepId: must be ${req.stepId}`);
