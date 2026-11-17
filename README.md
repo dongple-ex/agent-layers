@@ -1,7 +1,11 @@
 # agent-layers
 
 Keep the configuration of all your AI coding agents in one git repository and apply it to any
-machine with one command:
+machine with one command. For repeated tasks, the optional workflow (preview) combines an
+**Active Orchestrator** with **Passive Workers**: agent-layers leads the work within the AI calls
+and time you approve, and each AI CLI works only on the step it is given.
+
+The configuration has three parts:
 
 - a **base layer** that follows you to every PC (working rules, skills, slash commands, MCP
   servers, settings),
@@ -14,10 +18,9 @@ Devin, Qwen Code, Cline, Goose, Kimi Code and Grok Build. It merges only the key
 agents rewrite themselves (`~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.claude.json`)
 keep their own content.
 
-For repeated tasks, the optional **workflow** (preview) works as an active orchestrator with
-passive workers: agent-layers keeps the plan, runs the AI CLI assigned to each step, runs the
-required checks and records every result, and each AI CLI works only on the step it is given.
-See [Workflow (preview)](#workflow-preview).
+In the workflow, agent-layers keeps the plan, runs the AI CLI assigned to each step, runs the
+required checks and records every result. When the approved calls or time run out, the run stops
+and waits until you approve more. See [Workflow (preview)](#workflow-preview).
 
 Zero dependencies. Node.js 18.17+. Windows, macOS, Linux, WSL.
 

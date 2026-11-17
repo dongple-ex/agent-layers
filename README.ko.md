@@ -1,6 +1,8 @@
 # agent-layers
 
-여러 AI 코딩 에이전트의 설정을 git 저장소 하나에 모아 두고, 어느 PC에서든 명령 한 번으로 같은 환경을 구성하는 도구입니다.
+여러 AI 코딩 에이전트의 설정을 git 저장소 하나에 모아 두고, 어느 PC에서든 명령 한 번으로 같은 환경을 구성하는 도구입니다. 반복 작업에는 선택 기능인 workflow(preview)를 연결할 수 있으며, workflow는 **능동적 오케스트레이터 + 수동적 워커(Active Orchestrator, Passive Workers)** 조합으로 동작합니다. agent-layers는 사용자가 승인한 AI 호출 횟수와 시간 안에서 작업을 이끌고, 각 AI CLI는 배정받은 단계만 처리합니다.
+
+설정은 세 부분으로 나뉩니다.
 
 - **base 레이어**: 모든 PC에 따라가는 개인 설정입니다. 작업 규칙, 스킬, 슬래시 명령, MCP 서버, 도구별 설정이 여기에 들어갑니다.
 - **project 레이어**: 프로젝트 폴더 하나에만 적용하고, 프로젝트가 끝나면 폐기하는 설정입니다.
@@ -8,7 +10,7 @@
 
 원본 하나를 Claude Code, OpenAI Codex, Gemini CLI, Google Antigravity, GitHub Copilot, Cursor, OpenCode, Zed, Junie, Kiro, Amp, Factory Droid, Devin, Qwen Code, Cline, Goose, Kimi Code, Grok Build가 각자 읽는 파일 형식으로 변환합니다. 에이전트가 스스로 다시 쓰는 파일(`~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.claude.json`)은 통째로 덮어쓰지 않고, agent-layers가 관리하는 키와 블록만 병합합니다.
 
-반복 작업에는 선택 기능인 **workflow**(preview)를 쓸 수 있습니다. workflow는 능동적 오케스트레이터와 수동적 워커 구조로 동작합니다. agent-layers가 계획을 관리하고, 단계마다 배정된 AI CLI를 실행하고, 필수 검사와 결과 기록을 맡습니다. 각 AI CLI는 배정받은 단계만 처리합니다. 자세한 내용은 [workflow (preview)](#workflow-preview) 절에 있습니다.
+workflow에서 agent-layers는 계획을 관리하고, 단계마다 배정된 AI CLI를 실행하고, 필수 검사와 결과 기록을 맡습니다. 승인한 호출 횟수나 시간을 다 쓰면 실행을 멈추고, 사용자가 더 승인할 때까지 기다립니다. 자세한 내용은 [workflow (preview)](#workflow-preview) 절에 있습니다.
 
 외부 의존성은 없고 Node.js 18.17 이상에서 동작합니다. Windows, macOS, Linux, WSL을 지원합니다.
 
