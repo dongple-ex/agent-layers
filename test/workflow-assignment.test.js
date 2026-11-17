@@ -289,6 +289,17 @@ test('v2: the prompt puts evidence before the fields to act on and keeps every f
   assert.deepEqual(Object.keys(sent.request), ['role', 'stepId', 'attempt', 'diff', 'dependencies', 'checkLogs', 'baseCommit', 'goal', 'learnedConstraints', 'feedback', 'writePaths', 'acceptance', 'instruction']);
 });
 
+test('v2: an arbiter request ends with the blocked result it must judge', async (t) => {
+  const s = setup(t);
+  const request = { role: 'arbiter', stepId: 'one', attempt: 1, goal: 'Preserve the public contract', instruction: 'Implement one', acceptance: ['done'], writePaths: ['src'], blocked: { summary: 'needs an answer', findings: [], needsInput: ['Which API?'] }, checkFailures: [], laterSteps: [], feedback: null, diff: 'patch' };
+  await createProvider({ policy: s.policy(), cwd: s.repo }).call(request);
+  const [sent] = s.calls();
+  assert.deepEqual(sent.request, request);
+  const keys = Object.keys(sent.request);
+  assert.deepEqual(keys.slice(-2), ['checkFailures', 'blocked']);
+  assert.ok(keys.indexOf('diff') < keys.indexOf('instruction'));
+});
+
 test('v2: a learned rule must be short and single-line, and the shared result check still rejects the field', () => {
   assert.equal(learnedConstraintsIssue([]), null);
   assert.equal(learnedConstraintsIssue(['Do not change the public API', 'x'.repeat(200)]), null);
