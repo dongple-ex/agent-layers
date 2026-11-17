@@ -14,6 +14,11 @@ Devin, Qwen Code, Cline, Goose, Kimi Code and Grok Build. It merges only the key
 agents rewrite themselves (`~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.claude.json`)
 keep their own content.
 
+For repeated tasks, the optional **workflow** (preview) works as an active orchestrator with
+passive workers: agent-layers keeps the plan, runs the AI CLI assigned to each step, runs the
+required checks and records every result, and each AI CLI works only on the step it is given.
+See [Workflow (preview)](#workflow-preview).
+
 Zero dependencies. Node.js 18.17+. Windows, macOS, Linux, WSL.
 
 New here? Start with the [beginner's guide](docs/GUIDE.en.md).
@@ -38,6 +43,7 @@ instructions, tools and model settings. It separates simulated verification from
 | MCP passwords sit in plain text in `.mcp.json` | `${secret:NAME}` stored in the OS keychain; rendered as env references or injected at server start by `agent-layers exec` |
 | Agents rewrite their own config files, so symlinks and whole-file sync break | Managed blocks and managed keys; drift detection; backups |
 | Client knowledge stays on the machine after the engagement | `project purge` removes rendered files and the agents' per-project transcripts, memories and sessions |
+| A repeated task needs the same checks, records and a way to resume, whichever AI CLI does each step | Optional `workflow` (preview): agent-layers orchestrates the plan, checks and records; AI CLIs work on the steps assigned to them |
 
 ## How it works
 
@@ -216,6 +222,86 @@ agent-layers project purge sample-a   # at the end of the engagement
   Antigravity project settings, Codex session rollouts and Copilot session state. Global Codex
   memories and cloud-synced sessions are reported for manual review.
 
+## Workflow (preview)
+
+agent-layers primarily keeps your team's rules and settings consistent across AI tools, and
+workflow is an optional feature on top of that. If your AI tool's built-in task delegation is
+enough, use it. Choose workflow when repeated tasks need fixed checks, recorded results and a way
+to resume.
+
+### Active orchestrator, passive workers
+
+| Part | Who | What it does |
+|---|---|---|
+| Orchestrator | agent-layers | has the Planner draft a plan, validates and saves it, runs the AI CLI assigned to each step, passes the goal and earlier results to later steps, runs the required checks, enforces the call and time limits, records every event and resumes a stopped run |
+| Workers | the AI CLIs named in the policy file, as Planner, Coder, Reviewer and Auditor | work only on the step they are given and return a result in a fixed format. Each result goes back to agent-layers, which decides the next step |
+
+How a worker does its step (tools, sandbox, its own sub-agents) is left to that CLI. agent-layers
+decides what is done and checks the result.
+
+```mermaid
+flowchart LR
+  G["goal + policy"] --> O{"agent-layers<br/>orchestrator"}
+  O -->|"plan request"| PL["Planner CLI"]
+  O -->|"one step"| C["Coder CLI"]
+  O -->|"review"| RV["Reviewer / Auditor CLI"]
+  PL -->|"result"| O
+  C -->|"result"| O
+  RV -->|"result"| O
+  O --> K["required checks"]
+  O --> W["worktree + run records"]
+  style G fill:#4a3a12,stroke:#f5c542,color:#fdf3d8
+  style O fill:#1f3a5a,stroke:#63a8f0,color:#e3f0fd
+  style PL fill:#1f4a30,stroke:#5ddb8f,color:#eafaf0
+  style C fill:#1f4a30,stroke:#5ddb8f,color:#eafaf0
+  style RV fill:#1f4a30,stroke:#5ddb8f,color:#eafaf0
+  style K fill:#4a3018,stroke:#f59b4a,color:#fdeadb
+  style W fill:#4a3018,stroke:#f59b4a,color:#fdeadb
+```
+
+### Running a task
+
+`agent-layers workflow` runs the AI CLI named in a policy file: it turns a goal into a plan of
+steps and implements them in a separate git worktree. A run counts as complete only after the
+required checks and the Reviewer and Auditor roles pass. It is a preview, so commands and output
+can change in a later version.
+
+Commit your changes first, and keep the goal and the policy outside the repository. Start the
+policy from [`templates/workflow/policy.example.jsonc`](templates/workflow/policy.example.jsonc).
+
+```sh
+agent-layers workflow plan --goal-file ../goal.md --config ../policy.jsonc
+agent-layers workflow validate <run-id>
+agent-layers workflow run <run-id>
+agent-layers workflow report <run-id>
+```
+
+`plan` and `run` show the commands and the call limit and ask before anything starts. The call
+limit counts runs of the AI CLI, not tokens or money. The code of a finished run stays in its
+worktree, and your repository does not change until you take it from there.
+
+A run that reaches the call limit or the time limit of the whole run stops as `BLOCKED`
+(exit code 3) instead of failing. It continues from where it stopped only after you approve more:
+`agent-layers workflow resume <run-id> --add-agent-calls <n> --add-seconds <n>`.
+
+| OS | What has been run | Ctrl+C or `workflow cancel` after a process started |
+|---|---|---|
+| Linux | full test suite, package install, 1 run with a real AI CLI | `CANCELLED`, exit code 130; descendant processes are ended too |
+| Windows | full test suite, 5 runs with a real AI CLI | `INTERRUPTED`, exit code 3; descendants are ended with `taskkill /T /F` but their end is not confirmed, and the run needs a new plan |
+| macOS | nothing | not confirmed by running it; the code ends only the direct child, with the same result as on Windows (`INTERRUPTED`, exit code 3) |
+
+Exit codes mean something different from the other commands: 2 is bad input and 3 is waiting for
+a person. See the [guide](docs/GUIDE.en.md#running-a-task-with-workflow-preview) for the policy
+file, what is not guaranteed and the exit codes.
+
+### Task-level AI assignments (schema v2)
+
+A v2 policy can assign different CLI tools and models to individual work steps. Start from [`policy.multi-agent.example.jsonc`](templates/workflow/policy.multi-agent.example.jsonc), replace every `SET_*_MODEL` value and review each CLI's permissions before making a plan. `roleAgents` supplies role defaults; a work step's `agent` overrides the coder default. `repairAgent` handles integration fixes. Unknown agents and role mismatches are rejected instead of silently switching tools.
+
+The executor runs sequentially and passes the original goal, transitive dependency results, file hashes, current changes and check evidence. It fixes assignments in the saved plan and records CLI-reported model metadata separately from requested settings. Missing usage remains unknown. Kimi-style prompt arguments may be visible in process listings; prompts must not contain secrets. Four named CLI profiles have been tested with local fake processes; real Claude/Codex/Gemini/Kimi mixed execution is still unverified.
+
+V1 policies and existing v1 runs keep their command, hash and report contracts. V2 records need agent-layers 0.1.9 or later; do not open them with an older release. Changing an assigned tool, model or policy requires a new plan. Read [the guide](docs/GUIDE.en.md#task-level-ai-assignments-schema-v2) for the policy and result contracts.
+
 ## Commands
 
 | Command | Purpose |
@@ -276,51 +362,6 @@ replaces it, a new ID adds a rule, and `"enabled": false` turns one off.
 
 Plain `review` exits with 0 once the checks have run. `review --strict` exits with 1 while
 anything is left, including pending AI reviews.
-
-## Workflow (preview)
-
-agent-layers primarily keeps your team's rules and settings consistent across AI tools.
-Shared settings and role definitions can be managed and deployed without workflow; role
-definitions extend that configuration management. If your AI tool's built-in task delegation
-is enough, use it. Choose workflow when repeated tasks need fixed checks, recorded results and
-a way to resume. Task length alone is not a reason to use it.
-
-### Task-level AI assignments (schema v2)
-
-A v2 policy can assign different CLI tools and models to individual work steps. Start from [`policy.multi-agent.example.jsonc`](templates/workflow/policy.multi-agent.example.jsonc), replace every `SET_*_MODEL` value and review each CLI's permissions before making a plan. `roleAgents` supplies role defaults; a work step's `agent` overrides the coder default. `repairAgent` handles integration fixes. Unknown agents and role mismatches are rejected instead of silently switching tools.
-
-The executor runs sequentially and passes the original goal, transitive dependency results, file hashes, current changes and check evidence. It fixes assignments in the saved plan and records CLI-reported model metadata separately from requested settings. Missing usage remains unknown. Kimi-style prompt arguments may be visible in process listings; prompts must not contain secrets. Four named CLI profiles have been tested with local fake processes; real Claude/Codex/Gemini/Kimi mixed execution is still unverified.
-
-V1 policies and existing v1 runs keep their command, hash and report contracts. V2 records need agent-layers 0.1.9 or later; do not open them with an older release. Changing an assigned tool, model or policy requires a new plan. Read [the guide](docs/GUIDE.en.md#task-level-ai-assignments-schema-v2) for the policy and result contracts.
-
-`agent-layers workflow` runs the AI CLI named in a policy file: it turns a goal into a plan of
-steps and implements them in a separate git worktree. A run counts as complete only after the
-required checks and the Reviewer and Auditor roles pass. It is a preview, so commands and output
-can change in a later version.
-
-Commit your changes first, and keep the goal and the policy outside the repository. Start the
-policy from [`templates/workflow/policy.example.jsonc`](templates/workflow/policy.example.jsonc).
-
-```sh
-agent-layers workflow plan --goal-file ../goal.md --config ../policy.jsonc
-agent-layers workflow validate <run-id>
-agent-layers workflow run <run-id>
-agent-layers workflow report <run-id>
-```
-
-`plan` and `run` show the commands and the call limit and ask before anything starts. The call
-limit counts runs of the AI CLI, not tokens or money. The code of a finished run stays in its
-worktree, and your repository does not change until you take it from there.
-
-| OS | What has been run | Ctrl+C or `workflow cancel` after a process started |
-|---|---|---|
-| Linux | full test suite, package install, 1 run with a real AI CLI | `CANCELLED`, exit code 130; descendant processes are ended too |
-| Windows | full test suite, 5 runs with a real AI CLI | `INTERRUPTED`, exit code 3; descendants are ended with `taskkill /T /F` but their end is not confirmed, and the run needs a new plan |
-| macOS | nothing | not confirmed by running it; the code ends only the direct child, with the same result as on Windows (`INTERRUPTED`, exit code 3) |
-
-Exit codes mean something different from the other commands: 2 is bad input and 3 is waiting for
-a person. See the [guide](docs/GUIDE.en.md#running-a-task-with-workflow-preview) for the policy
-file, what is not guaranteed and the exit codes.
 
 ## Compared with other tools
 

@@ -8,6 +8,8 @@
 
 원본 하나를 Claude Code, OpenAI Codex, Gemini CLI, Google Antigravity, GitHub Copilot, Cursor, OpenCode, Zed, Junie, Kiro, Amp, Factory Droid, Devin, Qwen Code, Cline, Goose, Kimi Code, Grok Build가 각자 읽는 파일 형식으로 변환합니다. 에이전트가 스스로 다시 쓰는 파일(`~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.claude.json`)은 통째로 덮어쓰지 않고, agent-layers가 관리하는 키와 블록만 병합합니다.
 
+반복 작업에는 선택 기능인 **workflow**(preview)를 쓸 수 있습니다. workflow는 능동적 오케스트레이터와 수동적 워커 구조로 동작합니다. agent-layers가 계획을 관리하고, 단계마다 배정된 AI CLI를 실행하고, 필수 검사와 결과 기록을 맡습니다. 각 AI CLI는 배정받은 단계만 처리합니다. 자세한 내용은 [workflow (preview)](#workflow-preview) 절에 있습니다.
+
 외부 의존성은 없고 Node.js 18.17 이상에서 동작합니다. Windows, macOS, Linux, WSL을 지원합니다.
 
 [처음 쓰는 사람을 위한 agent-layers 가이드](docs/GUIDE.ko.md)부터 읽으십시오. 설치부터 매일 쓰는 방법까지 순서대로 정리되어 있습니다.
@@ -26,6 +28,7 @@
 | `.mcp.json`에 MCP 비밀번호가 평문으로 들어 있다 | `${secret:NAME}`으로 적고 값은 OS 키체인에 둔다. 변환할 때 환경 변수 참조로 바꾸거나, 서버가 시작될 때 `agent-layers exec`가 주입한다 |
 | 에이전트가 설정 파일을 다시 써서 심볼릭 링크나 파일 통째 동기화가 깨진다 | 관리 블록과 관리 키만 고치고, 바깥에서 바뀐 부분을 감지하고, 고치기 전에 백업한다 |
 | 프로젝트가 끝나도 고객사 정보가 PC에 남는다 | `project purge`가 생성한 파일과 에이전트의 프로젝트별 대화 기록, 메모리, 세션을 지운다 |
+| 반복 작업에서 어느 AI CLI가 단계를 맡든 같은 검사와 기록, 재개 방법이 필요하다 | 선택 기능인 `workflow`(preview)에서 agent-layers가 계획·검사·기록을 맡고, AI CLI는 배정받은 단계를 처리한다 |
 
 ## 동작 방식
 
@@ -165,6 +168,72 @@ agent-layers project purge sample-a   # 프로젝트가 끝났을 때 실행한�
 - `"memory": { "claude": "project" }`를 지정하면 Claude Code 자동 메모리가 프로젝트 폴더 안에 저장되어, 프로젝트를 폐기할 때 함께 지워집니다.
 - `project purge`는 등록되지 않은 프로젝트 이름을 거부하고, 이 PC에서 적용한 적이 없는 프로젝트는 `--path`를 요구합니다. 드라이브 루트나 홈 폴더를 포함하는 폴더는 거부하며, 지우는 파일의 백업을 남기지 않습니다(그 프로젝트 파일의 이전 백업도 함께 지웁니다).
 - `project purge`는 agent-layers가 쓴 파일과, 그 폴더에 대한 에이전트의 로컬 데이터를 지웁니다. Claude 대화 기록과 메모리(또는 `claude purge`), Gemini CLI `tmp/`·`history/`, Antigravity 프로젝트 설정, Codex 세션 기록, Copilot 세션 상태가 대상입니다. Codex 전역 메모리와 클라우드에 동기화된 세션은 직접 확인하도록 목록만 보여 줍니다.
+
+## workflow (preview)
+
+agent-layers의 중심 목적은 여러 AI 도구에서 팀의 규칙과 설정을 일관되게 사용하는 것이고, workflow는 그 위에 더하는 선택 기능입니다. 사용하는 AI의 기본 작업 분배 기능으로 충분하면 그 기능을 사용합니다. 반복 작업에 고정된 검사·결과 기록·재개 절차가 필요할 때 workflow를 선택합니다.
+
+### 능동적 오케스트레이터, 수동적 워커
+
+| 구분 | 맡는 곳 | 하는 일 |
+|---|---|---|
+| 오케스트레이터 | agent-layers | Planner에게 계획 초안을 받아 검사하고 저장한다. 단계마다 배정된 AI CLI를 실행하고, 원래 목표와 앞 단계 결과를 뒤 단계에 넘긴다. 필수 검사, 호출·시간 한도, 기록, 멈춘 실행의 재개를 맡는다 |
+| 워커 | 정책 파일에 적은 AI CLI (Planner, Coder, Reviewer, Auditor) | 배정받은 단계만 처리하고 정해진 형식으로 결과를 돌려준다. 결과는 모두 agent-layers로 돌아가고, 다음 단계는 agent-layers가 정한다 |
+
+워커가 단계를 어떻게 처리할지(도구, 샌드박스, 자체 서브에이전트)는 각 CLI에 맡깁니다. agent-layers는 무엇을 할지 정하고 결과를 검사합니다.
+
+```mermaid
+flowchart LR
+  G["목표 + 정책"] --> O{"agent-layers<br/>오케스트레이터"}
+  O -->|"계획 요청"| PL["Planner CLI"]
+  O -->|"단계 하나"| C["Coder CLI"]
+  O -->|"검토"| RV["Reviewer / Auditor CLI"]
+  PL -->|"결과"| O
+  C -->|"결과"| O
+  RV -->|"결과"| O
+  O --> K["필수 검사"]
+  O --> W["worktree + 실행 기록"]
+  style G fill:#4a3a12,stroke:#f5c542,color:#fdf3d8
+  style O fill:#1f3a5a,stroke:#63a8f0,color:#e3f0fd
+  style PL fill:#1f4a30,stroke:#5ddb8f,color:#eafaf0
+  style C fill:#1f4a30,stroke:#5ddb8f,color:#eafaf0
+  style RV fill:#1f4a30,stroke:#5ddb8f,color:#eafaf0
+  style K fill:#4a3018,stroke:#f59b4a,color:#fdeadb
+  style W fill:#4a3018,stroke:#f59b4a,color:#fdeadb
+```
+
+### 작업 실행하기
+
+`agent-layers workflow`는 정책 파일에 적은 AI CLI를 실행해서, 목표를 단계별 계획으로 나누고 별도 git worktree에서 구현합니다. 필수 검사와 Reviewer, Auditor 역할의 검토를 모두 통과해야 실행을 완료로 판정합니다. preview 기능이므로 다음 버전에서 명령과 출력이 바뀔 수 있습니다.
+
+먼저 변경을 커밋하고, 목표 파일과 정책 파일은 저장소 밖에 둡니다. 정책은 [`templates/workflow/policy.example.jsonc`](templates/workflow/policy.example.jsonc)에서 시작합니다.
+
+```sh
+agent-layers workflow plan --goal-file ../goal.md --config ../policy.jsonc
+agent-layers workflow validate <run-id>
+agent-layers workflow run <run-id>
+agent-layers workflow report <run-id>
+```
+
+`plan`과 `run`은 시작하기 전에 실행할 명령과 호출 상한을 보여 주고 확인을 받습니다. 호출 상한은 AI CLI를 실행한 횟수이며, 토큰이나 금액의 상한이 아닙니다. 실행이 끝나도 코드는 worktree에만 있고, 직접 가져오기 전에는 저장소가 바뀌지 않습니다.
+
+호출 상한이나 실행 전체의 시간 한도에 닿은 실행은 실패로 끝나지 않고 `BLOCKED`(종료 코드 3)로 멈춥니다. 더할 값을 승인하면 멈춘 곳부터 이어 갑니다: `agent-layers workflow resume <run-id> --add-agent-calls <n> --add-seconds <n>`.
+
+| 운영체제 | 실행한 기록 | 프로세스를 시작한 뒤의 Ctrl+C, `workflow cancel` |
+|---|---|---|
+| Linux | 전체 시험, 패키지 설치, 실제 AI CLI로 실행 1건 | `CANCELLED`, 종료 코드 130. 자손 프로세스까지 끝낸다 |
+| Windows | 전체 시험, 실제 AI CLI로 실행 5건 | `INTERRUPTED`, 종료 코드 3. `taskkill /T /F`로 자손까지 끝내지만 종료를 확인하지 못하고, 이 실행은 새 계획이 필요하다 |
+| macOS | 없음 | 실행으로 확인하지 않았다. 코드상 직접 실행한 자식만 끝내고, 결과는 Windows와 같다(`INTERRUPTED`, 종료 코드 3) |
+
+종료 코드의 뜻은 다른 명령과 다릅니다. 2는 잘못된 입력이고 3은 사람을 기다리는 상태입니다. 정책 파일, 보장하지 않는 범위, 종료 코드는 [가이드](docs/GUIDE.ko.md#workflow로-작업-실행하기-preview)에 있습니다.
+
+### 작업별 AI 배정 (schema v2)
+
+v2 정책으로 각 업무 단계에 서로 다른 CLI와 모델을 배정할 수 있습니다. [`policy.multi-agent.example.jsonc`](templates/workflow/policy.multi-agent.example.jsonc)의 `SET_*_MODEL` 값을 채우고 각 CLI의 권한을 검토한 뒤 계획을 만듭니다. `roleAgents`는 역할 기본값이며 단계의 `agent`가 coder 기본값보다 우선합니다. `repairAgent`는 통합 수정을 맡습니다. 미등록 담당이나 역할 불일치는 다른 도구로 바꾸지 않고 거부합니다.
+
+실행은 순차이며 원래 목표·직접 및 간접 선행 결과·파일 해시·현재 변경·검사 근거를 전달합니다. 배정은 저장 계획에 고정합니다. 요청 모델과 CLI가 보고한 모델 근거는 분리하고 사용량이 없으면 미확인으로 남깁니다. Kimi형 prompt 인자는 프로세스 목록에 보일 수 있으므로 비밀값을 넣지 않습니다. 네 CLI 프로필의 연결은 로컬 가짜 프로세스로 검증했으며 실제 Claude·Codex·Gemini·Kimi 혼합 실행은 아직 확인하지 않았습니다.
+
+v1 정책과 기존 v1 기록의 명령·해시·보고 계약은 유지합니다. v2 기록은 agent-layers 0.1.9 이상이 필요하며 이전 버전으로 열지 않습니다. 담당·모델·정책을 바꾸려면 새 계획을 만듭니다. 계약은 [가이드](docs/GUIDE.ko.md#작업별-ai-배정-schema-v2)를 참고하십시오.
 
 ## 명령
 
@@ -338,39 +407,6 @@ agent-layers review --strict
 `--strict`는 발견 사항, AI 검토 대기, 검사 제외, 미확인 링크, 룰 재검토 알림 또는 문서 부재가 있으면 1입니다.
 `review check`는 형식 오류나 검토 누락이 있으면 1이며, `needs-verification` 판단도 제출된 검토 결과로 셉니다.
 읽기·설정 해석 오류는 실패로 종료합니다.
-
-## workflow (preview)
-
-agent-layers의 중심 목적은 여러 AI 도구에서 팀의 규칙과 설정을 일관되게 사용하는 것입니다. 공통 설정과 역할 정의는 workflow 없이 관리하고 배포할 수 있으며, 역할 정의는 이 설정 관리의 확장입니다. 사용하는 AI의 기본 작업 분배 기능으로 충분하면 그 기능을 사용합니다. 반복 작업에 고정된 검사·결과 기록·재개 절차가 필요할 때 workflow를 선택합니다. 작업이 길다는 이유만으로 선택할 필요는 없습니다.
-
-### 작업별 AI 배정 (schema v2)
-
-v2 정책으로 각 업무 단계에 서로 다른 CLI와 모델을 배정할 수 있습니다. [`policy.multi-agent.example.jsonc`](templates/workflow/policy.multi-agent.example.jsonc)의 `SET_*_MODEL` 값을 채우고 각 CLI의 권한을 검토한 뒤 계획을 만듭니다. `roleAgents`는 역할 기본값이며 단계의 `agent`가 coder 기본값보다 우선합니다. `repairAgent`는 통합 수정을 맡습니다. 미등록 담당이나 역할 불일치는 다른 도구로 바꾸지 않고 거부합니다.
-
-실행은 순차이며 원래 목표·직접 및 간접 선행 결과·파일 해시·현재 변경·검사 근거를 전달합니다. 배정은 저장 계획에 고정합니다. 요청 모델과 CLI가 보고한 모델 근거는 분리하고 사용량이 없으면 미확인으로 남깁니다. Kimi형 prompt 인자는 프로세스 목록에 보일 수 있으므로 비밀값을 넣지 않습니다. 네 CLI 프로필의 연결은 로컬 가짜 프로세스로 검증했으며 실제 Claude·Codex·Gemini·Kimi 혼합 실행은 아직 확인하지 않았습니다.
-
-v1 정책과 기존 v1 기록의 명령·해시·보고 계약은 유지합니다. v2 기록은 agent-layers 0.1.9 이상이 필요하며 이전 버전으로 열지 않습니다. 담당·모델·정책을 바꾸려면 새 계획을 만듭니다. 계약은 [가이드](docs/GUIDE.ko.md#작업별-ai-배정-schema-v2)를 참고하십시오.
-
-`agent-layers workflow`는 정책 파일에 적은 AI CLI를 실행해서, 목표를 단계별 계획으로 나누고 별도 git worktree에서 구현합니다. 필수 검사와 Reviewer, Auditor 역할의 검토를 모두 통과해야 실행을 완료로 판정합니다. preview 기능이므로 다음 버전에서 명령과 출력이 바뀔 수 있습니다.
-
-먼저 변경을 커밋하고, 목표 파일과 정책 파일은 저장소 밖에 둡니다. 정책은 [`templates/workflow/policy.example.jsonc`](templates/workflow/policy.example.jsonc)에서 시작합니다.
-
-```sh
-agent-layers workflow plan --goal-file ../goal.md --config ../policy.jsonc
-agent-layers workflow validate <run-id>
-agent-layers workflow run <run-id>
-agent-layers workflow report <run-id>
-```
-
-`plan`과 `run`은 시작하기 전에 실행할 명령과 호출 상한을 보여 주고 확인을 받습니다. 호출 상한은 AI CLI를 실행한 횟수이며, 토큰이나 금액의 상한이 아닙니다. 실행이 끝나도 코드는 worktree에만 있고, 직접 가져오기 전에는 저장소가 바뀌지 않습니다.
-
-| 운영체제 | 실행한 기록 | 프로세스를 시작한 뒤의 Ctrl+C, `workflow cancel` |
-|---|---|---|
-| Linux | 전체 시험, 패키지 설치, 실제 AI CLI로 실행 1건 | `CANCELLED`, 종료 코드 130. 자손 프로세스까지 끝낸다 |
-| Windows | 전체 시험, 실제 AI CLI로 실행 5건 | `INTERRUPTED`, 종료 코드 3. `taskkill /T /F`로 자손까지 끝내지만 종료를 확인하지 못하고, 이 실행은 새 계획이 필요하다 |
-| macOS | 없음 | 실행으로 확인하지 않았다. 코드상 직접 실행한 자식만 끝내고, 결과는 Windows와 같다(`INTERRUPTED`, 종료 코드 3) |
-
-종료 코드의 뜻은 다른 명령과 다릅니다. 2는 잘못된 입력이고 3은 사람을 기다리는 상태입니다. 정책 파일, 보장하지 않는 범위, 종료 코드는 [가이드](docs/GUIDE.ko.md#workflow로-작업-실행하기-preview)에 있습니다.
 
 ## 다른 도구와 비교
 
