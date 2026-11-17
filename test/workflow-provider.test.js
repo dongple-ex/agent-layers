@@ -167,6 +167,29 @@ test('workflow provider: only the base and the named environment variables reach
   assert.equal(envNames.includes('AL_WF_HIDDEN'), false);
 });
 
+test('workflow provider: the AI CLI config folder variables reach the command without being named', async (t) => {
+  const names = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'GEMINI_CLI_HOME', 'COPILOT_HOME', 'KIMI_CODE_HOME', 'GROK_HOME'];
+  const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  for (const name of names) {
+    process.env[name] = path.join(os.tmpdir(), `al-wf-${name}`);
+  }
+  t.after(() => {
+    for (const name of names) {
+      if (saved[name] === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = saved[name];
+      }
+    }
+  });
+  const s = setup(t);
+  await createProvider({ policy: s.policy, cwd: s.dir }).call(REQUEST);
+  const { envNames } = s.calls()[0];
+  for (const name of names) {
+    assert.ok(envNames.includes(name), name);
+  }
+});
+
 test('workflow provider: a program that cannot start is a start error, not a transport error', async (t) => {
   const s = setup(t, {}, { provider: { command: 'agent-layers-no-such-program' } });
   await assert.rejects(createProvider({ policy: s.policy, cwd: s.dir }).call(REQUEST), (err) => err.code === 'E_WORKFLOW_SPAWN' && !err.transport);

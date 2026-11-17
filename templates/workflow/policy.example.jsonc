@@ -11,7 +11,8 @@
       "reviewer": ["exec", "-c", "approval_policy=never", "--sandbox", "read-only", "-"],
       "auditor": ["exec", "-c", "approval_policy=never", "--sandbox", "read-only", "-"]
     },
-    // Names of environment variables to pass on, on top of PATH, the home folders and the temp folders.
+    // Names of environment variables to pass on, on top of PATH, the home folders, the temp folders
+    // and the AI CLI config folder variables (CLAUDE_CONFIG_DIR, CODEX_HOME and the like).
     // Values never go in this file.
     "env": []
     // Claude Code: "command": "claude", "args": ["-p", "--permission-mode", "acceptEdits", "--tools", "Read,Edit,Write,Grep,Glob,Bash", "--allowedTools", "Bash(node --test*)"],

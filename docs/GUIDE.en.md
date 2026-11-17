@@ -541,6 +541,7 @@ The comments in the example file explain `setup`, `baseline`, `inputs` and `fail
 - The `provider` command must take its instructions on stdin and print its final message on stdout. Its flags belong to that CLI and can change with its version, so check them with its `--help`.
 - On Windows a `.cmd` file cannot start without a shell, so `plan` refuses it with exit code 2. That includes `codex` installed with npm, and `npm` itself, so the example file is refused as it stands. For `provider`, use `"command": "node"` and put the path of the package's bin script first in each `args` list. Do the same for `npm` in `checks` and `setup`, or for a test check name the test runner directly, such as `"command": "node"` with `"args": ["--test"]`.
 - Secrets never go in the policy file. List only the names of the environment variables to pass on under `provider.env`.
+- The variables that choose an AI CLI's config folder (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`, `COPILOT_HOME`, `KIMI_CODE_HOME`, `GROK_HOME`) are passed on without being listed. If you switch accounts with one of them, the workers, `setup` and `checks` use the same config folder as the shell that started the run.
 
 ⚠️ Do not remove `-c approval_policy=never` from the Codex example. Depending on your settings, a helper model that you did not approve can approve running outside the sandbox.
 

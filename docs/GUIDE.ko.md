@@ -541,6 +541,7 @@ agent-layers workflow report <run-id>
 - `provider`의 명령은 지시문을 stdin으로 받고 최종 메시지를 stdout으로 출력해야 합니다. 플래그는 그 CLI에 속하고 버전에 따라 바뀔 수 있으므로, CLI의 `--help`로 확인합니다.
 - Windows에서는 `.cmd` 파일을 셸 없이 시작할 수 없어서 `plan`이 종료 코드 2로 거부합니다. npm으로 설치한 `codex`와 `npm` 자체가 여기에 해당하므로, 예시 파일을 그대로 쓰면 거부됩니다. `provider`는 `"command": "node"`로 쓰고, 그 패키지의 bin 스크립트 경로를 각 `args` 목록의 첫 항목으로 적습니다. `checks`와 `setup`의 `npm`도 같은 방식으로 바꾸거나, 시험이면 `"command": "node"`와 `"args": ["--test"]`처럼 테스트 실행기를 직접 적습니다.
 - 비밀값은 정책 파일에 적지 않습니다. 자식 프로세스에 넘길 환경 변수의 이름만 `provider.env`에 적습니다.
+- AI CLI의 설정 폴더를 정하는 환경 변수(`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`, `COPILOT_HOME`, `KIMI_CODE_HOME`, `GROK_HOME`)는 목록에 적지 않아도 넘깁니다. 이 변수로 계정을 바꿔 쓰면, 작업자와 `setup`, `checks`는 실행을 시작한 셸과 같은 설정 폴더를 씁니다.
 
 ⚠️ Codex 예시의 `-c approval_policy=never`를 지우지 마십시오. 사용자 설정에 따라 승인받지 않은 보조 모델이 샌드박스 밖 실행을 승인할 수 있습니다.
 
