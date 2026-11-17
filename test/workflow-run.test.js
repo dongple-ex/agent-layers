@@ -11,7 +11,8 @@ import { findLeftovers, TREE_KILL_SUPPORTED } from '../src/workflow/process.js';
 import { formatReport, reportView } from '../src/workflow/report.js';
 import { cmdCancel, cmdPlan, cmdRun } from '../src/workflow/run.js';
 import { hashJson } from '../src/workflow/schema.js';
-import { acquireRun, commitRun, readRun, releaseRun, requestCancel } from '../src/workflow/store.js';
+import { acquireRun, commitRun, createRun, readRun, releaseRun, requestCancel } from '../src/workflow/store.js';
+import { inspectRepository } from '../src/workflow/workspace.js';
 
 const CANCEL_STATUS = TREE_KILL_SUPPORTED ? 'CANCELLED' : 'INTERRUPTED';
 const CANCEL_EXIT = TREE_KILL_SUPPORTED ? 130 : 3;
@@ -1051,6 +1052,21 @@ function plannedBeforeTheFailure(s) {
   }
 }
 
+function plannedBeforeTheCommandWentMissing(s) {
+  const text = fs.readFileSync(s.policyFile, 'utf8');
+  const policy = JSON.parse(text);
+  const present = (item) => (item.command.startsWith('./') ? { ...item, command: process.execPath, args: ['-e', item.baseline === 'fail' ? 'process.exit(1);' : ''] } : item);
+  fs.writeFileSync(s.policyFile, JSON.stringify({ ...policy, setup: (policy.setup || []).map(present), checks: policy.checks.map(present) }));
+  let plan;
+  try {
+    plan = readRun(s.ctx, planned(s)).plan;
+  } finally {
+    fs.writeFileSync(s.policyFile, text);
+  }
+  const repo = inspectRepository(s.repo);
+  return createRun(s.ctx, { plan: { schemaVersion: plan.schemaVersion, goal: plan.goal, steps: plan.steps }, policy, usedAgentCalls: 1, planRepairs: 0, baseCommit: repo.baseCommit, providerFingerprint: plan.providerFingerprint, workspaceKey: repo.workspaceKey }).runId;
+}
+
 function runDirOf(s, runId) {
   return path.join(s.ctx.paths.stateDir, 'workflows', runId);
 }
@@ -1166,13 +1182,14 @@ test('workflow run: a check expected to fail at the base commit is passed by the
   assert.match(text, /checks without inputs, whose test files the AI CLI may edit: unit/);
 });
 
-test('workflow run: a check expected to fail at the base commit stops the run when it passes or times out', (t) => {
-  for (const [name, check, exitCode] of [
-    ['passes', nodeCheck(duringPlan('', 1), { baseline: 'fail' }), 0],
-    ['times out', nodeCheck(duringPlan('setTimeout(() => {}, 60000);', 1), { baseline: 'fail', timeout: 1 }), 124],
+test('workflow run: a check expected to fail at the base commit stops the run when it passes, times out or cannot start', (t) => {
+  for (const [name, check, exitCode, recorded] of [
+    ['passes', nodeCheck(duringPlan('', 1), { baseline: 'fail' }), 0, plannedBeforeTheFailure],
+    ['times out', nodeCheck(duringPlan('setTimeout(() => {}, 60000);', 1), { baseline: 'fail', timeout: 1 }), 124, plannedBeforeTheFailure],
+    ['cannot start', { id: 'unit', command: './agent-layers-no-such-check', args: [], timeout: 60, baseline: 'fail' }, 127, plannedBeforeTheCommandWentMissing],
   ]) {
     const s = setup(t, {}, { policy: { checks: [check] } });
-    const r = runCli(s, plannedBeforeTheFailure(s));
+    const r = runCli(s, recorded(s));
     assert.equal(r.code, 3, `${name}: ${r.stderr}`);
     const rep = JSON.parse(r.stdout);
     assert.equal(rep.stopReason, 'baseline-unexpected', name);
@@ -1205,11 +1222,12 @@ test('workflow run: setup runs once in the worktree, may leave ignored files, an
   assert.deepEqual(changing.keys(), ['planner:plan:1']);
   assert.match(cli(changing, ['report', rep2.runId]).stdout, /changed before any AI call: made-by-setup\.txt/);
 
-  for (const [name, item, exitCode] of [
-    ['fails', nodeCheck(duringPlan('process.exit(4);'), { id: 'gen' }), 4],
+  for (const [name, item, exitCode, recorded] of [
+    ['fails', nodeCheck(duringPlan('process.exit(4);'), { id: 'gen' }), 4, plannedBeforeTheFailure],
+    ['cannot start', { id: 'gen', command: './agent-layers-no-such-tool', args: [], timeout: 60 }, 127, plannedBeforeTheCommandWentMissing],
   ]) {
     const failing = setup(t, {}, { policy: { setup: [item, nodeCheck(writeScript('generated/later.txt'), { id: 'later' })] } });
-    const r3 = runCli(failing, plannedBeforeTheFailure(failing));
+    const r3 = runCli(failing, recorded(failing));
     assert.equal(r3.code, 3, `${name}: ${r3.stderr}`);
     const rep3 = JSON.parse(r3.stdout);
     assert.equal(rep3.stopReason, 'setup-failed', name);
@@ -1781,7 +1799,8 @@ test('workflow plan: the confirmation names the preparation, and a failed setup 
       process.env.CODEX_HOME = saved;
     }
   });
-  const s = setup(t, { 'environment:environment': { result: { status: 'blocked', summary: 'npm is missing' } } }, { policy: { setup: [nodeCheck('console.error("no npm"); process.exit(4);', { id: 'install' })] } });
+  const fifty = 'process.stdout.write(Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join("\\n")); process.exit(4);';
+  const s = setup(t, { 'environment:environment': { result: { status: 'blocked', summary: 'npm is missing' } } }, { policy: { setup: [nodeCheck(fifty, { id: 'install' })] } });
   const asked = [];
   const confirm = async (question) => {
     asked.push(question);
@@ -1792,6 +1811,7 @@ test('workflow plan: the confirmation names the preparation, and a failed setup 
   assert.match(asked[0], /up to 2 environment repairs/);
   const { request } = s.calls()[0];
   assert.deepEqual(request.failures.map((f) => [f.kind, f.id, f.exitCode]), [['setup', 'install', 4]]);
+  assert.deepEqual([request.failures[0].stdout.length, request.failures[0].stdout[0], request.failures[0].stdout.at(-1)], [40, 'line 11', 'line 50']);
   assert.deepEqual(request.facts.configFolders, { CODEX_HOME: process.env.CODEX_HOME });
 });
 
