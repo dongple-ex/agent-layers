@@ -503,7 +503,7 @@ agent-layers workflow report <run-id>
 
 | 명령 | 하는 일 | AI 호출 |
 | --- | --- | --- |
-| `workflow plan` | Planner 역할로 계획을 만들고 실행 ID를 출력합니다 | 있음 |
+| `workflow plan` | 임시 worktree에서 준비 명령과 검사를 한 번 실행한 뒤, Planner 역할로 계획을 만들고 실행 ID를 출력합니다 | 있음 |
 | `workflow validate <run-id>` | 저장된 계획, 정책, 기록을 검사합니다 | 없음 |
 | `workflow run <run-id>` | 별도 worktree에서 계획을 실행합니다 | 있음 |
 | `workflow status <run-id>` | 단계 상태, 시도 횟수, 사용량을 보여 줍니다 | 없음 |
@@ -533,6 +533,13 @@ agent-layers workflow report <run-id>
   - 판정이 `blocked`이거나, 판정 결과가 올바른 형식이 아니거나, 검사가 실패한 상태의 `completed`이면 `BLOCKED`로 멈춥니다. 판정 기록은 `artifacts/ruling-*.json`에 남습니다.
   - 이 값이 0이면 Coder가 `blocked`를 반환하는 즉시 `BLOCKED`로 멈춥니다. `run`과 `resume`의 확인 화면은 이 값이 1 이상일 때 함께 보여 줍니다.
   - 이 판정은 모의 CLI 프로세스로만 시험했습니다.
+- `plan`은 Planner를 호출하기 전에, 임시 worktree에서 준비 명령과 모든 검사를 기준 커밋 상태로 한 번 실행합니다. 사용자 권한으로 실행됩니다. 그 전에 작업자에게 넘길 AI CLI 설정 폴더를 보여 주고, Windows에서는 worktree 폴더와 가장 긴 추적 파일 경로의 길이, `LongPathsEnabled`와 `core.longpaths` 설정을 보여 줍니다. 두 길이의 합이 260자에 닿으면 경고합니다.
+- `limits.maxEnvironmentRepairs`는 선택 항목이며, 정하지 않으면 2입니다. 준비 명령이나 검사가 정책이 기대한 결과를 내지 않으면, `environment` 역할이 Coder의 명령으로 AI CLI를 실행해 그 명령이 가진 권한 안에서 환경을 고칩니다. 복구 1번은 `maxAgentCalls`에 포함됩니다.
+  - 복구가 끝날 때마다 worktree를 git이 무시하는 파일까지 기준 커밋 상태로 되돌리고, 준비 명령과 검사를 다시 실행합니다. 실행은 새 worktree에서 시작하므로 worktree 안에서 고친 것은 남지 않습니다.
+  - 기대한 결과가 나오면 Planner를 호출합니다.
+  - 복구가 `blocked`를 반환하거나, 결과가 올바른 형식이 아니거나, 복구 횟수를 다 쓰면 실행을 만들지 않고 종료 코드 3으로 끝납니다. 출력에는 실패한 명령과 마지막 답이 나옵니다. 예를 들어 관리자 권한이 필요한 설정이나 정책에 빠진 준비 명령을 알려 줍니다.
+  - 이 값이 0이면 AI CLI를 호출하지 않고 첫 실패에서 멈춥니다.
+  - 이 복구는 모의 CLI 프로세스로만 시험했습니다.
 
 ### 정책 파일
 
@@ -587,7 +594,7 @@ workflow 명령의 종료 코드는 다른 agent-layers 명령과 뜻이 다릅�
 | 0 | 완료 또는 정상 조회 | `SUCCEEDED`. `status`와 `report`는 실행이 실패했어도 조회에 성공하면 0입니다 |
 | 1 | 실행 실패 | `FAILED` |
 | 2 | 잘못된 입력 또는 실행할 수 없는 상태 | 잘못된 옵션, 커밋하지 않은 변경, 이미 끝난 실행의 `resume`, 상한에 닿은 실행을 더할 값 없이 `resume` |
-| 3 | 사람의 입력, 승인, 복구를 기다림 | `BLOCKED`, `INTERRUPTED`, 터미널 없이 `--yes`를 주지 않은 경우, 다른 프로세스가 진행 중인 실행 |
+| 3 | 사람의 입력, 승인, 복구를 기다림 | `BLOCKED`, `INTERRUPTED`, 터미널 없이 `--yes`를 주지 않은 경우, 다른 프로세스가 진행 중인 실행, 사람이 환경을 고쳐야 하는 `plan` |
 | 130 | 취소 | `CANCELLED` |
 
 ---

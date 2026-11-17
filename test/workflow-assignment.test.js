@@ -519,3 +519,15 @@ test('v2: a dependency file deleted outside the run still stops resume before a 
   assert.equal(readRun(s.ctx, id).state.stopReason, 'input-invalid');
   assert.equal(s.calls().length, 3);
 });
+
+test('v2: an environment repair before the planner runs on the coder agent, and the plan follows', async (t) => {
+  const s = setup(t);
+  const marker = path.join(s.root, 'environment-fixed');
+  s.raw.checks[0].args = ['-e', `process.exit(require("fs").existsSync(${JSON.stringify(marker)}) ? 0 : 1)`]; s.save();
+  fs.writeFileSync(path.join(s.root, 'scenario.json'), JSON.stringify({ plan: s.plan, 'environment:environment': { write: { [marker]: 'x' } } }));
+  await cmdPlan(s.ctx, s.flags, YES);
+  assert.deepEqual(s.calls().map((c) => `${c.actor}:${c.request.role}:${c.request.stepId}`), ['codex:environment:environment', 'claude:planner:plan']);
+  assert.match(s.calls()[0].prompt, /\n# Environment\n/);
+  assert.deepEqual(s.calls()[0].request.failures.map((f) => [f.kind, f.id, f.exitCode]), [['check', 'unit', 1]]);
+  assert.equal(readRun(s.ctx, s.runId()).state.budget.agentCalls, 2);
+});

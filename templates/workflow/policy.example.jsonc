@@ -26,7 +26,10 @@
   // A setup command must leave tracked files alone, and git must ignore what it creates, so prefer "npm ci" to "npm install".
   // "setup": [{ "id": "install", "command": "npm", "args": ["ci"], "timeout": 600 }],
   "checks": [
-    // Every check the plan uses runs once at the base commit before any AI call.
+    // Before the planner, "workflow plan" runs the setup commands and every check once at the base commit in a temporary worktree.
+    // If they do not give the expected results, the coder command gets up to limits.maxEnvironmentRepairs (default 2) calls
+    // to fix the environment, each followed by the setup commands and checks again.
+    // "workflow run" runs the checks the plan uses once more at the base commit before any coder call.
     // "baseline": "pass" is the default. Use "fail" for a check that must fail there, such as a new acceptance test.
     // "inputs": existing files under these paths cannot be changed or deleted during the run, so the AI CLI cannot weaken the check.
     // New files are allowed. Leave it out if the goal needs to change those files.

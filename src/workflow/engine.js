@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { validateRoleResult, learnedConstraintsIssue, pathCovers, blockedRulingLimit, RESULT_STATUSES } from './schema.js';
+import { validateRoleResult, learnedConstraintsIssue, pathCovers, blockedRulingLimit, baselineMatches, RESULT_STATUSES } from './schema.js';
 import { downstreamOf, REVIEW_STEP_ID, AUDIT_STEP_ID } from './graph.js';
 import { assignedAgent } from './assignment.js';
 import {
@@ -290,7 +290,7 @@ function baselineResult(rt, reported, id) {
   const r = reportedCheck(reported, id);
   const expected = rt.policy.checks.find((c) => c.id === id).baseline;
   const entry = reported.find((x) => x && x.id === id);
-  const matched = expected === 'pass' ? r.exitCode === 0 : r.exitCode !== 0 && entry.completed !== false && entry.timedOut !== true;
+  const matched = baselineMatches(expected, { exitCode: r.exitCode, completed: entry.completed, timedOut: entry.timedOut });
   return { ...r, timedOut: entry.timedOut === true, expected, matched };
 }
 

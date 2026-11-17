@@ -22,9 +22,16 @@ export const DEFAULT_LIMITS = {
   stepTimeoutSeconds: 900,
   runTimeoutSeconds: 3600,
 };
-export const OPTIONAL_LIMITS = ['maxBlockedRulings'];
+export const OPTIONAL_LIMITS = ['maxBlockedRulings', 'maxEnvironmentRepairs'];
 export function blockedRulingLimit(limits) {
   return own(limits, 'maxBlockedRulings') ? limits.maxBlockedRulings : 0;
+}
+export const DEFAULT_ENVIRONMENT_REPAIRS = 2;
+export function environmentRepairLimit(limits) {
+  return own(limits, 'maxEnvironmentRepairs') ? limits.maxEnvironmentRepairs : DEFAULT_ENVIRONMENT_REPAIRS;
+}
+export function baselineMatches(expected, { exitCode, completed, timedOut }) {
+  return expected === 'pass' ? exitCode === 0 : exitCode !== 0 && completed !== false && timedOut !== true;
 }
 export const DEFAULT_REQUIRED_ROLES = ['reviewer', 'auditor'];
 export const STEP_STATUSES = ['PENDING', 'READY', 'RUNNING', 'VERIFYING', 'RETRY_PENDING', 'SUCCEEDED', 'BLOCKED', 'FAILED', 'CANCELLED', 'INTERRUPTED'];

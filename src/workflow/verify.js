@@ -3,7 +3,8 @@ import { which } from '../util/proc.js';
 import { runProcess } from './process.js';
 import { sanitizeEventData } from './store.js';
 
-const BASE_ENV = ['PATH', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA', 'SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP', 'TMPDIR', 'LANG', 'LC_ALL', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'GEMINI_CLI_HOME', 'COPILOT_HOME', 'KIMI_CODE_HOME', 'GROK_HOME'];
+export const CONFIG_FOLDER_ENV = ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'GEMINI_CLI_HOME', 'COPILOT_HOME', 'KIMI_CODE_HOME', 'GROK_HOME'];
+const BASE_ENV = ['PATH', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'APPDATA', 'LOCALAPPDATA', 'SystemRoot', 'windir', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP', 'TMPDIR', 'LANG', 'LC_ALL', ...CONFIG_FOLDER_ENV];
 
 export const EXIT_TIMED_OUT = 124;
 export const EXIT_KILLED = 137;

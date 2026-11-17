@@ -8,10 +8,10 @@ import { runWorkflow, wasInterrupted } from './engine.js';
 import { findLeftovers, TREE_KILL_METHOD, TREE_KILL_SUPPORTED } from './process.js';
 import { commandVersion, createProvider, providerProblem } from './provider.js';
 import { formatReport, reportView } from './report.js';
-import { blockedRulingLimit, hashJson, normalizePolicy, validatePlan } from './schema.js';
+import { baselineMatches, blockedRulingLimit, environmentRepairLimit, hashJson, normalizePolicy, validatePlan, validateRoleResult } from './schema.js';
 import { acquireRun, cancelRequested, commitRun, createRun, extendBudget, extendedBudget, policySecretIssues, findSecretAssignment, readArtifact, readRun, readRunOwner, releaseRun, remainingBudget, requestCancel, sanitizeEventData, writeArtifact } from './store.js';
-import { checkCommandProblem, childEnv, runChecks, runSetup } from './verify.js';
-import { checkChanges, compareFingerprints, createWorktree, describeWorktree, inspectRepository, removeWorktree, resultPatch, sourceFingerprint, worktreePath } from './workspace.js';
+import { checkCommandProblem, childEnv, CONFIG_FOLDER_ENV, runChecks, runSetup } from './verify.js';
+import { checkChanges, compareFingerprints, createWorktree, describeWorktree, inspectRepository, pathLengthFacts, removeWorktree, restoreWorktree, resultPatch, sourceFingerprint, worktreePath } from './workspace.js';
 import { buildHandoff, parsePolicyText, fingerprintArtifacts } from './assignment.js';
 
 const READ_ONLY_ROLES = ['reviewer', 'auditor', 'arbiter'];
@@ -29,6 +29,8 @@ const STDERR_LINES_SHOWN = 5;
 const CANCEL_POLL_MS = 500;
 const CANCEL_WAIT_MS = 30000;
 const CANCEL_WAIT_POLL_MS = 100;
+const LOG_LINES_SENT = 40;
+const LONG_PATH_LIMIT = 260;
 
 function delay(ms) {
   return new Promise((resolve) => {
@@ -43,6 +45,10 @@ function invalid(message, issues = []) {
 
 function plannerError(message) {
   return Object.assign(new Error(message), { code: 'E_WORKFLOW_PLANNER' });
+}
+
+function environmentError(message) {
+  return Object.assign(new Error(message), { code: 'E_WORKFLOW_ENVIRONMENT' });
 }
 
 function readInputFile(file, flag) {
@@ -225,12 +231,107 @@ async function planSteps(provider, policy, goal, count) {
   }
 }
 
-async function planInTemporaryWorktree(ctx, repo, policy, goal, { signal, retryDelayMs, planningTrace }) {
-  const worktree = createWorktree(ctx, crypto.randomUUID(), { root: repo.root, baseCommit: repo.baseCommit });
+function environmentFacts(ctx, repo) {
+  const configFolders = Object.fromEntries(CONFIG_FOLDER_ENV.filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]]));
+  return { os: process.platform, configFolders, ...(process.platform === 'win32' ? { paths: pathLengthFacts(ctx, repo.root) } : {}) };
+}
+
+function pathLine({ worktreeFolder, longestTrackedPath, longPathsEnabled, gitLongPaths }) {
+  const enabled = longPathsEnabled === null ? 'unknown' : longPathsEnabled ? 'on' : 'off';
+  return `the worktree folder takes ${worktreeFolder} characters and the longest tracked path ${longestTrackedPath}; LongPathsEnabled ${enabled}, core.longpaths ${gitLongPaths ?? 'not set'}`;
+}
+
+function showEnvironment(flags, facts) {
+  const folders = Object.entries(facts.configFolders);
+  if (folders.length > 0) {
+    progress(flags, `AI CLI config folders passed on: ${folders.map(([name, value]) => `${name}=${value}`).join(', ')}`);
+  }
+  if (facts.paths) {
+    const { worktreeFolder, longestTrackedPath } = facts.paths;
+    if (worktreeFolder + longestTrackedPath >= LONG_PATH_LIMIT) {
+      warn(`paths: ${pathLine(facts.paths)}; together they reach ${LONG_PATH_LIMIT} characters, which git and other programs may refuse`);
+    } else {
+      progress(flags, `paths: ${pathLine(facts.paths)}`);
+    }
+  }
+}
+
+function newWorktree(ctx, repo, facts) {
+  try {
+    return createWorktree(ctx, crypto.randomUUID(), { root: repo.root, baseCommit: repo.baseCommit });
+  } catch (err) {
+    if (facts.paths && /filename too long/i.test(err.message)) {
+      err.message = `${err.message}\n  ${pathLine(facts.paths)}\n  run "git config core.longpaths true" in ${repo.root}, or use shorter paths, and plan again`;
+    }
+    throw err;
+  }
+}
+
+function failureLine(f) {
+  return `${f.kind} "${f.id}": exit ${f.exitCode}${f.timedOut ? ' (timed out)' : ''}, expected to ${f.expected}: ${f.command}`;
+}
+
+function failureEntry(kind, item, result, expected) {
+  return { kind, id: result.id, command: policyCommandLine(item), exitCode: result.exitCode, timedOut: result.timedOut, expected, stdout: result.stdout.slice(-LOG_LINES_SENT), stderr: result.stderr.slice(-LOG_LINES_SENT) };
+}
+
+async function preparationFailures(policy, worktree, signal) {
+  const setup = await runSetup({ setup: policy.setup, worktree: worktree.path, signal });
+  const failedSetup = setup.find((r) => r.exitCode !== 0);
+  if (failedSetup) {
+    return [failureEntry('setup', policy.setup.find((item) => item.id === failedSetup.id), failedSetup, 'pass')];
+  }
+  const results = await runChecks({ checks: policy.checks, checkIds: policy.checks.map((c) => c.id), worktree: worktree.path, signal, startFailureIsResult: true });
+  return results.flatMap((r) => {
+    const check = policy.checks.find((c) => c.id === r.id);
+    return baselineMatches(check.baseline, r) ? [] : [failureEntry('check', check, r, check.baseline)];
+  });
+}
+
+function answerLines(answer) {
+  if (answer === null) {
+    return '';
+  }
+  const shown = (value) => printable(sanitizeEventData(String(value)));
+  const needs = Array.isArray(answer.needsInput) && answer.needsInput.length > 0 ? `\n  needs: ${answer.needsInput.map(shown).join('; ')}` : '';
+  return `\n  the last repair answered ${shown(answer.status)}: ${shown(answer.summary)}${needs}`;
+}
+
+async function prepareEnvironment({ provider, policy, worktree, count, facts, signal, flags }) {
+  const limit = environmentRepairLimit(policy.limits);
+  let answer = null;
+  for (let repairs = 0; ; repairs += 1) {
+    progress(flags, repairs === 0 ? 'setup commands and checks at the base commit, before the planner' : 'setup commands and checks again after the environment repair');
+    const failures = await preparationFailures(policy, worktree, signal);
+    count.trace?.push({ type: 'environment.checked', attempt: repairs + 1, failures: failures.map(({ kind, id, exitCode, timedOut, expected }) => ({ kind, id, exitCode, timedOut, expected })) });
+    if (failures.length === 0) {
+      restoreWorktree(worktree.path, worktree.baseCommit);
+      return;
+    }
+    const failed = failures.map((f) => `\n  ${failureLine(f)}`).join('');
+    if (repairs >= limit) {
+      throw environmentError(`the setup commands and checks did not give the results the policy expects, and limits.maxEnvironmentRepairs (${limit}) allows no more repairs, so no run was created:${failed}${answerLines(answer)}`);
+    }
+    progress(flags, `environment repair ${repairs + 1} of ${limit}:${failed}`);
+    answer = await callWithRetries(provider, { role: 'environment', stepId: 'environment', attempt: repairs + 1, facts, failures }, policy.limits, count);
+    count.trace?.push({ type: 'environment.answer', attempt: repairs + 1, result: answer ?? null });
+    restoreWorktree(worktree.path, worktree.baseCommit);
+    if (validateRoleResult(answer, { stepIds: ['environment'] }).length > 0) {
+      throw environmentError(`the environment repair did not return a valid result, so no run was created:${failed}`);
+    }
+    if (answer.status !== 'completed') {
+      throw environmentError(`the environment repair needs a person, so no run was created:${failed}${answerLines(answer)}`);
+    }
+  }
+}
+
+async function planInTemporaryWorktree(ctx, repo, policy, goal, { signal, retryDelayMs, planningTrace, facts, flags }) {
+  const worktree = newWorktree(ctx, repo, facts);
   try {
     const before = sourceFingerprint(repo.root, { ownWorktree: worktree.name });
     const provider = createProvider({ policy, cwd: worktree.path, signal, retryDelayMs, onDiagnostic: warnFailure, onCall: (data) => planningTrace?.push({ type: 'call.started', ...data }), onResult: (data) => planningTrace?.push({ type: 'call.finished', ...data }) });
     const count = { calls: 0, ...(planningTrace ? { trace: planningTrace } : {}) };
+    await prepareEnvironment({ provider, policy, worktree, count, facts, signal, flags });
     const planned = await planSteps(provider, policy, goal, count);
     if (policy.schemaVersion === 2 && resultPatch(worktree.path, worktree.baseCommit).length > 0) {
       throw plannerError('the v2 planner changed files; no run was created');
@@ -275,7 +376,11 @@ export async function cmdPlan(ctx, flags, { confirm, signal = null, retryDelayMs
     progress(flags, `planner command: ${commandLine(policy.provider.command, policy.provider.roleArgs.planner || policy.provider.args)}`);
   }
   progress(flags, `repository: ${repo.root} at ${repo.baseCommit}`);
-  if (!(await confirm(`This calls an external AI CLI, at most ${policy.limits.maxAgentCalls} times. Continue?`, flags))) {
+  const facts = environmentFacts(ctx, repo);
+  showEnvironment(flags, facts);
+  const repairs = environmentRepairLimit(policy.limits);
+  const repairText = repairs > 0 ? `up to ${repairs} environment repairs by the coder command, each followed by the setup commands and checks again` : 'no environment repair, and planning stops before the planner';
+  if (!(await confirm(`This runs the setup commands and checks once in a temporary worktree with your permissions, then calls an external AI CLI at most ${policy.limits.maxAgentCalls} times. If they do not give the results the policy expects: ${repairText}. Continue?`, flags))) {
     return EXIT_WAITING;
   }
   const providerFingerprint = await commandVersion(policy);
@@ -283,7 +388,7 @@ export async function cmdPlan(ctx, flags, { confirm, signal = null, retryDelayMs
   const abort = abortOnSignals(signal);
   let planned;
   try {
-    planned = await planInTemporaryWorktree(ctx, repo, policy, goal, { signal: abort.signal, retryDelayMs, planningTrace });
+    planned = await planInTemporaryWorktree(ctx, repo, policy, goal, { signal: abort.signal, retryDelayMs, planningTrace, facts, flags });
   } catch (err) {
     if (planningTrace) {
       const folder = path.join(ctx.paths.stateDir, 'workflow-preparation');

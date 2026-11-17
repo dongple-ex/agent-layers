@@ -1036,6 +1036,21 @@ function writeScript(file) {
   return `const fs = require("fs"); fs.mkdirSync(require("path").dirname(${JSON.stringify(file)}), { recursive: true }); fs.writeFileSync(${JSON.stringify(file)}, "x\\n");`;
 }
 
+const PLANNING = path.join(CONFIG_DIR, 'planning');
+
+function duringPlan(script, exitCode = 0) {
+  return `if (require("fs").existsSync(${JSON.stringify(PLANNING)})) { process.exit(${exitCode}); } ${script}`;
+}
+
+function plannedBeforeTheFailure(s) {
+  fs.writeFileSync(PLANNING, '');
+  try {
+    return planned(s);
+  } finally {
+    fs.rmSync(PLANNING, { force: true });
+  }
+}
+
 function runDirOf(s, runId) {
   return path.join(s.ctx.paths.stateDir, 'workflows', runId);
 }
@@ -1051,8 +1066,8 @@ function withoutSetup(s, runId) {
 
 test('workflow run: a check that fails at the base commit stops before any coder call and the report shows it', (t) => {
   const failing = 'console.log("not ok - first"); process.exit(1);';
-  const s = setup(t, {}, { policy: { checks: [nodeCheck(failing, { failedTestPattern: 'not ok - (\\S+)' })] } });
-  const runId = planned(s);
+  const s = setup(t, {}, { policy: { checks: [nodeCheck(duringPlan(failing), { failedTestPattern: 'not ok - (\\S+)' })] } });
+  const runId = plannedBeforeTheFailure(s);
   const r = runCli(s, runId);
   assert.equal(r.code, 3, r.stderr);
   const rep = JSON.parse(r.stdout);
@@ -1151,14 +1166,13 @@ test('workflow run: a check expected to fail at the base commit is passed by the
   assert.match(text, /checks without inputs, whose test files the AI CLI may edit: unit/);
 });
 
-test('workflow run: a check expected to fail at the base commit stops the run when it passes, times out or cannot start', (t) => {
+test('workflow run: a check expected to fail at the base commit stops the run when it passes or times out', (t) => {
   for (const [name, check, exitCode] of [
-    ['passes', nodeCheck('', { baseline: 'fail' }), 0],
-    ['times out', nodeCheck('setTimeout(() => {}, 60000);', { baseline: 'fail', timeout: 1 }), 124],
-    ['cannot start', { id: 'unit', command: './agent-layers-no-such-check', args: [], timeout: 60, baseline: 'fail' }, 127],
+    ['passes', nodeCheck(duringPlan('', 1), { baseline: 'fail' }), 0],
+    ['times out', nodeCheck(duringPlan('setTimeout(() => {}, 60000);', 1), { baseline: 'fail', timeout: 1 }), 124],
   ]) {
     const s = setup(t, {}, { policy: { checks: [check] } });
-    const r = runCli(s, planned(s));
+    const r = runCli(s, plannedBeforeTheFailure(s));
     assert.equal(r.code, 3, `${name}: ${r.stderr}`);
     const rep = JSON.parse(r.stdout);
     assert.equal(rep.stopReason, 'baseline-unexpected', name);
@@ -1192,11 +1206,10 @@ test('workflow run: setup runs once in the worktree, may leave ignored files, an
   assert.match(cli(changing, ['report', rep2.runId]).stdout, /changed before any AI call: made-by-setup\.txt/);
 
   for (const [name, item, exitCode] of [
-    ['fails', nodeCheck('process.exit(4);', { id: 'gen' }), 4],
-    ['cannot start', { id: 'gen', command: './agent-layers-no-such-tool', args: [], timeout: 60 }, 127],
+    ['fails', nodeCheck(duringPlan('process.exit(4);'), { id: 'gen' }), 4],
   ]) {
     const failing = setup(t, {}, { policy: { setup: [item, nodeCheck(writeScript('generated/later.txt'), { id: 'later' })] } });
-    const r3 = runCli(failing, planned(failing));
+    const r3 = runCli(failing, plannedBeforeTheFailure(failing));
     assert.equal(r3.code, 3, `${name}: ${r3.stderr}`);
     const rep3 = JSON.parse(r3.stdout);
     assert.equal(rep3.stopReason, 'setup-failed', name);
@@ -1222,8 +1235,8 @@ test('workflow resume: a stopped preparation runs again once the environment is 
   t.after(() => fs.rmSync(markerDir, { recursive: true, force: true }));
   const marker = path.join(markerDir, 'fixed');
   const script = `if (!require("fs").existsSync(${JSON.stringify(marker)})) { process.exit(1); }`;
-  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, { policy: { checks: [nodeCheck(script)] } });
-  const runId = planned(s);
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, { policy: { checks: [nodeCheck(duringPlan(script))] } });
+  const runId = plannedBeforeTheFailure(s);
   assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM }), 3);
   assert.equal(state(s, runId).stopReason, 'baseline-failed');
   assert.equal(await resume(s, runId), 3);
@@ -1239,8 +1252,8 @@ test('workflow report: after a resume the report shows the latest setup and base
   const markerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-run-marker-'));
   t.after(() => fs.rmSync(markerDir, { recursive: true, force: true }));
   const needs = (name) => `if (!require("fs").existsSync(${JSON.stringify(path.join(markerDir, name))})) { process.exit(1); }`;
-  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, { policy: { setup: [nodeCheck(needs('setup'), { id: 'install' })], checks: [nodeCheck(needs('check'))] } });
-  const runId = planned(s);
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, { policy: { setup: [nodeCheck(duringPlan(needs('setup')), { id: 'install' })], checks: [nodeCheck(duringPlan(needs('check')))] } });
+  const runId = plannedBeforeTheFailure(s);
   assert.equal(await cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM }), 3);
   assert.equal(state(s, runId).stopReason, 'setup-failed');
   assert.deepEqual(reportView(readRun(s.ctx, runId)).setup, [{ id: 'install', exitCode: 1, timedOut: false }]);
@@ -1255,8 +1268,8 @@ test('workflow report: after a resume the report shows the latest setup and base
 });
 
 test('workflow run: cancelling during a baseline check ends the run with the same rule, before any coder call', async (t) => {
-  const s = setup(t, {}, { policy: { checks: [nodeCheck('setTimeout(() => {}, 60000);', { timeout: 120 })] } });
-  const runId = planned(s);
+  const s = setup(t, {}, { policy: { checks: [nodeCheck(duringPlan('setTimeout(() => {}, 60000);'), { timeout: 120 })] } });
+  const runId = plannedBeforeTheFailure(s);
   const controller = new AbortController();
   const running = cmdRun(s.ctx, s.flags, runId, { confirm: CONFIRM, signal: controller.signal });
   await waitUntil(() => lastEventLine(s, runId).includes('"process.started"'));
@@ -1271,8 +1284,8 @@ test('workflow resume: a run killed during a baseline check prepares again from 
   t.after(() => fs.rmSync(markerDir, { recursive: true, force: true }));
   const marker = path.join(markerDir, 'first');
   const script = `const fs = require("fs"); if (!fs.existsSync(${JSON.stringify(marker)})) { fs.writeFileSync(${JSON.stringify(marker)}, "x"); fs.writeFileSync("left-by-baseline.txt", "x"); setTimeout(() => {}, 60000); }`;
-  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, { policy: { checks: [nodeCheck(script, { timeout: 120 })] } });
-  const runId = planned(s);
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } } }, { policy: { checks: [nodeCheck(duringPlan(script), { timeout: 120 })] } });
+  const runId = plannedBeforeTheFailure(s);
   const { child, exited } = startRun(s, runId);
   await waitUntil(() => fs.existsSync(marker) && lastEventLine(s, runId).includes('"process.started"'));
   child.kill('SIGKILL');
@@ -1300,8 +1313,8 @@ test('workflow resume: what a killed baseline check left stops the run as a prep
   t.after(() => fs.rmSync(markerDir, { recursive: true, force: true }));
   const marker = path.join(markerDir, 'first');
   const script = `const fs = require("fs"); if (!fs.existsSync(${JSON.stringify(marker)})) { fs.writeFileSync("left-by-baseline.txt", "x"); fs.writeFileSync(${JSON.stringify(marker)}, "x"); setTimeout(() => {}, 60000); }`;
-  const s = setup(t, {}, { policy: { checks: [nodeCheck(script, { timeout: 120 })] } });
-  const runId = planned(s);
+  const s = setup(t, {}, { policy: { checks: [nodeCheck(duringPlan(script), { timeout: 120 })] } });
+  const runId = plannedBeforeTheFailure(s);
   const { child, exited } = startRun(s, runId);
   await waitUntil(() => fs.existsSync(marker) && lastEventLine(s, runId).includes('"process.started"'));
   child.kill('SIGKILL');
@@ -1452,8 +1465,8 @@ test('workflow run: failing test names appear in the report', (t) => {
   assert.match(cli(s, ['report', runId]).stdout, /unit \(required\): failed \(exit 1\); failing tests: alpha/);
 
   const twelve = 'for (let i = 0; i < 12; i += 1) { console.log(`not ok - t${String(i).padStart(2, "0")}`); } process.exit(1);';
-  const many = setup(t, {}, { policy: { checks: [nodeCheck(twelve, { failedTestPattern: 'not ok - (\\S+)' })] } });
-  const manyRun = runCli(many, planned(many));
+  const many = setup(t, {}, { policy: { checks: [nodeCheck(duringPlan(twelve), { failedTestPattern: 'not ok - (\\S+)' })] } });
+  const manyRun = runCli(many, plannedBeforeTheFailure(many));
   assert.equal(manyRun.code, 3, manyRun.stderr);
   const manyReport = JSON.parse(manyRun.stdout);
   assert.equal(manyReport.baseline[0].failedTests.length, 12);
@@ -1553,8 +1566,8 @@ test('workflow resume: the notice about the preparation is shown only until the 
   assert.equal(afterPreparation.code, 3, afterPreparation.stderr);
   assert.match(afterPreparation.stderr, /check unit, expected to pass at the base commit: /);
   assert.doesNotMatch(afterPreparation.stderr, notice);
-  const stopped = setup(t, {}, { policy: { checks: [nodeCheck('process.exit(1);')] } });
-  const stoppedId = planned(stopped);
+  const stopped = setup(t, {}, { policy: { checks: [nodeCheck(duringPlan('process.exit(1);'))] } });
+  const stoppedId = plannedBeforeTheFailure(stopped);
   assert.equal(await cmdRun(stopped.ctx, stopped.flags, stoppedId, { confirm: CONFIRM }), 3);
   const beforeFinish = cli(stopped, ['resume', stoppedId, '--path', stopped.repo]);
   assert.equal(beforeFinish.code, 3, beforeFinish.stderr);
@@ -1697,4 +1710,120 @@ test('workflow resume: a run stopped at runTimeoutSeconds needs --add-seconds th
   assert.equal(view.budget.activeSeconds.added, 600);
   assert.deepEqual(readRun(s.ctx, runId).issues, []);
   assert.match(cli(s, ['status', runId]).stdout, new RegExp(`active time \\d+s/${limit}\\+600s,`));
+});
+
+function markerCheck(marker, extra = {}) {
+  return nodeCheck(`if (!require("fs").existsSync(${JSON.stringify(marker)})) { console.error("missing ${path.basename(marker)}"); process.exit(1); }`, extra);
+}
+
+function markerFolder(t) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-env-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+function runCount(s) {
+  const dir = path.join(s.ctx.paths.stateDir, 'workflows');
+  return fs.existsSync(dir) ? fs.readdirSync(dir).length : 0;
+}
+
+test('workflow plan: an environment the checks reject is repaired by the AI CLI before the planner, and the checks run again', (t) => {
+  const marker = path.join(markerFolder(t), 'ready');
+  const s = setup(t, { 'environment:environment': { write: { [marker]: 'x\n' } } }, { policy: { checks: [markerCheck(marker)] } });
+  const out = planCli(s);
+  assert.equal(out.code, 0, out.stderr);
+  assert.deepEqual(s.keys(), ['environment:environment:1', 'planner:plan:1']);
+  assert.equal(JSON.parse(out.stdout).usedAgentCalls, 2);
+  const { request } = s.calls()[0];
+  assert.deepEqual(request.failures.map((f) => [f.kind, f.id, f.exitCode, f.expected]), [['check', 'unit', 1, 'pass']]);
+  assert.match(request.failures[0].stderr.join('\n'), /missing ready/);
+});
+
+test('workflow plan: a repair that needs a person stops the plan with the failed command and the AI answer, and makes no run', (t) => {
+  const s = setup(t, { 'environment:environment': { result: { status: 'blocked', summary: 'LongPathsEnabled needs an administrator' } } }, { policy: { checks: [nodeCheck('process.exit(1);')] } });
+  const out = planCli(s);
+  assert.equal(out.code, 3, out.stderr);
+  assert.match(out.stderr, /check "unit": exit 1, expected to pass/);
+  assert.match(out.stderr, /LongPathsEnabled needs an administrator/);
+  assert.deepEqual(s.keys(), ['environment:environment:1']);
+  assert.equal(runCount(s), 0);
+});
+
+test('workflow plan: repairs stop at limits.maxEnvironmentRepairs, which is 2 when not set, and 0 stops at the first failure without a call', (t) => {
+  for (const [limit, keys] of [[undefined, ['environment:environment:1', 'environment:environment:2']], [1, ['environment:environment:1']], [0, []]]) {
+    const limits = limit === undefined ? {} : { maxEnvironmentRepairs: limit };
+    const s = setup(t, {}, { policy: { checks: [nodeCheck('process.exit(1);')], limits } });
+    const out = planCli(s);
+    assert.equal(out.code, 3, `${limit}: ${out.stderr}`);
+    assert.deepEqual(s.keys(), keys, String(limit));
+    assert.match(out.stderr, /maxEnvironmentRepairs/, String(limit));
+    assert.equal(runCount(s), 0, String(limit));
+  }
+});
+
+test('workflow plan: what a repair changes inside the worktree, ignored files included, is undone before the checks run again', (t) => {
+  const marker = path.join(markerFolder(t), 'ready');
+  const check = `const fs = require("fs"); if (!fs.existsSync(${JSON.stringify(marker)}) || fs.readFileSync("src/a.txt", "utf8") !== "a\\n" || fs.existsSync("src/extra.txt") || fs.existsSync("generated/env.txt")) { process.exit(1); }`;
+  const s = setup(t, { 'environment:environment': { write: { [marker]: 'x\n', 'src/a.txt': 'changed\n', 'src/extra.txt': 'x\n', 'generated/env.txt': 'x\n' } } }, { policy: { checks: [nodeCheck(check)] } });
+  const out = planCli(s);
+  assert.equal(out.code, 0, out.stderr);
+  assert.deepEqual(s.keys(), ['environment:environment:1', 'planner:plan:1']);
+  assert.equal(fs.readFileSync(path.join(s.repo, 'src', 'a.txt'), 'utf8'), 'a\n');
+});
+
+test('workflow plan: the confirmation names the preparation, and a failed setup command reaches the repair request with the account folders', async (t) => {
+  const saved = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = path.join(os.tmpdir(), 'al-wf-codex-work');
+  t.after(() => {
+    if (saved === undefined) {
+      delete process.env.CODEX_HOME;
+    } else {
+      process.env.CODEX_HOME = saved;
+    }
+  });
+  const s = setup(t, { 'environment:environment': { result: { status: 'blocked', summary: 'npm is missing' } } }, { policy: { setup: [nodeCheck('console.error("no npm"); process.exit(4);', { id: 'install' })] } });
+  const asked = [];
+  const confirm = async (question) => {
+    asked.push(question);
+    return true;
+  };
+  await assert.rejects(cmdPlan(s.ctx, s.flags, { confirm, retryDelayMs: 0 }), (err) => err.code === 'E_WORKFLOW_ENVIRONMENT' && /setup "install": exit 4/.test(err.message) && /npm is missing/.test(err.message));
+  assert.match(asked[0], /setup commands and checks once in a temporary worktree/);
+  assert.match(asked[0], /up to 2 environment repairs/);
+  const { request } = s.calls()[0];
+  assert.deepEqual(request.failures.map((f) => [f.kind, f.id, f.exitCode]), [['setup', 'install', 4]]);
+  assert.deepEqual(request.facts.configFolders, { CODEX_HOME: process.env.CODEX_HOME });
+});
+
+test('workflow plan: on Windows a tracked path too long for the worktree is named before planning', { skip: process.platform !== 'win32' }, (t) => {
+  const s = setup(t);
+  const room = 240 - s.repo.length - 1;
+  const parts = [];
+  for (let left = room - 'x.txt'.length; left > 1; left -= 51) {
+    parts.push('d'.repeat(Math.min(50, left - 1)));
+  }
+  const file = path.join(s.repo, ...parts, 'x.txt');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, 'x\n');
+  git(s.repo, 'add', '-A');
+  git(s.repo, 'commit', '-qm', 'long path');
+  const out = planCli(s);
+  assert.equal(out.code, 2, out.stderr);
+  assert.match(out.stderr, /the worktree folder takes \d+ characters and the longest tracked path \d+/);
+  assert.match(out.stderr, /core\.longpaths/);
+  assert.deepEqual(s.keys(), []);
+});
+
+test('workflow plan: a setup command or a check that cannot start at the base commit stops the plan with exit 127 before the planner', (t) => {
+  for (const [name, policy, line] of [
+    ['check', { checks: [{ id: 'unit', command: './agent-layers-no-such-check', args: [], timeout: 60, baseline: 'fail' }] }, /check "unit": exit 127, expected to fail/],
+    ['setup', { setup: [{ id: 'gen', command: './agent-layers-no-such-tool', args: [], timeout: 60 }, nodeCheck(writeScript('generated/later.txt'), { id: 'later' })] }, /setup "gen": exit 127, expected to pass/],
+  ]) {
+    const s = setup(t, {}, { policy: { ...policy, limits: { maxEnvironmentRepairs: 0 } } });
+    const out = planCli(s);
+    assert.equal(out.code, 3, `${name}: ${out.stderr}`);
+    assert.match(out.stderr, line, name);
+    assert.deepEqual(s.keys(), [], name);
+    assert.equal(runCount(s), 0, name);
+  }
 });

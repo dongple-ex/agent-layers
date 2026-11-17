@@ -503,7 +503,7 @@ agent-layers workflow report <run-id>
 
 | Command | What it does | AI calls |
 | --- | --- | --- |
-| `workflow plan` | Makes a plan with the Planner role and prints the run ID | yes |
+| `workflow plan` | Runs the setup commands and checks once in a temporary worktree, then makes a plan with the Planner role and prints the run ID | yes |
 | `workflow validate <run-id>` | Checks the stored plan, policy and records | no |
 | `workflow run <run-id>` | Runs the plan in a separate worktree | yes |
 | `workflow status <run-id>` | Shows step states, attempts and budget use | no |
@@ -533,6 +533,13 @@ The status of the run and the `last error` column of the step say why a run stop
   - A `blocked` ruling, a ruling that is not a valid result, or a `completed` ruling while a check fails stops the run as `BLOCKED`. The ruling is kept in `artifacts/ruling-*.json`.
   - With 0, the run stops as `BLOCKED` as soon as a Coder returns `blocked`. The confirmation of `run` and `resume` shows this limit when it is 1 or more.
   - This ruling was tested with fake CLI processes only.
+- Before the Planner, `plan` runs the setup commands and every check once at the base commit in a temporary worktree, with your permissions. Before that it shows the AI CLI config folders it passes on and, on Windows, the length of the worktree folder and of the longest tracked path, with the `LongPathsEnabled` and `core.longpaths` settings. It warns when the two lengths reach 260 characters.
+- `limits.maxEnvironmentRepairs` is optional and is 2 when it is not set. When the setup commands or checks do not give the results the policy expects, the `environment` role runs the AI CLI with the Coder command to fix the environment within the permissions that command has. Each repair counts toward `maxAgentCalls`.
+  - After each repair, the worktree goes back to the base commit, including the files git ignores, and the setup commands and checks run again. A change inside the worktree does not last, because the run starts in a new worktree.
+  - When they give the expected results, the Planner is called.
+  - A repair that answers `blocked`, a repair that is not a valid result, or no repairs left ends `plan` with exit code 3 and no run. The output names the failed commands and the last answer, for example a setting that needs an administrator or a setup command missing from the policy.
+  - With 0, `plan` stops at the first failure without calling the AI CLI.
+  - This repair was tested with fake CLI processes only.
 
 ### The policy file
 
@@ -587,7 +594,7 @@ Exit codes of the workflow commands mean something different from the other agen
 | 0 | Completed, or a query succeeded | `SUCCEEDED`. `status` and `report` return 0 when the query works, even if the run failed |
 | 1 | The run failed | `FAILED` |
 | 2 | Bad input, or a state that cannot run | A bad option, uncommitted changes, `resume` of a run that has ended, `resume` of a run that stopped at a limit without an amount to add |
-| 3 | Waiting for input, approval or recovery by a person | `BLOCKED`, `INTERRUPTED`, no terminal and no `--yes`, a run another process is working on |
+| 3 | Waiting for input, approval or recovery by a person | `BLOCKED`, `INTERRUPTED`, no terminal and no `--yes`, a run another process is working on, a `plan` whose environment needs a person |
 | 130 | Cancelled | `CANCELLED` |
 
 ---

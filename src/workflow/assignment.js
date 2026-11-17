@@ -179,7 +179,7 @@ export function makeAssignments(plan, policy) {
 }
 
 export function commandRole(role) {
-  return role === 'arbiter' ? 'planner' : role;
+  return role === 'arbiter' ? 'planner' : role === 'environment' ? 'coder' : role;
 }
 
 export function assignedAgent(policy, request, plan = null) {

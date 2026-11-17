@@ -122,6 +122,33 @@ export function removeWorktree(root, dir) {
   git(root, ['worktree', 'remove', '--force', dir]);
 }
 
+export function restoreWorktree(worktree, baseCommit) {
+  git(worktree, ['reset', '--hard', '--quiet', baseCommit]);
+  git(worktree, ['clean', '-f', '-d', '-x', '--quiet']);
+}
+
+function optionalGitConfig(root, key) {
+  const r = spawnSync('git', ['config', '--get', key], { cwd: root, env: gitEnv({}), windowsHide: true, encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim() : null;
+}
+
+function longPathsEnabled() {
+  const root = process.env.SystemRoot || 'C:\\Windows';
+  const r = spawnSync(path.join(root, 'System32', 'reg.exe'), ['query', 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem', '/v', 'LongPathsEnabled'], { windowsHide: true, encoding: 'utf8' });
+  const m = r.status === 0 ? /LongPathsEnabled\s+REG_DWORD\s+0x([0-9a-f]+)/i.exec(r.stdout) : null;
+  return m ? Number.parseInt(m[1], 16) === 1 : null;
+}
+
+export function pathLengthFacts(ctx, root) {
+  const longest = splitNul(git(root, ['ls-files', '-z'])).reduce((max, file) => Math.max(max, file.length), 0);
+  return {
+    worktreeFolder: worktreePath(ctx, crypto.randomUUID()).length + 1,
+    longestTrackedPath: longest,
+    longPathsEnabled: process.platform === 'win32' ? longPathsEnabled() : null,
+    gitLongPaths: optionalGitConfig(root, 'core.longpaths'),
+  };
+}
+
 function skipGitEntry(name, ownWorktree) {
   return name === 'index' || OBJECT_STORAGE_RE.test(name) || name.endsWith('.lock') || name === `worktrees/${ownWorktree}`;
 }
