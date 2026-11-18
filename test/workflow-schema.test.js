@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { parseJsonc } from '../src/formats/jsonc.js';
 import { normalizePolicy, validatePlan, validateRoleResult, relativePathIssue, pathCovers, hashJson, blockedRulingLimit, scopeWideningLimit, DEFAULT_LIMITS } from '../src/workflow/schema.js';
 
@@ -421,4 +423,22 @@ test('workflow policy: maxScopeWidenings is stored only when set, is 0 otherwise
   assert.deepEqual(normalizePolicy(rawPolicy({ limits: { maxScopeWidenings: 1 } })).issues, [needs]);
   assert.deepEqual(normalizePolicy(rawPolicy({ limits: { maxScopeWidenings: 1, maxBlockedRulings: 0 } })).issues, [needs]);
   assert.deepEqual(normalizePolicy(rawPolicy({ limits: { maxScopeWidenings: 1, maxBlockedRulings: 1 }, exceptions: [{ id: 'off', kind: 'replace-limit', limit: 'maxBlockedRulings', value: 0 }] })).issues, [needs]);
+});
+
+test('workflow policy: worktreeRoot is stored only when set and must be an absolute path, in v1 and v2', () => {
+  const root = path.resolve('agent-layers-worktrees');
+  const multi = parseJsonc(fs.readFileSync(new URL('../templates/workflow/policy.multi-agent.example.jsonc', import.meta.url), 'utf8'));
+  for (const [name, raw] of [['v1', rawPolicy()], ['v2', multi]]) {
+    const plain = normalizePolicy(raw);
+    assert.deepEqual(plain.issues, [], name);
+    assert.equal(Object.hasOwn(plain.policy, 'worktreeRoot'), false, name);
+    const set = normalizePolicy({ ...raw, worktreeRoot: root });
+    assert.deepEqual(set.issues, [], name);
+    assert.deepEqual(set.policy, { ...plain.policy, worktreeRoot: root }, name);
+    assert.deepEqual(normalizePolicy(set.policy).policy, set.policy, name);
+    for (const bad of ['', 'relative/folder', 1, null, `${root}
+more`]) {
+      assert.deepEqual(wheres(normalizePolicy({ ...raw, worktreeRoot: bad }).issues), ['worktreeRoot'], `${name} ${JSON.stringify(bad)}`);
+    }
+  }
 });

@@ -555,6 +555,10 @@ agent-layers workflow report <run-id>
 - Windows에서는 `.cmd` 파일을 셸 없이 시작할 수 없어서 `plan`이 종료 코드 2로 거부합니다. npm으로 설치한 `codex`와 `npm` 자체가 여기에 해당하므로, 예시 파일을 그대로 쓰면 거부됩니다. `provider`는 `"command": "node"`로 쓰고, 그 패키지의 bin 스크립트 경로를 각 `args` 목록의 첫 항목으로 적습니다. `checks`와 `setup`의 `npm`도 같은 방식으로 바꾸거나, 시험이면 `"command": "node"`와 `"args": ["--test"]`처럼 테스트 실행기를 직접 적습니다.
 - 비밀값은 정책 파일에 적지 않습니다. 자식 프로세스에 넘길 환경 변수의 이름만 `provider.env`에 적습니다.
 - AI CLI의 설정 폴더를 정하는 환경 변수(`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`, `COPILOT_HOME`, `KIMI_CODE_HOME`, `GROK_HOME`)는 목록에 적지 않아도 넘깁니다. 이 변수로 계정을 바꿔 쓰면, 작업자와 `setup`, `checks`는 실행을 시작한 셸과 같은 설정 폴더를 씁니다.
+- `worktreeRoot`는 선택 항목입니다. `plan`과 `run`이 worktree를 만들 폴더를 정하며, 그 안에 실행 ID(36자) 이름의 폴더가 하나씩 생깁니다. 정하지 않으면 `~/.agent-layers/worktrees`에 만듭니다.
+  - Windows에서 `C:/wt`처럼 짧은 폴더를 정하면, 빌드가 worktree 안에 만드는 긴 경로를 260자 아래로 줄일 수 있습니다.
+  - 저장소 밖의 절대 경로여야 하고, 링크나 정션이 아닌 실제 폴더여야 합니다. 저장소 안의 폴더를 정하면 `plan`이 종료 코드 2로 거부합니다.
+  - 실행은 계획할 때의 폴더를 계속 씁니다. `worktreeRoot`가 없는 정책은 정책 해시가 예전과 같으므로, 이미 계획한 실행도 그대로 이어서 쓸 수 있습니다.
 
 ⚠️ Codex 예시의 `-c approval_policy=never`를 지우지 마십시오. 사용자 설정에 따라 승인받지 않은 보조 모델이 샌드박스 밖 실행을 승인할 수 있습니다.
 

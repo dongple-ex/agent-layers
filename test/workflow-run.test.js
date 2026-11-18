@@ -1917,3 +1917,65 @@ test('workflow resume: a coder cut off while changing a borrowed file resumes, b
   assert.ok(again.feedback.changedFiles.includes('test/fix.txt'), JSON.stringify(again.feedback.changedFiles));
   assert.deepEqual(done.state.addedWritePaths, { impl: ['test/fix.txt'] });
 });
+
+test('workflow plan and run: worktreeRoot in the policy holds the temporary and the run worktrees, and resume reopens the run worktree there', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'wf-root-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const real = fs.realpathSync.native(root);
+  const s = setup(t, { 'coder:impl': { write: { 'src/new.txt': 'new\n' } }, auditor: { exit: 1 } }, { policy: { worktreeRoot: root } });
+  const out = planCli(s);
+  assert.equal(out.code, 0, out.stderr);
+  const runId = JSON.parse(out.stdout).runId;
+  assert.ok(out.stderr.includes(`worktrees: in ${root}\n`), out.stderr);
+  assert.equal(path.dirname(s.calls()[0].cwd), real);
+  assert.deepEqual(fs.readdirSync(root), []);
+  const r = runCli(s, runId);
+  assert.equal(r.code, 3, r.stderr);
+  const worktree = JSON.parse(r.stdout).worktree;
+  assert.equal(worktree, path.join(real, runId));
+  assert.equal(s.calls().find((c) => c.request.role === 'coder').cwd, worktree);
+  assert.equal(fs.existsSync(path.join(s.ctx.paths.stateDir, 'worktrees')), false);
+  const called = s.calls().length;
+  const resumed = cli(s, ['resume', runId, '--path', s.repo, '--yes', '--json']);
+  assert.equal(resumed.code, 3, resumed.stderr);
+  assert.doesNotMatch(resumed.stderr, /no longer exists/);
+  assert.equal(s.calls().length, called + 1);
+  assert.equal(s.calls().at(-1).cwd, worktree);
+});
+
+test('workflow plan: a worktreeRoot inside the repository is refused with exit code 2 before any call', (t) => {
+  const s = setup(t);
+  const policy = JSON.parse(fs.readFileSync(s.policyFile, 'utf8'));
+  for (const inside of [s.repo, path.join(s.repo, 'worktrees')]) {
+    fs.writeFileSync(s.policyFile, JSON.stringify({ ...policy, worktreeRoot: inside }));
+    const out = planCli(s);
+    assert.equal(out.code, 2, out.stderr);
+    assert.match(out.stderr, /worktreeRoot .* is inside the repository/);
+  }
+  assert.deepEqual(s.calls(), []);
+  assert.equal(runCount(s), 0);
+});
+
+test('workflow plan: on Windows a short worktreeRoot lets a tracked path that is too long for the default worktree folder be planned', { skip: process.platform !== 'win32' }, (t) => {
+  const s = setup(t);
+  const root = path.join(s.base, 'w');
+  const room = 230 - (root.length + 1 + crypto.randomUUID().length) - 1;
+  const parts = [];
+  for (let left = room; left > 0; left -= 51) {
+    parts.push('d'.repeat(Math.min(50, left)));
+  }
+  const file = path.join(s.repo, ...parts, 'x.txt');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, 'x\n');
+  git(s.repo, 'add', '-A');
+  git(s.repo, 'commit', '-qm', 'long path');
+  const tooLong = planCli(s);
+  assert.equal(tooLong.code, 2, tooLong.stderr);
+  assert.match(tooLong.stderr, /set worktreeRoot in the policy to a short folder/);
+  const policy = JSON.parse(fs.readFileSync(s.policyFile, 'utf8'));
+  fs.writeFileSync(s.policyFile, JSON.stringify({ ...policy, worktreeRoot: root }));
+  const out = planCli(s);
+  assert.equal(out.code, 0, out.stderr);
+  assert.deepEqual(s.keys(), ['planner:plan:1']);
+  assert.equal(path.dirname(s.calls()[0].cwd), fs.realpathSync.native(root));
+});

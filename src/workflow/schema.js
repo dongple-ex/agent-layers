@@ -1,4 +1,4 @@
-import { posix } from 'node:path';
+import path, { posix } from 'node:path';
 import { stableStringify } from '../formats/jsonc.js';
 import { sha256 } from '../util/fsx.js';
 import { graphIssues } from './graph.js';
@@ -43,7 +43,7 @@ export const RUN_STATUSES = ['PLANNED', 'RUNNING', 'BLOCKED', 'SUCCEEDED', 'FAIL
 const POSITIVE_LIMITS = ['maxSteps', 'maxAgentCalls', 'stepTimeoutSeconds', 'runTimeoutSeconds'];
 const RETRY_LIMITS = ['maxRepairAttempts', 'maxTransportRetries', 'maxPlanRepairs'];
 const STEP_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const POLICY_KEYS = ['schemaVersion', 'provider', 'limits', 'allowedWritePaths', 'protectedPaths', 'setup', 'checks', 'requiredChecks', 'requiredRoles', 'exceptions'];
+const POLICY_KEYS = ['schemaVersion', 'provider', 'limits', 'allowedWritePaths', 'protectedPaths', 'setup', 'checks', 'requiredChecks', 'requiredRoles', 'exceptions', 'worktreeRoot'];
 const PROVIDER_KEYS = ['command', 'args', 'roleArgs', 'env'];
 const PROVIDER_ROLES = ['planner', 'coder', 'reviewer', 'auditor'];
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -84,6 +84,10 @@ function isArgList(v) {
 
 function executableIssue(v) {
   return nonEmptyString(v) && !/[\0\r\n]/.test(v) ? null : 'must be an executable name or path';
+}
+
+export function worktreeRootIssue(value) {
+  return nonEmptyString(value) && !/[\0\r\n]/.test(value) && path.isAbsolute(value) ? null : 'must be an absolute path to a folder';
 }
 
 export function relativePathIssue(p) {
@@ -400,6 +404,9 @@ export function normalizePolicy(raw) {
   if (limits.maxSteps + 3 > limits.maxAgentCalls) {
     add('limits', `maxSteps + 3 must not exceed maxAgentCalls (${limits.maxSteps} + 3 > ${limits.maxAgentCalls})`);
   }
+  if (own(raw, 'worktreeRoot') && worktreeRootIssue(raw.worktreeRoot)) {
+    add('worktreeRoot', worktreeRootIssue(raw.worktreeRoot));
+  }
   if (scopeWideningLimit(limits) > 0 && blockedRulingLimit(limits) === 0) {
     add('limits.maxScopeWidenings', 'needs maxBlockedRulings of 1 or more, because only an arbiter ruling adds write paths');
   }
@@ -407,7 +414,7 @@ export function normalizePolicy(raw) {
     return { policy: null, issues };
   }
   return {
-    policy: { schemaVersion: SCHEMA_VERSION, provider, limits, allowedWritePaths, protectedPaths, setup, checks, requiredChecks, requiredRoles, exceptions },
+    policy: { schemaVersion: SCHEMA_VERSION, provider, limits, allowedWritePaths, protectedPaths, setup, checks, requiredChecks, requiredRoles, exceptions, ...(own(raw, 'worktreeRoot') ? { worktreeRoot: raw.worktreeRoot } : {}) },
     issues,
   };
 }

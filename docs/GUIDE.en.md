@@ -555,6 +555,10 @@ The comments in the example file explain `setup`, `baseline`, `inputs` and `fail
 - On Windows a `.cmd` file cannot start without a shell, so `plan` refuses it with exit code 2. That includes `codex` installed with npm, and `npm` itself, so the example file is refused as it stands. For `provider`, use `"command": "node"` and put the path of the package's bin script first in each `args` list. Do the same for `npm` in `checks` and `setup`, or for a test check name the test runner directly, such as `"command": "node"` with `"args": ["--test"]`.
 - Secrets never go in the policy file. List only the names of the environment variables to pass on under `provider.env`.
 - The variables that choose an AI CLI's config folder (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `GEMINI_CLI_HOME`, `COPILOT_HOME`, `KIMI_CODE_HOME`, `GROK_HOME`) are passed on without being listed. If you switch accounts with one of them, the workers, `setup` and `checks` use the same config folder as the shell that started the run.
+- `worktreeRoot` is optional. It names the folder where `plan` and `run` create their worktrees, one folder per run ID (36 characters) inside it. Without it the worktrees go to `~/.agent-layers/worktrees`.
+  - On Windows a short folder such as `C:/wt` keeps long paths that a build writes in the worktree under 260 characters.
+  - It must be an absolute path outside the repository, and a real folder rather than a link or junction. `plan` refuses a folder inside the repository with exit code 2.
+  - A run keeps the folder it was planned with. A policy without `worktreeRoot` gives the same policy hash as before, so runs planned before keep working.
 
 ⚠️ Do not remove `-c approval_policy=never` from the Codex example. Depending on your settings, a helper model that you did not approve can approve running outside the sandbox.
 

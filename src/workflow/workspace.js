@@ -98,13 +98,13 @@ export function inspectRepository(cwd) {
   };
 }
 
-export function worktreePath(ctx, runId) {
+export function worktreePath(ctx, runId, worktreeRoot) {
   runDir(ctx, runId);
-  return path.join(ctx.paths.stateDir, 'worktrees', runId);
+  return path.join(worktreeRoot ?? path.join(ctx.paths.stateDir, 'worktrees'), runId);
 }
 
-export function createWorktree(ctx, runId, { root, baseCommit }) {
-  const dir = worktreePath(ctx, runId);
+export function createWorktree(ctx, runId, { root, baseCommit, worktreeRoot }) {
+  const dir = worktreePath(ctx, runId, worktreeRoot);
   fs.mkdirSync(path.dirname(dir), { recursive: true, mode: 0o700 });
   if (fs.lstatSync(path.dirname(dir)).isSymbolicLink()) {
     throw workspaceError(`${path.dirname(dir)} must be a real directory, not a link`, { code: 'E_WORKFLOW_UNSAFE_PATH' });
@@ -139,10 +139,10 @@ function longPathsEnabled() {
   return m ? Number.parseInt(m[1], 16) === 1 : null;
 }
 
-export function pathLengthFacts(ctx, root) {
+export function pathLengthFacts(ctx, root, worktreeRoot) {
   const longest = splitNul(git(root, ['ls-files', '-z'])).reduce((max, file) => Math.max(max, file.length), 0);
   return {
-    worktreeFolder: worktreePath(ctx, crypto.randomUUID()).length + 1,
+    worktreeFolder: worktreePath(ctx, crypto.randomUUID(), worktreeRoot).length + 1,
     longestTrackedPath: longest,
     longPathsEnabled: process.platform === 'win32' ? longPathsEnabled() : null,
     gitLongPaths: optionalGitConfig(root, 'core.longpaths'),

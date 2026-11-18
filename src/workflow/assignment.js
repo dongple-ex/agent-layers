@@ -6,7 +6,7 @@ import { sha256 } from '../util/fsx.js';
 export const AGENT_ROLES = ['planner', 'coder', 'reviewer', 'auditor'];
 export const V2_PLAN_FIELDS = ['assignmentHash', 'contextHash', 'planningHash', 'providerFingerprints'];
 const AGENT_FIELDS = ['description', 'allowedRoles', 'command', 'args', 'model', 'env', 'input', 'output', 'resultPath', 'errorPath', 'metadataPaths'];
-const POLICY_FIELDS = ['schemaVersion', 'agents', 'roleAgents', 'repairAgent', 'contextLimits', 'limits', 'allowedWritePaths', 'protectedPaths', 'setup', 'checks', 'requiredChecks', 'requiredRoles', 'exceptions'];
+const POLICY_FIELDS = ['schemaVersion', 'agents', 'roleAgents', 'repairAgent', 'contextLimits', 'limits', 'allowedWritePaths', 'protectedPaths', 'setup', 'checks', 'requiredChecks', 'requiredRoles', 'exceptions', 'worktreeRoot'];
 const META_FIELDS = ['reportedModel', 'inputTokens', 'outputTokens', 'cost'];
 const ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const ENV_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;

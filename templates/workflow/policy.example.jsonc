@@ -22,6 +22,9 @@
   },
   "allowedWritePaths": ["src", "test"],
   "protectedPaths": ["package.json"],
+  // Optional: an absolute folder outside the repository for the worktrees, one folder per run ID inside it.
+  // Without it they go to ~/.agent-layers/worktrees. On Windows a short folder keeps long build paths under 260 characters.
+  // "worktreeRoot": "C:/wt",
   // Optional: commands that run once in the worktree before the first check, with the same environment as the checks.
   // A setup command must leave tracked files alone, and git must ignore what it creates, so prefer "npm ci" to "npm install".
   // "setup": [{ "id": "install", "command": "npm", "args": ["ci"], "timeout": 600 }],

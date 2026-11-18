@@ -231,9 +231,19 @@ async function planSteps(provider, policy, goal, count) {
   }
 }
 
-function environmentFacts(ctx, repo) {
+function assertWorktreeRootOutside(policy, repo) {
+  if (policy.worktreeRoot === undefined) {
+    return;
+  }
+  const relative = path.relative(repo.root, path.resolve(policy.worktreeRoot));
+  if (relative === '' || (relative.split(path.sep)[0] !== '..' && !path.isAbsolute(relative))) {
+    throw invalid(`worktreeRoot ${policy.worktreeRoot} is inside the repository ${repo.root}; choose a folder outside it`);
+  }
+}
+
+function environmentFacts(ctx, repo, policy) {
   const configFolders = Object.fromEntries(CONFIG_FOLDER_ENV.filter((name) => process.env[name] !== undefined).map((name) => [name, process.env[name]]));
-  return { os: process.platform, configFolders, ...(process.platform === 'win32' ? { paths: pathLengthFacts(ctx, repo.root) } : {}) };
+  return { os: process.platform, configFolders, ...(process.platform === 'win32' ? { paths: pathLengthFacts(ctx, repo.root, policy.worktreeRoot) } : {}) };
 }
 
 function pathLine({ worktreeFolder, longestTrackedPath, longPathsEnabled, gitLongPaths }) {
@@ -249,19 +259,19 @@ function showEnvironment(flags, facts) {
   if (facts.paths) {
     const { worktreeFolder, longestTrackedPath } = facts.paths;
     if (worktreeFolder + longestTrackedPath >= LONG_PATH_LIMIT) {
-      warn(`paths: ${pathLine(facts.paths)}; together they reach ${LONG_PATH_LIMIT} characters, which git and other programs may refuse`);
+      warn(`paths: ${pathLine(facts.paths)}; together they reach ${LONG_PATH_LIMIT} characters, which git and other programs may refuse; a short worktreeRoot in the policy shortens the worktree folder`);
     } else {
       progress(flags, `paths: ${pathLine(facts.paths)}`);
     }
   }
 }
 
-function newWorktree(ctx, repo, facts) {
+function newWorktree(ctx, repo, policy, facts) {
   try {
-    return createWorktree(ctx, crypto.randomUUID(), { root: repo.root, baseCommit: repo.baseCommit });
+    return createWorktree(ctx, crypto.randomUUID(), { root: repo.root, baseCommit: repo.baseCommit, worktreeRoot: policy.worktreeRoot });
   } catch (err) {
     if (facts.paths && /filename too long/i.test(err.message)) {
-      err.message = `${err.message}\n  ${pathLine(facts.paths)}\n  run "git config core.longpaths true" in ${repo.root}, or use shorter paths, and plan again`;
+      err.message = `${err.message}\n  ${pathLine(facts.paths)}\n  run "git config core.longpaths true" in ${repo.root}, or set worktreeRoot in the policy to a short folder, and plan again`;
     }
     throw err;
   }
@@ -326,7 +336,7 @@ async function prepareEnvironment({ provider, policy, worktree, count, facts, si
 }
 
 async function planInTemporaryWorktree(ctx, repo, policy, goal, { signal, retryDelayMs, planningTrace, facts, flags }) {
-  const worktree = newWorktree(ctx, repo, facts);
+  const worktree = newWorktree(ctx, repo, policy, facts);
   try {
     const before = sourceFingerprint(repo.root, { ownWorktree: worktree.name });
     const provider = createProvider({ policy, cwd: worktree.path, signal, retryDelayMs, onDiagnostic: warnFailure, onCall: (data) => planningTrace?.push({ type: 'call.started', ...data }), onResult: (data) => planningTrace?.push({ type: 'call.finished', ...data }) });
@@ -366,6 +376,7 @@ export async function cmdPlan(ctx, flags, { confirm, signal = null, retryDelayMs
   const repo = repository(flags);
   assertClean(repo);
   assertCommandsStart(policy);
+  assertWorktreeRootOutside(policy, repo);
   if (policy.schemaVersion === 2) {
     for (const [id, profile] of Object.entries(policy.agents)) {
       progress(flags, `agent ${id}: ${commandLine(profile.command, profile.args)}; model ${profile.model}; roles ${profile.allowedRoles.join(', ')}; env names ${profile.env.join(', ')}`);
@@ -376,7 +387,10 @@ export async function cmdPlan(ctx, flags, { confirm, signal = null, retryDelayMs
     progress(flags, `planner command: ${commandLine(policy.provider.command, policy.provider.roleArgs.planner || policy.provider.args)}`);
   }
   progress(flags, `repository: ${repo.root} at ${repo.baseCommit}`);
-  const facts = environmentFacts(ctx, repo);
+  if (policy.worktreeRoot !== undefined) {
+    progress(flags, `worktrees: in ${policy.worktreeRoot}`);
+  }
+  const facts = environmentFacts(ctx, repo, policy);
   showEnvironment(flags, facts);
   const repairs = environmentRepairLimit(policy.limits);
   const repairText = repairs > 0 ? `up to ${repairs} environment repairs by the coder command, each followed by the setup commands and checks again` : 'no environment repair, and planning stops before the planner';
@@ -552,13 +566,13 @@ function describeRun(flags, stored, repo, extension = null) {
 function openWorkspace(ctx, handle, run, repo) {
   const created = run.events.find((e) => e.type === 'workspace.created');
   if (created) {
-    const dir = worktreePath(ctx, run.runId);
+    const dir = worktreePath(ctx, run.runId, run.policy.worktreeRoot);
     if (!fs.existsSync(dir)) {
       throw Object.assign(new Error(`the worktree of run ${run.runId} no longer exists at ${dir}; make a new plan`), { code: 'E_WORKFLOW_WORKSPACE' });
     }
     return { ...readArtifact(handle, created.data.artifact), path: fs.realpathSync.native(dir) };
   }
-  const worktree = createWorktree(ctx, run.runId, { root: repo.root, baseCommit: run.plan.baseCommit });
+  const worktree = createWorktree(ctx, run.runId, { root: repo.root, baseCommit: run.plan.baseCommit, worktreeRoot: run.policy.worktreeRoot });
   const artifact = writeArtifact(handle, 'workspace', { name: worktree.name, baseCommit: worktree.baseCommit, gitFileHash: worktree.gitFileHash });
   commitRun(handle, 'workspace.created', { artifact: artifact.name, path: worktree.path, treeKillSupported: TREE_KILL_SUPPORTED, treeKillMethod: TREE_KILL_METHOD });
   return worktree;
