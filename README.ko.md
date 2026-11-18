@@ -248,6 +248,8 @@ v1 정책과 기존 v1 기록의 명령·해시·보고 계약은 유지합니�
 | `sync` | 설정 저장소(와 team 레이어)를 `git pull --ff-only`한 뒤 적용한다 |
 | `sync --select` / `sync --projects a,b` | 고른 프로젝트나 `extends:<이름>` 저장소만 내려받는다. 설정은 적용하지 않는다 |
 | `status` | 관리 중인 파일과 바깥에서 바뀐 항목을 보여 준다 |
+| `compare capture --out <새 파일>` | 이 PC의 사용자 범위 관리 설정을 공유용 보고서로 저장한다 |
+| `compare diff <A> <B> [--json]` | 저장한 두 보고서를 오프라인에서 비교한다 |
 | `show [layer] [--json]` | 레이어별로 들어 있는 규칙·스킬·MCP 서버·설정 키·파일과 받는 에이전트를 보여 준다. 프로젝트는 한 줄 요약으로 보여 준다 |
 | `project list / init / detect / plan / apply / purge` | project 레이어를 다룬다 |
 | `secrets list / check / set / get / delete` | 비밀값을 다룬다 |
@@ -259,6 +261,20 @@ v1 정책과 기존 v1 기록의 명령·해시·보고 계약은 유지합니�
 | `uninstall` | 에이전트용으로 쓴 파일, 블록, 키를 지운다. 상태 파일, 백업, workflow 기록이 있는 `~/.agent-layers/`는 남고, Codex `config.toml` 같은 TOML 설정 파일의 빈 테이블 헤더도 남는다 |
 
 공통 옵션은 `--only a,b`, `--skip a,b`, `--source <dir>`, `--home <dir>`(임시 홈 폴더로 시험), `--json`, `--quiet`입니다.
+
+## 두 PC의 적용 결과 비교
+
+설정 저장소 밖에서 Windows PC는 첫 번째 명령을, Linux PC는 두 번째 명령을 실행합니다. 한쪽 보고서를 다른 PC로 복사한 뒤 세 번째 명령을 실행합니다.
+
+```sh
+agent-layers compare capture --out windows.json
+agent-layers compare capture --out linux.json
+agent-layers compare diff windows.json linux.json
+```
+
+각 PC에서 관리 파일, 관리 블록, JSON 키와 TOML 설정을 마지막 적용 기록 및 현재 설정 원본과 각각 대조합니다. 공유 파일에는 관리 항목 이름, 판정, 현재 Git 커밋이 들어갑니다. 디렉터리 단위 스킬과 Claude 전용 MCP 기록은 제외 건수로 표시합니다. 비밀값을 읽어야 판정할 수 있는 항목은 미확인으로 표시합니다. 수집할 때는 새 파일 이름을 지정합니다.
+
+자동화에서는 `compare diff` 뒤에 `--json`을 붙입니다. 종료 코드 0은 검사 범위 내 차이 없음, 1은 확인된 차이 또는 로컬 변경, 2는 입력·파일 오류, 3은 비교 근거 부족입니다. 검사 범위는 디스크에 있는 설정까지이며 도구 세션에서 읽었는지는 미확인입니다.
 
 ## MD 검토와 검증 룰 관리
 

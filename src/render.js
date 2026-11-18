@@ -107,7 +107,7 @@ function cachedScreenshotsDir(ctx) {
   return SCREENSHOTS.get(ctx);
 }
 
-export function buildVars(ctx, manifest, project = null, root = null) {
+export function buildVars(ctx, manifest, project = null, root = null, { screenshotPath } = {}) {
   const builtin = {
     home: ctx.paths.home,
     os: ctx.os,
@@ -127,7 +127,7 @@ export function buildVars(ctx, manifest, project = null, root = null) {
     kimiHome: ctx.paths.kimiHome,
     grokHome: ctx.paths.grokHome,
     homeSlash: ctx.paths.home.replace(/\\/g, '/'),
-    screenshotsDir: cachedScreenshotsDir(ctx),
+    screenshotsDir: screenshotPath ?? cachedScreenshotsDir(ctx),
   };
   const raw = deepMerge(deepMerge(manifest.vars || {}, ctx.config.vars || {}), project ? project.vars || {} : {});
   const scope = { ...builtin };
@@ -512,10 +512,9 @@ export function gitDir(root) {
   return null;
 }
 
-export function renderScope(ctx, { scope, manifest, merged, adapters, project = null, root = null, resolveSecret = null }) {
+export function renderScope(ctx, { scope, manifest, merged, adapters, project = null, root = null, resolveSecret = null, vars = buildVars(ctx, manifest, project, root) }) {
   const out = new Outputs(scopeKeyOf(scope, project ? project.name : null, root));
   const opts = manifest.options;
-  const vars = buildVars(ctx, manifest, project, root);
   const p = ctx.paths;
   const os = ctx.os;
   const mode = project ? project.mode : null;

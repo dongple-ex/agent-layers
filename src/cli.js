@@ -4,7 +4,7 @@ import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { createContext, hasSource } from './context.js';
 import { loadManifest, listProjects, getProject, projectSources, PROJECT_NAME_RE } from './manifest.js';
-import { loadLayer, mergeLayers } from './layers.js';
+import { loadLayer, loadUserLayers, mergeLayers } from './layers.js';
 import { ADAPTERS, getAdapter } from './adapters/registry.js';
 import { renderScope, resolveTargets, detectAdapters, gitDir, normalizeKey, trackedFiles, escapeGitIgnorePath } from './render.js';
 import { buildPlan, applyPlan, summarize, pending, describeItem } from './engine.js';
@@ -147,25 +147,6 @@ async function promptHidden(question) {
   });
 }
 
-function loadUserLayers(ctx, manifest) {
-  const layers = [];
-  for (const e of manifest.extends) {
-    if (!e.dir) {
-      continue;
-    }
-    if (!isDir(e.dir)) {
-      if (e.optional) {
-        warn(`extends layer "${e.name}" not found at ${e.dir}; skipped`);
-        continue;
-      }
-      throw new Error(`extends layer "${e.name}" not found at ${e.dir}${e.git ? ` (clone ${e.git} there, or run "agent-layers sync")` : ''}`);
-    }
-    layers.push(loadLayer(e.dir, e.name, ctx.os));
-  }
-  layers.push(loadLayer(manifest.baseDir, 'base', ctx.os));
-  return layers;
-}
-
 function prepare(ctx) {
   if (!hasSource(ctx)) {
     throw new Error(`no setup repository at ${ctx.sourceDir}. Run "agent-layers init" (new) or "agent-layers init --from <git-url>" (existing), or pass --source <dir>.`);
@@ -271,7 +252,7 @@ function printResults(ctx, results, plan) {
 }
 
 function userRender(ctx, manifest, flags) {
-  const layers = loadUserLayers(ctx, manifest);
+  const layers = loadUserLayers(ctx, manifest, warn);
   assertKnownTargets(ctx, layers);
   const merged = mergeLayers(layers);
   const adapters = resolveTargets(ctx, manifest, { only: list(flags.only), skip: list(flags.skip) });
@@ -481,7 +462,7 @@ function cmdShow(ctx, flags, positional) {
   const only = list(flags.only);
   const skip = list(flags.skip);
   const userAgents = resolveTargets(ctx, manifest, { only, skip }).map((a) => a.id);
-  const userViews = loadUserLayers(ctx, manifest).map((l) => ({ ...summarizeLayer(l), resolvedAgents: userAgents }));
+  const userViews = loadUserLayers(ctx, manifest, warn).map((l) => ({ ...summarizeLayer(l), resolvedAgents: userAgents }));
   const projectView = (p) => ({
     ...summarizeLayer(loadLayer(p.dir, `project:${p.name}`, ctx.os)),
     resolvedAgents: resolveTargets(ctx, manifest, { project: p, only, skip }).map((a) => a.id),
@@ -1197,6 +1178,8 @@ Setup
   doctor [--strict]                   check this machine, found agents and risky configs; --strict also fails on warnings
   agents                              list supported agents by tier and where they read config
   show [layer] [--json]               list what each layer holds and which agents receive it
+  compare capture --out <new-file>    save a shareable report of managed user settings on this PC
+  compare diff <A> <B> [--json]       compare two saved reports offline
   validate [--strict]                 lint the setup repository (skills, MCP, secrets)
   review [--packet] [--json] [--strict]  read-only MD checks and pending AI review tasks
   review --compare <rules.jsonc>       preview changed review results without writing
@@ -1259,6 +1242,10 @@ export async function main(argv) {
   if (!cmd || flags.help || flags.h || cmd === 'help') {
     info(HELP);
     return 0;
+  }
+  if (cmd === 'compare') {
+    const { compareCommand } = await import('./compare/cli.js');
+    return compareCommand(positional, flags, rest, PKG.version);
   }
   const ctx = createContext({ home: flags.home ? path.resolve(String(flags.home)) : undefined, source: flags.source ? path.resolve(String(flags.source)) : undefined, flags });
   switch (cmd) {

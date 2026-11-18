@@ -316,6 +316,8 @@ V1 policies and existing v1 runs keep their command, hash and report contracts. 
 | `sync` | `git pull --ff-only` the setup repository (and team layers), then apply |
 | `sync --select` / `sync --projects a,b` | download only the chosen projects or `extends:<name>` repositories; applies nothing |
 | `status` | managed outputs and drift |
+| `compare capture --out <new-file>` | save a shareable report of this PC's managed user settings |
+| `compare diff <A> <B> [--json]` | compare two saved reports offline |
 | `show [layer] [--json]` | what each layer holds (instructions, skills, MCP servers, setting keys, files) and which agents receive it; projects as one-line summaries |
 | `project list / init / detect / plan / apply / purge` | project layers |
 | `secrets list / check / set / get / delete` | secrets |
@@ -327,6 +329,20 @@ V1 policies and existing v1 runs keep their command, hash and report contracts. 
 | `uninstall` | remove the files, blocks and keys written for your agents. `~/.agent-layers/` stays (state, backups, workflow records), and so do empty table headers in TOML settings files such as Codex `config.toml` |
 
 Common options: `--only a,b`, `--skip a,b`, `--source <dir>`, `--home <dir>` (sandbox), `--json`, `--quiet`.
+
+## Compare two PCs
+
+Run the first command on Windows and the second on Linux, in a folder outside the setup repository. Copy one report to the other PC and run the third command there.
+
+```sh
+agent-layers compare capture --out windows.json
+agent-layers compare capture --out linux.json
+agent-layers compare diff windows.json linux.json
+```
+
+Each PC checks its managed files, blocks, JSON keys and TOML settings against its last apply and its current setup. The report shares item names, statuses and current Git revisions. Skill directories and dedicated Claude MCP records appear as excluded counts. Items that require reading secrets are marked unknown. Capture requires a new output filename.
+
+For automation, append `--json` to `compare diff`. Exit codes are 0 for no findings, 1 for confirmed differences or local drift, 2 for invalid input or file errors, and 3 for insufficient evidence. The report describes configuration on disk. Agent session loading is unverified.
 
 ## Markdown review
 
