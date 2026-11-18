@@ -1,0 +1,22 @@
+1	통과	workflow provider: the AI CLI config folder variables reach the command without being named
+2	통과	workflow plan: an environment the checks reject is repaired by the AI CLI before the planner, and the checks run again
+3	통과	workflow plan: a repair that needs a person stops the plan with the failed command and the AI answer, and makes no run
+4	통과	workflow plan: repairs stop at limits.maxEnvironmentRepairs, which is 2 when not set, and 0 stops at the first failure without a call
+5	통과	workflow plan: what a repair changes inside the worktree, ignored files included, is undone before the checks run again
+6	통과	workflow plan: the confirmation names the preparation, and a failed setup command reaches the repair request with the account folders
+7	건너뜀	workflow plan: on Windows a tracked path too long for the worktree is named before planning
+8	통과	workflow plan: a setup command or a check that cannot start at the base commit stops the plan with exit 127 before the planner
+9	통과	v2: an environment repair before the planner runs on the coder agent, and the plan follows
+10	통과	v2: an arbiter scope change reaches the planner prompt and the coder of the next attempt
+11	통과	workflow engine: an arbiter may add a path of another step, and the coder gets it with the reason
+12	통과	workflow engine: a scope change the program cannot accept stays BLOCKED, records the paths and calls no coder
+13	통과	workflow engine: a second scope change past maxScopeWidenings stays BLOCKED, and the ruling sees the first one
+14	통과	workflow engine: addWritePaths in a bad shape or with another status makes the arbiter result invalid
+15	통과	workflow engine: a scope change asked for in review-fix stays BLOCKED
+16	통과	workflow engine: a finding on a borrowed path makes both steps owners of the review fix
+17	통과	workflow engine: after a scope change, an interrupted coder resumes with the added paths and the note
+18	통과	workflow run: an arbiter scope change lets the stopped step change a file of a later step in the worktree
+19	통과	workflow run: without maxScopeWidenings the same ruling stays BLOCKED, and the plan refuses it without rulings
+20	통과	workflow resume: a coder cut off while changing a borrowed file resumes, because the added paths are in scope
+21	통과	workflow policy: maxScopeWidenings is stored only when set, is 0 otherwise, and needs maxBlockedRulings
+22	통과	workflow store: write paths an arbiter added belong to work steps, hold relative paths and survive a reread
