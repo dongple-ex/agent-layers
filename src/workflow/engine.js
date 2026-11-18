@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
-import { validateRoleResult, learnedConstraintsIssue, pathCovers, blockedRulingLimit, baselineMatches, RESULT_STATUSES } from './schema.js';
+import { validateRoleResult, learnedConstraintsIssue, addWritePathsIssue, normalizeRelativePath, pathCovers, blockedRulingLimit, scopeWideningLimit, baselineMatches, RESULT_STATUSES } from './schema.js';
 import { downstreamOf, REVIEW_STEP_ID, AUDIT_STEP_ID } from './graph.js';
 import { assignedAgent } from './assignment.js';
 import {
   readRun, commitRun, writeArtifact, readArtifact, chargeAgentCall, addActiveSeconds, addRepairAttempt,
-  recordFailure, clearFailure, remainingBudget, sanitizeEventData, REVIEW_FIX_TARGET,
+  recordFailure, clearFailure, remainingBudget, sanitizeEventData, addedWritePaths, addStepWritePaths, REVIEW_FIX_TARGET,
 } from './store.js';
 
 const TERMINAL_RUN_STATUSES = ['SUCCEEDED', 'FAILED', 'CANCELLED'];
@@ -421,12 +421,23 @@ async function callRole(rt, req) {
 }
 
 function resultIssues(rt, req, result) {
-  const learned = rt.policy.schemaVersion === 2 && result !== null && typeof result === 'object' && !Array.isArray(result) && Object.hasOwn(result, 'learnedConstraints');
-  const body = learned ? Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'learnedConstraints')) : result;
+  const plain = result !== null && typeof result === 'object' && !Array.isArray(result);
+  const learned = rt.policy.schemaVersion === 2 && plain && Object.hasOwn(result, 'learnedConstraints');
+  const widen = req.role === 'arbiter' && plain && Object.hasOwn(result, 'addWritePaths');
+  const body = learned || widen ? Object.fromEntries(Object.entries(result).filter(([key]) => !(learned && key === 'learnedConstraints') && !(widen && key === 'addWritePaths'))) : result;
   const issues = validateRoleResult(body, { stepIds: rt.stepIds }).map((i) => `${i.where}: ${i.msg}`);
   const learnedIssue = learned ? learnedConstraintsIssue(result.learnedConstraints) : null;
   if (learnedIssue) {
     issues.push(`learnedConstraints: ${learnedIssue}`);
+  }
+  if (widen) {
+    const widenIssue = addWritePathsIssue(result.addWritePaths);
+    if (widenIssue) {
+      issues.push(`addWritePaths: ${widenIssue}`);
+    }
+    if (result.status !== 'needs_changes') {
+      issues.push('addWritePaths: is allowed only with the status needs_changes');
+    }
   }
   if (result !== null && typeof result === 'object' && !Array.isArray(result)) {
     if (result.stepId !== req.stepId) {
@@ -515,27 +526,84 @@ function resumedFeedback(rt, id) {
   return failures.length > 0 ? { failures, ...note } : note;
 }
 
+function stepWritePaths(rt, id) {
+  return [...new Set([...rt.byId.get(id).writePaths, ...addedWritePaths(rt.handle.state, id)])];
+}
+
+function ownedWritePaths(rt) {
+  return rt.work.map((s) => ({ id: s.id, writePaths: stepWritePaths(rt, s.id) }));
+}
+
+function scopeChangeOf(rt, id) {
+  const added = addedWritePaths(rt.handle.state, id);
+  if (added.length === 0) {
+    return null;
+  }
+  const ruled = readRun(rt.handle.ctx, rt.handle.runId).events.findLast((e) => e.type === 'blocked.ruled' && e.data.stepId === id && e.data.ruling === 'widen');
+  if (!ruled) {
+    throw new Error(`the state adds write paths to step ${id}, but events.jsonl has no widen ruling for it`);
+  }
+  return { addedWritePaths: added, reason: readArtifact(rt.handle, ruled.data.artifact).result.summary };
+}
+
+function widenRefusal(rt, { stepId, writePaths, paths, widenings }) {
+  const asked = `the arbiter asked to add ${paths.join(', ')}, but`;
+  if (stepId === REVIEW_FIX_TARGET) {
+    return { paths, message: `${asked} the write paths of ${REVIEW_FIX_TARGET} are not changed` };
+  }
+  if (widenings.limit === 0) {
+    return { paths, message: `${asked} maxScopeWidenings is 0` };
+  }
+  if (widenings.used >= widenings.limit) {
+    return { paths, message: `${asked} maxScopeWidenings (${widenings.limit}) is used up` };
+  }
+  if (remainingBudget(rt.handle.state, rt.limits).repairAttempts(stepId) <= 0) {
+    return { paths, message: `${asked} maxRepairAttempts is used up` };
+  }
+  const refused = [];
+  for (const p of paths) {
+    const why = writePaths.some((w) => pathCovers(w, p)) ? 'the step may already change'
+      : rt.policy.protectedPaths.some((b) => pathCovers(b, p)) ? 'is a protected path'
+        : rt.policy.checks.some((c) => c.inputs.some((i) => pathCovers(i, p))) ? 'a check lists in its inputs'
+          : rt.work.some((s) => s.id !== stepId && s.writePaths.some((w) => pathCovers(w, p))) ? null : 'no other step of this plan may change';
+    if (why) {
+      refused.push({ path: p, why });
+    }
+  }
+  return refused.length === 0 ? null : { paths: refused.map((r) => r.path), message: `the arbiter asked for ${refused.map((r) => `${r.path}, which ${r.why}`).join('; ')}` };
+}
+
 async function ruleOnBlocked(rt, { id, stepId, attempt, instruction, acceptance, writePaths, checkIds, feedback, blocked }) {
   const uphold = (why) => stopStep(rt, id, 'BLOCKED', 'role-blocked', `${stepId === id ? 'the coder' : stepId} needs input (${blocked.needsInput.length} items)${why}`);
-  const used = readRun(rt.handle.ctx, rt.handle.runId).events.filter((e) => e.type === 'blocked.ruled').length;
-  if (used >= blockedRulingLimit(rt.limits) || limitReached(rt)) {
+  const rulings = readRun(rt.handle.ctx, rt.handle.runId).events.filter((e) => e.type === 'blocked.ruled');
+  if (rulings.length >= blockedRulingLimit(rt.limits) || limitReached(rt)) {
     return uphold('');
   }
   const checks = await runChecks(rt, id, checkIds);
   if (!checks) {
     return false;
   }
-  const laterSteps = rt.work.filter((s) => s.id !== stepId && rt.handle.state.steps[s.id].status !== 'SUCCEEDED').map((s) => ({ id: s.id, writePaths: s.writePaths, acceptance: s.acceptance }));
-  const req = { role: 'arbiter', stepId, statusId: id, attempt, goal: rt.plan.goal, instruction, acceptance, writePaths, blocked: { summary: blocked.summary, findings: blocked.findings, needsInput: blocked.needsInput }, checkFailures: checks.failures, laterSteps, feedback };
+  const laterSteps = rt.work.filter((s) => s.id !== stepId && rt.handle.state.steps[s.id].status !== 'SUCCEEDED').map((s) => ({ id: s.id, writePaths: stepWritePaths(rt, s.id), acceptance: s.acceptance }));
+  const widenings = { used: rulings.filter((e) => e.data.ruling === 'widen').length, limit: scopeWideningLimit(rt.limits) };
+  const scope = widenings.limit > 0 ? { stepWritePaths: ownedWritePaths(rt), scopeWidenings: widenings } : {};
+  const req = { role: 'arbiter', stepId, statusId: id, attempt, goal: rt.plan.goal, instruction, acceptance, writePaths, blocked: { summary: blocked.summary, findings: blocked.findings, needsInput: blocked.needsInput }, checkFailures: checks.failures, laterSteps, feedback, ...scope };
   const call = await callRole(rt, req);
   if (!call) {
     return false;
   }
   const valid = resultIssues(rt, req, call.result).length === 0;
   const status = valid ? call.result.status : null;
-  const ruling = status === 'needs_changes' ? 'retry' : status === 'completed' && checks.failures.length === 0 ? 'proceed' : 'uphold';
+  const asked = valid && Object.hasOwn(call.result, 'addWritePaths') ? [...new Set(call.result.addWritePaths.map(normalizeRelativePath))] : null;
+  const refusal = asked ? widenRefusal(rt, { stepId, writePaths, paths: asked, widenings }) : null;
+  const ruling = asked ? (refusal ? 'uphold' : 'widen') : status === 'needs_changes' ? 'retry' : status === 'completed' && checks.failures.length === 0 ? 'proceed' : 'uphold';
   const artifact = writeArtifact(rt.handle, `ruling-${rt.handle.state.lastSeq}`, { role: 'arbiter', stepId, attempt, result: call.result === undefined ? null : call.result });
-  commit(rt, 'blocked.ruled', { role: 'arbiter', stepId, attempt, valid, status, ruling, artifact: artifact.name, sha256: artifact.sha256 });
+  const widened = !asked ? {} : refusal ? { rejectedWritePaths: refusal.paths, reason: refusal.message } : { addWritePaths: asked };
+  commit(rt, 'blocked.ruled', { role: 'arbiter', stepId, attempt, valid, status, ruling, ...widened, artifact: artifact.name, sha256: artifact.sha256 }, ruling === 'widen' ? (n) => {
+    addStepWritePaths(n, stepId, asked);
+  } : null);
+  if (refusal) {
+    return uphold(`; ${refusal.message}; see artifacts/${artifact.name}`);
+  }
   if (ruling === 'uphold') {
     return uphold(`; ${!valid ? 'the arbiter result was not valid' : status === 'blocked' ? 'the arbiter agreed' : `the arbiter saw the step as done, but ${failureText(checks.failures)}`}; see artifacts/${artifact.name}`);
   }
@@ -562,7 +630,9 @@ async function runWorkStep(rt, step) {
     }
     markReady(rt, id);
     const attempt = startStep(rt, id);
-    const req = { role: 'coder', stepId: id, statusId: id, attempt, goal: rt.plan.goal, instruction: step.instruction, acceptance: step.acceptance, writePaths: step.writePaths, feedback };
+    const writePaths = stepWritePaths(rt, id);
+    const scope = scopeWideningLimit(rt.limits) > 0 ? { scopeChange: scopeChangeOf(rt, id) } : {};
+    const req = { role: 'coder', stepId: id, statusId: id, attempt, goal: rt.plan.goal, instruction: step.instruction, acceptance: step.acceptance, writePaths, ...scope, feedback };
     const call = await callRole(rt, req);
     if (!call) {
       return false;
@@ -572,7 +642,7 @@ async function runWorkStep(rt, step) {
       return stopStep(rt, id, 'BLOCKED', 'invalid-result', `invalid coder result: ${issues.join('; ')}`);
     }
     if (call.result.status === 'blocked') {
-      const ruled = await ruleOnBlocked(rt, { id, stepId: id, attempt, instruction: step.instruction, acceptance: step.acceptance, writePaths: step.writePaths, checkIds: step.checkIds, feedback, blocked: call.result });
+      const ruled = await ruleOnBlocked(rt, { id, stepId: id, attempt, instruction: step.instruction, acceptance: step.acceptance, writePaths, checkIds: step.checkIds, feedback, blocked: call.result });
       if (!ruled) {
         return false;
       }
@@ -769,7 +839,7 @@ function fixOwners(findings, work) {
 }
 
 async function reviewFix(rt, id, role, findings, artifact) {
-  const scope = fixOwners(findings, rt.work);
+  const scope = fixOwners(findings, ownedWritePaths(rt));
   if (scope.outside) {
     return stopStep(rt, id, 'BLOCKED', 'finding-out-of-scope', `finding ${scope.outside.code} at ${scope.outside.path} is outside every step's writePaths`);
   }
@@ -796,7 +866,7 @@ async function resumeReviewFix(rt, pending) {
   if (saved.stepId !== pending.stepId || !Array.isArray(findings)) {
     throw new Error(`artifact ${pending.artifact} does not hold the ${pending.role} findings for ${REVIEW_FIX_TARGET}`);
   }
-  const scope = fixOwners(findings, rt.work);
+  const scope = fixOwners(findings, ownedWritePaths(rt));
   if (scope.outside) {
     throw new Error(`artifact ${pending.artifact} has a finding outside every step's writePaths`);
   }

@@ -533,6 +533,12 @@ agent-layers workflow report <run-id>
   - 판정이 `blocked`이거나, 판정 결과가 올바른 형식이 아니거나, 검사가 실패한 상태의 `completed`이면 `BLOCKED`로 멈춥니다. 판정 기록은 `artifacts/ruling-*.json`에 남습니다.
   - 이 값이 0이면 Coder가 `blocked`를 반환하는 즉시 `BLOCKED`로 멈춥니다. `run`과 `resume`의 확인 화면은 이 값이 1 이상일 때 함께 보여 줍니다.
   - 이 판정은 모의 CLI 프로세스로만 시험했습니다.
+- `limits.maxScopeWidenings`는 선택 항목이며, 정하지 않으면 0입니다. `maxBlockedRulings`가 1 이상일 때만 쓸 수 있고, `maxBlockedRulings`가 0이면 정책을 거부하고 종료 코드 2로 끝납니다.
+  - Coder가 `blocked`로 멈췄고, 그 단계의 검사를 통과하려면 같은 계획의 다른 단계가 고칠 수 있는 파일을 고쳐야 하면, `arbiter`가 그 파일을 멈춘 단계의 쓰기 범위에 더하라고 판정할 수 있습니다. 이 값은 한 실행에서 그런 판정을 몇 번까지 받아들일지 정합니다.
+  - 받아들이면 수정 시도 1번을 써서 Coder를 다시 호출합니다. 계획 파일과 정책의 쓰기 경로는 바뀌지 않습니다.
+  - 계획의 어느 단계에도 없는 경로, 보호 경로, 검사의 `inputs`에 속한 경로는 더하지 않고 `BLOCKED`로 멈춥니다. 수정 시도나 이 한도가 남지 않았을 때와 `review-fix`에서도 같습니다. 이유는 그 단계의 마지막 오류에 남습니다.
+  - 더한 경로는 `workflow status`와 `workflow report`의 단계 정보, `artifacts/ruling-*.json`에 남습니다. `run`과 `resume`의 확인 화면은 이 값이 1 이상일 때 함께 보여 줍니다.
+  - 이 조정은 모의 CLI 프로세스로만 시험했습니다.
 - `plan`은 Planner를 호출하기 전에, 임시 worktree에서 준비 명령과 모든 검사를 기준 커밋 상태로 한 번 실행합니다. 사용자 권한으로 실행됩니다. 그 전에 작업자에게 넘길 AI CLI 설정 폴더를 보여 주고, Windows에서는 worktree 폴더와 가장 긴 추적 파일 경로의 길이, `LongPathsEnabled`와 `core.longpaths` 설정을 보여 줍니다. 두 길이의 합이 260자에 닿으면 경고합니다.
 - `limits.maxEnvironmentRepairs`는 선택 항목이며, 정하지 않으면 2입니다. 준비 명령이나 검사가 정책이 기대한 결과를 내지 않으면, `environment` 역할이 Coder의 명령으로 AI CLI를 실행해 그 명령이 가진 권한 안에서 환경을 고칩니다. 복구 1번은 `maxAgentCalls`에 포함됩니다.
   - 복구가 끝날 때마다 worktree를 git이 무시하는 파일까지 기준 커밋 상태로 되돌리고, 준비 명령과 검사를 다시 실행합니다. 실행은 새 worktree에서 시작하므로 worktree 안에서 고친 것은 남지 않습니다.

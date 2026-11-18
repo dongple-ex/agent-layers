@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseJsonc } from '../src/formats/jsonc.js';
-import { normalizePolicy, validatePlan, validateRoleResult, relativePathIssue, pathCovers, hashJson, blockedRulingLimit, DEFAULT_LIMITS } from '../src/workflow/schema.js';
+import { normalizePolicy, validatePlan, validateRoleResult, relativePathIssue, pathCovers, hashJson, blockedRulingLimit, scopeWideningLimit, DEFAULT_LIMITS } from '../src/workflow/schema.js';
 
 function rawPolicy(extra = {}) {
   return {
@@ -402,4 +402,23 @@ test('workflow hash: key order does not change the hash and non-JSON values are 
   assert.notEqual(hashJson(a), hashJson({ ...a, b: 2 }));
   assert.throws(() => hashJson({ a: undefined }), /value\.a: undefined cannot be hashed/);
   assert.throws(() => hashJson({ a: Number.NaN }), /non-finite/);
+});
+
+test('workflow policy: maxScopeWidenings is stored only when set, is 0 otherwise, and needs maxBlockedRulings', () => {
+  const plain = policyOf({});
+  assert.equal(Object.hasOwn(plain.limits, 'maxScopeWidenings'), false);
+  assert.equal(scopeWideningLimit(plain.limits), 0);
+  const policy = policyOf({ limits: { maxBlockedRulings: 1, maxScopeWidenings: 2 } });
+  assert.deepEqual(policy.limits, { ...DEFAULT_LIMITS, maxBlockedRulings: 1, maxScopeWidenings: 2 });
+  assert.equal(scopeWideningLimit(policy.limits), 2);
+  assert.deepEqual(normalizePolicy(policy).policy, policy);
+  assert.equal(scopeWideningLimit(policyOf({ limits: { maxScopeWidenings: 0 } }).limits), 0);
+  assert.equal(scopeWideningLimit(policyOf({ limits: { maxBlockedRulings: 1 }, exceptions: [{ id: 'rule', kind: 'replace-limit', limit: 'maxScopeWidenings', value: 1 }] }).limits), 1);
+  for (const bad of [-1, 1.5, '1']) {
+    assert.deepEqual(wheres(normalizePolicy(rawPolicy({ limits: { maxBlockedRulings: 1, maxScopeWidenings: bad } })).issues), ['limits.maxScopeWidenings'], String(bad));
+  }
+  const needs = { where: 'limits.maxScopeWidenings', msg: 'needs maxBlockedRulings of 1 or more, because only an arbiter ruling adds write paths' };
+  assert.deepEqual(normalizePolicy(rawPolicy({ limits: { maxScopeWidenings: 1 } })).issues, [needs]);
+  assert.deepEqual(normalizePolicy(rawPolicy({ limits: { maxScopeWidenings: 1, maxBlockedRulings: 0 } })).issues, [needs]);
+  assert.deepEqual(normalizePolicy(rawPolicy({ limits: { maxScopeWidenings: 1, maxBlockedRulings: 1 }, exceptions: [{ id: 'off', kind: 'replace-limit', limit: 'maxBlockedRulings', value: 0 }] })).issues, [needs]);
 });

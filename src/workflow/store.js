@@ -4,7 +4,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { stringifyJson } from '../formats/jsonc.js';
 import { sha256, sleepSync } from '../util/fsx.js';
-import { normalizePolicy, validatePlan, hashJson, assertJsonValue, programPlanFields, STEP_STATUSES, RUN_STATUSES, SCHEMA_VERSION } from './schema.js';
+import { normalizePolicy, validatePlan, hashJson, assertJsonValue, programPlanFields, relativePathIssue, STEP_STATUSES, RUN_STATUSES, RESERVED_STEP_IDS, SCHEMA_VERSION } from './schema.js';
 import { withProgramSteps, topologicalOrder } from './graph.js';
 import { canonicalAssignmentPlan, makeAssignments, policyInput } from './assignment.js';
 
@@ -279,7 +279,7 @@ export function policySecretIssues(policy) {
 
 function childScope(scope, key) {
   if (scope === 'root') {
-    return key === 'steps' ? 'ids' : key === 'budget' ? 'budget' : 'plain';
+    return key === 'steps' || key === 'addedWritePaths' ? 'ids' : key === 'budget' ? 'budget' : 'plain';
   }
   if (scope === 'budget') {
     return key === 'repairAttempts' ? 'ids' : 'plain';
@@ -546,6 +546,21 @@ export function stateIssues(state, order) {
     const e = b.extended;
     if (e === null || typeof e !== 'object' || Array.isArray(e) || EXTENDABLE_BUDGETS.some((k) => !Number.isSafeInteger(e[k]) || e[k] < 0)) {
       issues.push(`budget.extended must have ${EXTENDABLE_BUDGETS.join(' and ')} as integers of 0 or more`);
+    }
+  }
+  if (state.addedWritePaths !== undefined) {
+    const added = state.addedWritePaths;
+    if (added === null || typeof added !== 'object' || Array.isArray(added)) {
+      issues.push('addedWritePaths must be an object of work step ids');
+    } else {
+      for (const [id, paths] of Object.entries(added)) {
+        if (!ids.includes(id) || RESERVED_STEP_IDS.includes(id)) {
+          issues.push(`addedWritePaths has unknown work step "${id}"`);
+        }
+        if (!Array.isArray(paths) || paths.length === 0 || paths.some((p) => relativePathIssue(p) !== null)) {
+          issues.push(`addedWritePaths.${id} must be a non-empty array of relative paths`);
+        }
+      }
     }
   }
   issues.push(...secretFieldIssues(state, 'state'));
@@ -1034,6 +1049,18 @@ export function addRepairAttempt(state, target) {
     throw new Error(`addRepairAttempt: unknown target "${target}"`);
   }
   state.budget.repairAttempts[target] = repairCount(state, target) + 1;
+}
+
+export function addedWritePaths(state, id) {
+  const added = state.addedWritePaths;
+  return added !== undefined && Object.prototype.hasOwnProperty.call(added, id) ? [...added[id]] : [];
+}
+
+export function addStepWritePaths(state, id, paths) {
+  if (!state.order.includes(id) || RESERVED_STEP_IDS.includes(id)) {
+    throw new Error(`addStepWritePaths: unknown work step "${id}"`);
+  }
+  state.addedWritePaths = { ...(state.addedWritePaths || {}), [id]: [...new Set([...addedWritePaths(state, id), ...paths])] };
 }
 
 export function recordFailure(state, signature) {

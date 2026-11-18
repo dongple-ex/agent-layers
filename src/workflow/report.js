@@ -1,4 +1,4 @@
-import { extendedBudget, remainingBudget } from './store.js';
+import { addedWritePaths, extendedBudget, remainingBudget } from './store.js';
 
 const NOT_GUARANTEED = [
   'isolation: sandboxing is left to the AI CLI and the policy, and setup commands and checks run with your permissions',
@@ -15,7 +15,7 @@ const STOP_HINTS = {
   maxAgentCalls: 'the run used every approved AI CLI call, and no check or review failed because of that. See which steps are left, then either approve more calls with workflow resume <run-id> --add-agent-calls <n>, which continues in the same worktree, or make a new plan',
   runTimeoutSeconds: 'the run used all of its approved active time, and no check or review failed because of that. See which steps are left, then either approve more time with workflow resume <run-id> --add-seconds <n>, which continues in the same worktree, or make a new plan',
   transport: "the AI CLI call kept ending with an error; the step's last error has the code, and artifacts/call-failed-* in the run folder keep the output. Fix the cause, then run workflow resume, which continues in the same worktree; with the same error it stops again after one more call. A run keeps the policy it was planned with, so a wrong command or argument in the policy needs a new plan",
-  'role-blocked': `an AI role needs an answer; see result.needsInput in its file in the artifacts list, and put the answer in the goal. ${NEW_PLAN_ONLY_NOTE}`,
+  'role-blocked': `an AI role needs an answer; see result.needsInput in its file in the artifacts list, and put the answer in the goal. If the arbiter asked for a path that no other step of the plan may change, the path is in the step's last error; give it to a step in the goal. ${NEW_PLAN_ONLY_NOTE}`,
   timeout: `an AI CLI call ran past limits.stepTimeoutSeconds; raise that limit in the policy or make the step smaller in the goal. ${NEW_PLAN_ONLY_NOTE}`,
   'invalid-result': `the AI CLI did not give a valid role result; see the step's last error and any artifacts/call-unreadable-* in the run folder, then check the command and its output format in the policy. ${NEW_PLAN_ONLY_NOTE}`,
   'finding-out-of-scope': `a finding names a path outside every step's writePaths, and a run does not widen its own scope; the path is in the step's last error. If that path belongs to this work, add it to allowedWritePaths in the policy and to the goal. ${NEW_PLAN_ONLY_NOTE}`,
@@ -38,7 +38,8 @@ export function statusView(run) {
     owner: run.owner === undefined ? null : run.owner,
     steps: state.order.map((id) => {
       const s = state.steps[id];
-      return { id, status: s.status, attempts: s.attempts, reason: s.reason === undefined ? null : s.reason, lastError: s.lastError === undefined ? null : s.lastError };
+      const borrowed = addedWritePaths(state, id);
+      return { id, status: s.status, attempts: s.attempts, reason: s.reason === undefined ? null : s.reason, lastError: s.lastError === undefined ? null : s.lastError, ...(borrowed.length > 0 ? { addedWritePaths: borrowed } : {}) };
     }),
     budget: {
       agentCalls: { used: state.budget.agentCalls, limit: limits.maxAgentCalls, added: added.agentCalls, remaining: rem.agentCalls },
@@ -141,6 +142,10 @@ export function formatStatus(view) {
   const repairs = Object.entries(b.repairAttempts.used);
   if (repairs.length > 0) {
     lines.push(`repair attempts (limit ${b.repairAttempts.limitPerTarget} each): ${repairs.map(([k, v]) => `${k} ${v}`).join(', ')}`);
+  }
+  const widened = view.steps.filter((s) => s.addedWritePaths);
+  if (widened.length > 0) {
+    lines.push(`write paths an arbiter added: ${widened.map((s) => `${s.id} ${s.addedWritePaths.join(', ')}`).join('; ')}`);
   }
   for (const issue of view.issues) {
     lines.push(`issue: ${issue}`);

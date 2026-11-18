@@ -10,7 +10,7 @@ import { hashJson, PROGRAM_PLAN_FIELDS } from '../src/workflow/schema.js';
 import {
   createRun, readRun, acquireRun, commitRun, releaseRun, runDir, workflowsDir, isSecretKey, sanitizeEventData,
   findSecretAssignment, policySecretIssues, REDACTED_TEXT, readRunOwner, requestCancel, cancelRequested,
-  chargeAgentCall, addActiveSeconds, addRepairAttempt, recordFailure, clearFailure, remainingBudget, extendBudget, extendedBudget, writeArtifact, readArtifact,
+  chargeAgentCall, addActiveSeconds, addRepairAttempt, recordFailure, clearFailure, remainingBudget, extendBudget, extendedBudget, writeArtifact, readArtifact, addedWritePaths, addStepWritePaths,
 } from '../src/workflow/store.js';
 
 const BIN = fileURLToPath(new URL('../bin/agent-layers.js', import.meta.url));
@@ -992,4 +992,42 @@ test('workflow store: readRun reports a budget.extended that is not two integers
     const { issues } = readRun(ctx, run.runId);
     assert.ok(issues.includes('state.json: budget.extended must have agentCalls and activeSeconds as integers of 0 or more'), `${JSON.stringify(bad)}: ${issues.join('\n')}`);
   }
+});
+
+test('workflow store: write paths an arbiter added belong to work steps, hold relative paths and survive a reread', (t) => {
+  const { ctx } = tempCtx(t);
+  const run = newRun(ctx);
+  const h = acquireRun(ctx, run.runId);
+  assert.deepEqual(addedWritePaths(h.state, 'impl'), []);
+  assert.equal(Object.hasOwn(h.state, 'addedWritePaths'), false);
+  commitRun(h, 'blocked.ruled', {}, (s) => {
+    addStepWritePaths(s, 'impl', ['test/a.test.js']);
+  });
+  commitRun(h, 'blocked.ruled', {}, (s) => {
+    addStepWritePaths(s, 'impl', ['test/a.test.js', 'test/b.js']);
+  });
+  assert.deepEqual(h.state.addedWritePaths, { impl: ['test/a.test.js', 'test/b.js'] });
+  assert.deepEqual(addedWritePaths(h.state, 'tests'), []);
+  for (const id of ['review', 'audit', 'missing']) {
+    assert.throws(() => addStepWritePaths(structuredClone(h.state), id, ['src/x.js']), new RegExp(`addStepWritePaths: unknown work step "${id}"`));
+  }
+  const before = fs.readFileSync(path.join(run.dir, 'events.jsonl'));
+  const refuse = (value, pattern) => assert.throws(
+    () => commitRun(h, 'blocked.ruled', {}, (s) => {
+      s.addedWritePaths = value;
+    }),
+    (err) => err.code === 'E_WORKFLOW_INVALID_STATE' && pattern.test(err.message),
+  );
+  refuse([], /addedWritePaths must be an object of work step ids/);
+  refuse(null, /addedWritePaths must be an object of work step ids/);
+  refuse({ review: ['src/x.js'] }, /addedWritePaths has unknown work step "review"/);
+  refuse({ missing: ['src/x.js'] }, /addedWritePaths has unknown work step "missing"/);
+  refuse({ impl: [] }, /addedWritePaths\.impl must be a non-empty array of relative paths/);
+  refuse({ impl: ['../x.js'] }, /addedWritePaths\.impl must be a non-empty array of relative paths/);
+  refuse({ impl: 'src/x.js' }, /addedWritePaths\.impl must be a non-empty array of relative paths/);
+  assert.deepEqual(fs.readFileSync(path.join(run.dir, 'events.jsonl')), before);
+  releaseRun(h);
+  const stored = readRun(ctx, run.runId);
+  assert.deepEqual(stored.issues, []);
+  assert.deepEqual(stored.state.addedWritePaths, { impl: ['test/a.test.js', 'test/b.js'] });
 });

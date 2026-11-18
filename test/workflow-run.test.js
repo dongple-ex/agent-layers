@@ -1847,3 +1847,73 @@ test('workflow plan: a setup command or a check that cannot start at the base co
     assert.equal(runCount(s), 0, name);
   }
 });
+
+const WIDEN_POLICY = { limits: { maxBlockedRulings: 1, maxScopeWidenings: 1 } };
+const BROKEN_AND_BLOCKED = { write: { 'src/broken': 'x\n' }, result: { status: 'blocked', needsInput: ['May I add test/fix.txt? It belongs to the tests step.'] } };
+const WIDEN_RULING = { result: { status: 'needs_changes', summary: 'the check needs test/fix.txt', findings: [{ code: 'fix', severity: 'high', path: 'test/fix.txt', evidence: 'the check fails without it' }], addWritePaths: ['test/fix.txt'] } };
+const SCOPE_LINE = /, 1 scope changes: an arbiter may let a stopped step change files that another step of this plan may change/;
+
+test('workflow run: an arbiter scope change lets the stopped step change a file of a later step in the worktree', (t) => {
+  const s = setup(t, { 'coder:impl': [BROKEN_AND_BLOCKED, { write: { 'test/fix.txt': 'fix\n' }, remove: ['src/broken'] }], 'arbiter:impl': WIDEN_RULING }, { plan: TWO_STEPS, policy: WIDEN_POLICY });
+  const runId = planned(s);
+  const r = runCli(s, runId);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stderr, SCOPE_LINE);
+  const rep = JSON.parse(r.stdout);
+  assert.equal(rep.status, 'SUCCEEDED');
+  assert.deepEqual(s.keys(), ['planner:plan:1', 'coder:impl:1', 'arbiter:impl:1', 'coder:impl:2', 'coder:tests:1', 'reviewer:review:1', 'auditor:audit:1']);
+  const ruling = s.calls()[2].request;
+  assert.deepEqual(ruling.stepWritePaths, [{ id: 'impl', writePaths: ['src'] }, { id: 'tests', writePaths: ['test'] }]);
+  assert.deepEqual(ruling.scopeWidenings, { used: 0, limit: 1 });
+  assert.deepEqual(ruling.checkFailures.map((f) => f.id), ['unit']);
+  const retry = s.calls()[3].request;
+  assert.deepEqual(retry.writePaths, ['src', 'test/fix.txt']);
+  assert.deepEqual(retry.scopeChange, { addedWritePaths: ['test/fix.txt'], reason: 'the check needs test/fix.txt' });
+  assert.deepEqual(rep.steps.find((step) => step.id === 'impl').addedWritePaths, ['test/fix.txt']);
+  assert.match(cli(s, ['status', runId]).stdout, /write paths an arbiter added: impl test\/fix\.txt/);
+  assert.match(cli(s, ['report', runId]).stdout, /write paths an arbiter added: impl test\/fix\.txt/);
+  const stored = readRun(s.ctx, runId);
+  assert.deepEqual(stored.issues, []);
+  assert.deepEqual(stored.events.find((e) => e.type === 'blocked.ruled').data.addWritePaths, ['test/fix.txt']);
+  assert.equal(stored.events.some((e) => e.type === 'run.failed' || (e.data && e.data.reason === 'policy-violation')), false);
+});
+
+test('workflow run: without maxScopeWidenings the same ruling stays BLOCKED, and the plan refuses it without rulings', (t) => {
+  const s = setup(t, { 'coder:impl': [BROKEN_AND_BLOCKED], 'arbiter:impl': WIDEN_RULING }, { plan: TWO_STEPS, policy: { limits: { maxBlockedRulings: 1 } } });
+  const runId = planned(s);
+  const r = runCli(s, runId);
+  assert.equal(r.code, 3, r.stderr);
+  assert.doesNotMatch(r.stderr, /scope changes/);
+  const rep = JSON.parse(r.stdout);
+  assert.equal(rep.status, 'BLOCKED');
+  assert.equal(rep.stopReason, 'role-blocked');
+  assert.match(rep.steps.find((step) => step.id === 'impl').lastError, /the arbiter asked to add test\/fix\.txt, but maxScopeWidenings is 0/);
+  assert.equal(Object.hasOwn(rep.steps.find((step) => step.id === 'impl'), 'addedWritePaths'), false);
+  assert.deepEqual(s.keys(), ['planner:plan:1', 'coder:impl:1', 'arbiter:impl:1']);
+  assert.equal(Object.hasOwn(s.calls()[1].request, 'scopeChange'), false);
+  assert.equal(Object.hasOwn(s.calls()[2].request, 'stepWritePaths'), false);
+  assert.match(cli(s, ['report', runId]).stdout, /If the arbiter asked for a path that no other step of the plan may change, the path is in the step's last error; give it to a step in the goal\./);
+
+  const lonely = setup(t, {}, { plan: TWO_STEPS, policy: { limits: { maxScopeWidenings: 1 } } });
+  const refused = planCli(lonely);
+  assert.equal(refused.code, 2, refused.stderr);
+  assert.match(refused.stderr, /limits\.maxScopeWidenings: needs maxBlockedRulings of 1 or more/);
+  assert.deepEqual(lonely.calls(), []);
+});
+
+test('workflow resume: a coder cut off while changing a borrowed file resumes, because the added paths are in scope', async (t) => {
+  const s = setup(t, { 'coder:impl': [BROKEN_AND_BLOCKED, { write: { 'test/fix.txt': 'fix\n' }, sleepMs: 60000 }, { remove: ['src/broken'] }], 'arbiter:impl': WIDEN_RULING }, { plan: TWO_STEPS, policy: WIDEN_POLICY });
+  const runId = planned(s);
+  endProcess(await killManager(s, runId, 4, 'test/fix.txt'));
+  assert.equal(await resume(s, runId), 0);
+  const done = readRun(s.ctx, runId);
+  assert.equal(done.state.status, 'SUCCEEDED');
+  assert.deepEqual(done.issues, []);
+  assert.deepEqual(s.keys(), ['planner:plan:1', 'coder:impl:1', 'arbiter:impl:1', 'coder:impl:2', 'coder:impl:3', 'coder:tests:1', 'reviewer:review:1', 'auditor:audit:1']);
+  const again = s.calls()[4].request;
+  assert.deepEqual(again.writePaths, ['src', 'test/fix.txt']);
+  assert.deepEqual(again.scopeChange, { addedWritePaths: ['test/fix.txt'], reason: 'the check needs test/fix.txt' });
+  assert.equal(again.feedback.interrupted, true);
+  assert.ok(again.feedback.changedFiles.includes('test/fix.txt'), JSON.stringify(again.feedback.changedFiles));
+  assert.deepEqual(done.state.addedWritePaths, { impl: ['test/fix.txt'] });
+});

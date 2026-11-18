@@ -6,7 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { createRun, acquireRun, releaseRun, commitRun, extendBudget, readRun } from '../src/workflow/store.js';
 import { runWorkflow } from '../src/workflow/engine.js';
-import { reportView } from '../src/workflow/report.js';
+import { formatStatus, reportView } from '../src/workflow/report.js';
 import { POLICY, PLAN, fakeClock, fakeProvider, fakeVerifier } from './fixtures/workflow/fakes.js';
 
 function setup(t, { policy = POLICY, plan = PLAN } = {}) {
@@ -1505,4 +1505,181 @@ test('workflow engine: a fix whose check failed before the limit continues with 
   assert.equal(events(run).filter((e) => e.type === 'review-fix.check-failed').length, 1);
   assert.deepEqual(readRun(ctx, run.runId).issues, []);
   releaseRun(h2);
+});
+
+const WIDEN_LIMITS = { maxBlockedRulings: 1, maxScopeWidenings: 1 };
+const WIDEN_FINDING = { code: 'needs-test', severity: 'high', path: 'test/a.test.js', evidence: 'the failing check needs the test file' };
+const ASKS_FOR_TEST = { status: 'blocked', summary: 'the test file belongs to another step', needsInput: ['may I edit test/a.test.js?'] };
+const UNIT_FAILS = { exitCode: 1, failedTests: ['t1'] };
+
+function widenAnswer(paths, extra = {}) {
+  return { status: 'needs_changes', summary: 'widen-reason-marker', findings: [WIDEN_FINDING], addWritePaths: paths, ...extra };
+}
+
+test('workflow engine: an arbiter may add a path of another step, and the coder gets it with the reason', async (t) => {
+  const { ctx, run, handle } = setup(t, { policy: withLimits(WIDEN_LIMITS) });
+  const provider = fakeProvider({ 'coder:impl': [ASKS_FOR_TEST, {}], 'arbiter:impl': [widenAnswer(['test/a.test.js'])] });
+  const state = await runWorkflow(handle, { provider, verifier: fakeVerifier({ unit: [UNIT_FAILS] }) });
+  assert.equal(state.status, 'SUCCEEDED');
+  assert.deepEqual(callKeys(provider), ['coder:impl:1', 'arbiter:impl:1', 'coder:impl:2', 'coder:tests:1', 'reviewer:review:1', 'auditor:audit:1']);
+  assert.equal(provider.calls[0].scopeChange, null);
+  const ruling = provider.calls[1];
+  assert.deepEqual(ruling.stepWritePaths, [{ id: 'impl', writePaths: ['src/a.js'] }, { id: 'tests', writePaths: ['test/a.test.js'] }]);
+  assert.deepEqual(ruling.scopeWidenings, { used: 0, limit: 1 });
+  assert.deepEqual(ruling.checkFailures, [{ id: 'unit', ...UNIT_FAILS }]);
+  const retry = provider.calls[2];
+  assert.deepEqual(retry.writePaths, ['src/a.js', 'test/a.test.js']);
+  assert.deepEqual(retry.scopeChange, { addedWritePaths: ['test/a.test.js'], reason: 'widen-reason-marker' });
+  assert.deepEqual(retry.feedback, { findings: [WIDEN_FINDING], failures: [{ id: 'unit', ...UNIT_FAILS }] });
+  assert.equal(provider.calls[3].scopeChange, null);
+  assert.deepEqual(provider.calls[3].writePaths, ['test/a.test.js']);
+  const ruled = events(run).find((e) => e.type === 'blocked.ruled');
+  assert.deepEqual({ ...ruled.data, artifact: null, sha256: null }, { role: 'arbiter', stepId: 'impl', attempt: 1, valid: true, status: 'needs_changes', ruling: 'widen', addWritePaths: ['test/a.test.js'], artifact: null, sha256: null });
+  assert.deepEqual(ruled.state.addedWritePaths, { impl: ['test/a.test.js'] });
+  assert.equal(events(run).filter((e) => e.type === 'step.retry').length, 1);
+  assert.equal(state.budget.repairAttempts.impl, 1);
+  assert.deepEqual(state.addedWritePaths, { impl: ['test/a.test.js'] });
+  const view = reportView(readRun(ctx, run.runId));
+  assert.deepEqual(view.steps.find((s) => s.id === 'impl').addedWritePaths, ['test/a.test.js']);
+  assert.equal(Object.hasOwn(view.steps.find((s) => s.id === 'tests'), 'addedWritePaths'), false);
+  assert.match(formatStatus(view), /^write paths an arbiter added: impl test\/a\.test\.js$/m);
+  assert.doesNotMatch(fs.readFileSync(path.join(run.dir, 'events.jsonl'), 'utf8'), /widen-reason-marker/);
+  assert.doesNotMatch(fs.readFileSync(path.join(run.dir, 'state.json'), 'utf8'), /widen-reason-marker/);
+  releaseRun(handle);
+});
+
+test('workflow engine: a scope change the program cannot accept stays BLOCKED, records the paths and calls no coder', async (t) => {
+  const inputs = { ...POLICY, checks: POLICY.checks.map((c) => (c.id === 'unit' ? { ...c, inputs: ['test/a.test.js'] } : c)) };
+  const wideTests = { ...PLAN, steps: PLAN.steps.map((s) => (s.id === 'tests' ? { ...s, writePaths: ['test'] } : s)) };
+  const cases = [
+    ['a path no other step may change', {}, PLAN, ['src/other.js'], ['src/other.js'], 'the arbiter asked for src/other.js, which no other step of this plan may change'],
+    ['a path the step may already change', {}, PLAN, ['src/a.js', 'test/a.test.js'], ['src/a.js'], 'the arbiter asked for src/a.js, which the step may already change'],
+    ['a protected path', { protectedPaths: ['test/fixtures'] }, wideTests, ['test/fixtures/data.json'], ['test/fixtures/data.json'], 'the arbiter asked for test/fixtures/data.json, which is a protected path'],
+    ['a check input', inputs, PLAN, ['test/a.test.js'], ['test/a.test.js'], 'the arbiter asked for test/a.test.js, which a check lists in its inputs'],
+    ['no scope change allowed', { limits: { maxBlockedRulings: 1 } }, PLAN, ['test/a.test.js'], ['test/a.test.js'], 'the arbiter asked to add test/a.test.js, but maxScopeWidenings is 0'],
+    ['no repair attempt left', { limits: { ...WIDEN_LIMITS, maxRepairAttempts: 0 } }, PLAN, ['test/a.test.js'], ['test/a.test.js'], 'the arbiter asked to add test/a.test.js, but maxRepairAttempts is used up'],
+  ];
+  for (const [name, policyChange, plan, asked, rejected, reason] of cases) {
+    const policy = { ...POLICY, limits: WIDEN_LIMITS, ...policyChange };
+    const { run, handle } = setup(t, { policy, plan });
+    const provider = fakeProvider({ 'coder:impl': [ASKS_FOR_TEST], 'arbiter:impl': [widenAnswer(asked)] });
+    const state = await runWorkflow(handle, { provider, verifier: fakeVerifier({ unit: [UNIT_FAILS] }) });
+    assert.equal(state.status, 'BLOCKED', name);
+    assert.equal(state.stopReason, 'role-blocked', name);
+    const { data } = events(run).find((e) => e.type === 'blocked.ruled');
+    assert.equal(state.steps.impl.lastError, `the coder needs input (1 items); ${reason}; see artifacts/${data.artifact}`, name);
+    assert.deepEqual(callKeys(provider), ['coder:impl:1', 'arbiter:impl:1'], name);
+    assert.deepEqual([data.valid, data.status, data.ruling, data.rejectedWritePaths, data.reason, Object.hasOwn(data, 'addWritePaths')], [true, 'needs_changes', 'uphold', rejected, reason, false], name);
+    assert.equal(state.addedWritePaths, undefined, name);
+    assert.equal(state.budget.repairAttempts.impl, undefined, name);
+    if (name === 'no scope change allowed') {
+      assert.equal(Object.hasOwn(provider.calls[0], 'scopeChange'), false, name);
+      assert.equal(Object.hasOwn(provider.calls[1], 'stepWritePaths'), false, name);
+      assert.equal(Object.hasOwn(provider.calls[1], 'scopeWidenings'), false, name);
+    }
+    releaseRun(handle);
+  }
+});
+
+test('workflow engine: a second scope change past maxScopeWidenings stays BLOCKED, and the ruling sees the first one', async (t) => {
+  const { run, handle } = setup(t, { policy: withLimits({ maxBlockedRulings: 2, maxScopeWidenings: 1 }) });
+  const provider = fakeProvider({ 'coder:impl': [ASKS_FOR_TEST, ASKS_FOR_TEST], 'arbiter:impl': [widenAnswer(['test/a.test.js']), widenAnswer(['test/a.test.js'])] });
+  const state = await runWorkflow(handle, { provider, verifier: fakeVerifier({ unit: [UNIT_FAILS, UNIT_FAILS] }) });
+  assert.equal(state.status, 'BLOCKED');
+  assert.deepEqual(callKeys(provider), ['coder:impl:1', 'arbiter:impl:1', 'coder:impl:2', 'arbiter:impl:2']);
+  assert.deepEqual(provider.calls[3].scopeWidenings, { used: 1, limit: 1 });
+  assert.deepEqual(provider.calls[3].writePaths, ['src/a.js', 'test/a.test.js']);
+  assert.deepEqual(provider.calls[3].stepWritePaths[0], { id: 'impl', writePaths: ['src/a.js', 'test/a.test.js'] });
+  assert.match(state.steps.impl.lastError, /^the coder needs input \(1 items\); the arbiter asked to add test\/a\.test\.js, but maxScopeWidenings \(1\) is used up; see artifacts\/ruling-\d+\.json$/);
+  assert.deepEqual(events(run).filter((e) => e.type === 'blocked.ruled').map((e) => e.data.ruling), ['widen', 'uphold']);
+  assert.deepEqual(state.addedWritePaths, { impl: ['test/a.test.js'] });
+  releaseRun(handle);
+});
+
+test('workflow engine: addWritePaths in a bad shape or with another status makes the arbiter result invalid', async (t) => {
+  const cases = [
+    ['with completed', { status: 'completed', addWritePaths: ['test/a.test.js'] }],
+    ['with blocked', { status: 'blocked', needsInput: ['a decision'], addWritePaths: ['test/a.test.js'] }],
+    ['empty', widenAnswer([])],
+    ['a parent path', widenAnswer(['../outside.js'])],
+    ['not an array', widenAnswer('test/a.test.js')],
+  ];
+  for (const [name, answer] of cases) {
+    const { run, handle } = setup(t, { policy: withLimits(WIDEN_LIMITS) });
+    const provider = fakeProvider({ 'coder:impl': [ASKS_FOR_TEST], 'arbiter:impl': [answer] });
+    const state = await runWorkflow(handle, { provider, verifier: fakeVerifier({ unit: [UNIT_FAILS] }) });
+    assert.equal(state.status, 'BLOCKED', name);
+    assert.match(state.steps.impl.lastError, /^the coder needs input \(1 items\); the arbiter result was not valid; see artifacts\/ruling-\d+\.json$/, name);
+    const { data } = events(run).find((e) => e.type === 'blocked.ruled');
+    assert.deepEqual([data.valid, data.ruling, Object.hasOwn(data, 'rejectedWritePaths')], [false, 'uphold', false], name);
+    assert.equal(state.addedWritePaths, undefined, name);
+    releaseRun(handle);
+  }
+  const { handle } = setup(t, { policy: withLimits(WIDEN_LIMITS) });
+  const coder = fakeProvider({ 'coder:impl': [{ addWritePaths: ['test/a.test.js'] }] });
+  const state = await runWorkflow(handle, { provider: coder, verifier: fakeVerifier() });
+  assert.equal(state.stopReason, 'invalid-result');
+  assert.match(state.steps.impl.lastError, /addWritePaths: unknown field/);
+  releaseRun(handle);
+});
+
+test('workflow engine: a scope change asked for in review-fix stays BLOCKED', async (t) => {
+  const finding = { code: 'bug', severity: 'high', path: 'src/a.js', evidence: 'wrong branch' };
+  const { run, handle } = setup(t, { policy: withLimits(WIDEN_LIMITS) });
+  const provider = fakeProvider({ 'reviewer:review': [{ status: 'needs_changes', findings: [finding] }], 'coder:review-fix': [ASKS_FOR_TEST], 'arbiter:review-fix': [widenAnswer(['test/a.test.js'])] });
+  const state = await runWorkflow(handle, { provider, verifier: fakeVerifier() });
+  assert.equal(state.status, 'BLOCKED');
+  assert.equal(state.stopReason, 'role-blocked');
+  assert.match(state.steps.review.lastError, /^review-fix needs input \(1 items\); the arbiter asked to add test\/a\.test\.js, but the write paths of review-fix are not changed; see artifacts\/ruling-\d+\.json$/);
+  assert.equal(events(run).find((e) => e.type === 'blocked.ruled').data.ruling, 'uphold');
+  assert.equal(state.addedWritePaths, undefined);
+  assert.equal(Object.hasOwn(provider.calls.find((c) => c.role === 'coder' && c.stepId === 'review-fix'), 'scopeChange'), false);
+  releaseRun(handle);
+});
+
+test('workflow engine: a finding on a borrowed path makes both steps owners of the review fix', async (t) => {
+  const finding = { code: 'bug', severity: 'high', path: 'test/a.test.js', evidence: 'wrong case' };
+  const owners = [];
+  for (const widen of [true, false]) {
+    const { run, handle } = setup(t, { policy: withLimits(WIDEN_LIMITS) });
+    const script = {
+      'coder:impl': widen ? [ASKS_FOR_TEST, {}] : [{}],
+      'arbiter:impl': [widenAnswer(['test/a.test.js'])],
+      'reviewer:review': [{ status: 'needs_changes', findings: [finding] }],
+    };
+    const state = await runWorkflow(handle, { provider: fakeProvider(script), verifier: fakeVerifier({ unit: widen ? [UNIT_FAILS] : [] }) });
+    assert.equal(state.status, 'SUCCEEDED');
+    owners.push(events(run).find((e) => e.type === 'review-fix.started').data.steps);
+    releaseRun(handle);
+  }
+  assert.deepEqual(owners, [['impl', 'tests'], ['tests']]);
+});
+
+test('workflow engine: after a scope change, an interrupted coder resumes with the added paths and the note', async (t) => {
+  const { ctx, run, handle } = setup(t, { policy: withLimits(WIDEN_LIMITS) });
+  const first = fakeProvider({ 'coder:impl': [ASKS_FOR_TEST], 'arbiter:impl': [widenAnswer(['test/a.test.js'])] });
+  const cut = {
+    async call(req) {
+      if (req.role === 'coder' && req.attempt === 2) {
+        throw new Error('the manager went away');
+      }
+      return first.call(req);
+    },
+  };
+  await assert.rejects(runWorkflow(handle, { provider: cut, verifier: fakeVerifier({ unit: [UNIT_FAILS] }) }), /the manager went away/);
+  assert.equal(handle.state.steps.impl.status, 'INTERRUPTED');
+  assert.deepEqual(handle.state.addedWritePaths, { impl: ['test/a.test.js'] });
+  releaseRun(handle);
+
+  const again = acquireRun(ctx, run.runId);
+  const later = fakeProvider();
+  const recovery = { passed: true, artifact: 'recovery-9.json', changedFiles: ['test/a.test.js'] };
+  const state = await runWorkflow(again, { provider: later, verifier: fakeVerifier(), resume: true, recovery });
+  assert.equal(state.status, 'SUCCEEDED');
+  assert.equal(callKeys(later)[0], 'coder:impl:3');
+  assert.deepEqual(later.calls[0].writePaths, ['src/a.js', 'test/a.test.js']);
+  assert.deepEqual(later.calls[0].scopeChange, { addedWritePaths: ['test/a.test.js'], reason: 'widen-reason-marker' });
+  assert.deepEqual(later.calls[0].feedback, { failures: [{ id: 'unit', ...UNIT_FAILS }], interrupted: true, changedFiles: ['test/a.test.js'] });
+  assert.deepEqual(readRun(ctx, run.runId).issues, []);
+  releaseRun(again);
 });

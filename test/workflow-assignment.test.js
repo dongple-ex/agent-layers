@@ -531,3 +531,29 @@ test('v2: an environment repair before the planner runs on the coder agent, and 
   assert.deepEqual(s.calls()[0].request.failures.map((f) => [f.kind, f.id, f.exitCode]), [['check', 'unit', 1]]);
   assert.equal(readRun(s.ctx, s.runId()).state.budget.agentCalls, 2);
 });
+
+test('v2: an arbiter scope change reaches the planner prompt and the coder of the next attempt', async (t) => {
+  const own = (id, deps) => ({ id, role: 'coder', agent: 'codex', dependsOn: deps, instruction: `Edit only src/${id}`, writePaths: [`src/${id}`], checkIds: ['unit'], acceptance: ['Preserve the original contract'] });
+  const plan = { schemaVersion: 2, goal: 'Implement the feature', steps: [own('one', []), own('two', ['one'])] };
+  const s = setup(t, {
+    plan,
+    'coder:one': [{ result: { status: 'blocked', needsInput: ['May I change src/two/shared?'] } }, { write: { 'src/two/shared': 'shared\n' } }],
+    'arbiter:one': { result: { status: 'needs_changes', summary: 'step one needs src/two/shared', findings: [{ code: 'shared', severity: 'high', path: 'src/two/shared', evidence: 'the change needs the shared file' }], addWritePaths: ['src/two/shared'] } },
+  });
+  Object.assign(s.raw.limits, { maxBlockedRulings: 1, maxScopeWidenings: 1 }); s.save();
+  await cmdPlan(s.ctx, s.flags, YES); const id = s.runId();
+  assert.equal(await cmdRun(s.ctx, s.flags, id, YES), 0);
+  assert.deepEqual(s.calls().map((c) => `${c.actor}:${c.request.role}:${c.request.stepId}`), ['claude:planner:plan', 'codex:coder:one', 'claude:arbiter:one', 'codex:coder:one', 'codex:coder:two', 'claude:reviewer:review', 'claude:auditor:audit']);
+  const ruling = s.calls()[2];
+  assert.deepEqual(ruling.request.stepWritePaths, [{ id: 'one', writePaths: ['src/one'] }, { id: 'two', writePaths: ['src/two'] }]);
+  assert.deepEqual(ruling.request.scopeWidenings, { used: 0, limit: 1 });
+  assert.ok(ruling.prompt.indexOf('"stepWritePaths"') < ruling.prompt.indexOf('"blocked"'));
+  const retry = s.calls()[3].request;
+  assert.deepEqual(retry.writePaths, ['src/one', 'src/two/shared']);
+  assert.deepEqual(retry.scopeChange, { addedWritePaths: ['src/two/shared'], reason: 'step one needs src/two/shared' });
+  const run = readRun(s.ctx, id);
+  assert.deepEqual(run.issues, []);
+  assert.equal(run.state.status, 'SUCCEEDED');
+  assert.deepEqual(run.state.addedWritePaths, { one: ['src/two/shared'] });
+  assert.equal(run.policy.limits.maxScopeWidenings, 1);
+});

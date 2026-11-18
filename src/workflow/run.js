@@ -8,8 +8,8 @@ import { runWorkflow, wasInterrupted } from './engine.js';
 import { findLeftovers, TREE_KILL_METHOD, TREE_KILL_SUPPORTED } from './process.js';
 import { commandVersion, createProvider, providerProblem } from './provider.js';
 import { formatReport, reportView } from './report.js';
-import { baselineMatches, blockedRulingLimit, environmentRepairLimit, hashJson, normalizePolicy, validatePlan, validateRoleResult } from './schema.js';
-import { acquireRun, cancelRequested, commitRun, createRun, extendBudget, extendedBudget, policySecretIssues, findSecretAssignment, readArtifact, readRun, readRunOwner, releaseRun, remainingBudget, requestCancel, sanitizeEventData, writeArtifact } from './store.js';
+import { baselineMatches, blockedRulingLimit, environmentRepairLimit, hashJson, normalizePolicy, scopeWideningLimit, validatePlan, validateRoleResult } from './schema.js';
+import { acquireRun, addedWritePaths, cancelRequested, commitRun, createRun, extendBudget, extendedBudget, policySecretIssues, findSecretAssignment, readArtifact, readRun, readRunOwner, releaseRun, remainingBudget, requestCancel, sanitizeEventData, writeArtifact } from './store.js';
 import { checkCommandProblem, childEnv, CONFIG_FOLDER_ENV, runChecks, runSetup } from './verify.js';
 import { checkChanges, compareFingerprints, createWorktree, describeWorktree, inspectRepository, pathLengthFacts, removeWorktree, restoreWorktree, resultPatch, sourceFingerprint, worktreePath } from './workspace.js';
 import { buildHandoff, parsePolicyText, fingerprintArtifacts } from './assignment.js';
@@ -541,7 +541,7 @@ function describeRun(flags, stored, repo, extension = null) {
     ...setup.map((item) => `  setup ${item.id}: ${policyCommandLine(item)}`),
     ...checks.map((check) => `  check ${check.id}, expected to ${check.baseline} at the base commit: ${policyCommandLine(check)}`),
     ...notice,
-    `  limits: ${limits.maxAgentCalls} agent calls, ${limits.runTimeoutSeconds}s of active time${blockedRulingLimit(limits) > 0 ? `, ${blockedRulingLimit(limits)} rulings on a blocked coder, each one agent call that runs as the planner` : ''}`,
+    `  limits: ${limits.maxAgentCalls} agent calls, ${limits.runTimeoutSeconds}s of active time${blockedRulingLimit(limits) > 0 ? `, ${blockedRulingLimit(limits)} rulings on a blocked coder, each one agent call that runs as the planner` : ''}${scopeWideningLimit(limits) > 0 ? `, ${scopeWideningLimit(limits)} scope changes: an arbiter may let a stopped step change files that another step of this plan may change` : ''}`,
     ...extensionLine(stored, extension),
   ].join('\n'));
   if (repo.baseCommit !== stored.plan.baseCommit) {
@@ -574,11 +574,11 @@ function scopeCheck(worktree, run, writePaths) {
   };
 }
 
-function writePathsUpTo(run, stepId) {
+function writePathsUpTo(run, stepId, state = run.state) {
   const stepById = new Map(run.plan.steps.map((s) => [s.id, s]));
-  const work = run.state.order.filter((id) => stepById.has(id));
+  const work = state.order.filter((id) => stepById.has(id));
   const at = work.indexOf(stepId);
-  return [...new Set((at < 0 ? work : work.slice(0, at + 1)).flatMap((id) => stepById.get(id).writePaths))];
+  return [...new Set((at < 0 ? work : work.slice(0, at + 1)).flatMap((id) => [...stepById.get(id).writePaths, ...addedWritePaths(state, id)]))];
 }
 
 function violationError(handle, req, violations) {
@@ -681,7 +681,7 @@ function guardedProvider({ provider, worktree, run, handle, logs, flags }) {
     commitRun(handle, 'call.baseline', { role: req.role, stepId: req.stepId, attempt: req.attempt, patchSha256: sha256(before) });
     let result;
     try {
-      result = await provider.call({ ...req, ...shared, checks, checkResults: latestCheckResults(), allowedWritePaths: writePathsUpTo(run, req.stepId), ...diffFields(before) });
+      result = await provider.call({ ...req, ...shared, checks, checkResults: latestCheckResults(), allowedWritePaths: writePathsUpTo(run, req.stepId, handle.state), ...diffFields(before) });
     } catch (err) {
       if (err.transport) {
         stopIfChanged();
@@ -696,7 +696,7 @@ function guardedProvider({ provider, worktree, run, handle, logs, flags }) {
     const checkLogs = req.feedback && req.feedback.failures ? [...logs.values()] : [];
     const soFar = req.feedback || run.policy.schemaVersion === 2 ? diffFields(resultPatch(worktree.path, worktree.baseCommit)) : {};
     const result = await provider.call({ ...req, ...shared, checks, checkLogs, ...soFar });
-    const { violations } = scopeCheck(worktree, run, writePathsUpTo(run, req.stepId));
+    const { violations } = scopeCheck(worktree, run, writePathsUpTo(run, req.stepId, handle.state));
     if (violations.length > 0) {
       throw violationError(handle, req, violations);
     }
@@ -717,7 +717,7 @@ function guardedProvider({ provider, worktree, run, handle, logs, flags }) {
       if (run.policy.schemaVersion === 2) {
         const current = readRun(handle.ctx, handle.runId);
         const handoff = buildHandoff(current, req, worktree.path, hashJson);
-        req = { ...req, ...handoff, changedFiles: scopeCheck(worktree, run, writePathsUpTo(run, req.stepId)).changed };
+        req = { ...req, ...handoff, changedFiles: scopeCheck(worktree, run, writePathsUpTo(run, req.stepId, handle.state)).changed };
         commitRun(handle, 'handoff.prepared', { stepId: req.stepId, dependencyHash: handoff.dependencyHash, dependencies: handoff.dependencies.map(({ stepId, resultHash, artifacts }) => ({ stepId, resultHash, artifacts })) });
       }
       progress(flags, `${req.role} ${req.stepId}, attempt ${req.attempt}`);
@@ -741,7 +741,7 @@ function createVerifier({ handle, worktree, run, logs, signal, flags, track }) {
       return results.map(({ id, exitCode, timedOut, completed, failedTests }) => ({ id, exitCode, timedOut, completed, failedTests }));
     },
     seal() {
-      const { changed, violations } = scopeCheck(worktree, run, writePathsUpTo(run, null));
+      const { changed, violations } = scopeCheck(worktree, run, writePathsUpTo(run, null, handle.state));
       return { patchSha256: sha256(resultPatch(worktree.path, worktree.baseCommit)), changed, violations };
     },
     async run({ stepId, checkIds }) {

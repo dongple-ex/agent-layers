@@ -22,9 +22,12 @@ export const DEFAULT_LIMITS = {
   stepTimeoutSeconds: 900,
   runTimeoutSeconds: 3600,
 };
-export const OPTIONAL_LIMITS = ['maxBlockedRulings', 'maxEnvironmentRepairs'];
+export const OPTIONAL_LIMITS = ['maxBlockedRulings', 'maxEnvironmentRepairs', 'maxScopeWidenings'];
 export function blockedRulingLimit(limits) {
   return own(limits, 'maxBlockedRulings') ? limits.maxBlockedRulings : 0;
+}
+export function scopeWideningLimit(limits) {
+  return own(limits, 'maxScopeWidenings') ? limits.maxScopeWidenings : 0;
 }
 export const DEFAULT_ENVIRONMENT_REPAIRS = 2;
 export function environmentRepairLimit(limits) {
@@ -397,6 +400,9 @@ export function normalizePolicy(raw) {
   if (limits.maxSteps + 3 > limits.maxAgentCalls) {
     add('limits', `maxSteps + 3 must not exceed maxAgentCalls (${limits.maxSteps} + 3 > ${limits.maxAgentCalls})`);
   }
+  if (scopeWideningLimit(limits) > 0 && blockedRulingLimit(limits) === 0) {
+    add('limits.maxScopeWidenings', 'needs maxBlockedRulings of 1 or more, because only an arbiter ruling adds write paths');
+  }
   if (issues.length > 0) {
     return { policy: null, issues };
   }
@@ -592,6 +598,10 @@ export function validateRoleResult(result, { stepIds }) {
     add('needsInput', 'must be an array of non-empty strings');
   }
   return issues;
+}
+
+export function addWritePathsIssue(value) {
+  return Array.isArray(value) && value.length > 0 && value.every((p) => relativePathIssue(p) === null) ? null : 'must be a non-empty array of relative paths';
 }
 
 export function learnedConstraintsIssue(value) {
