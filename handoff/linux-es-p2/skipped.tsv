@@ -1,0 +1,11 @@
+#9 windows shims: JSON with quotes, backslashes and %VARS% survives a .cmd round trip	Windows 전용 (소스의 플랫폼 조건)
+workflow process: on Windows a batch file is refused instead of going through a shell	Windows only
+workflow process: outside Linux the result says tree termination is not guaranteed	not Linux only
+workflow process: outside Linux a process that keeps the output pipe open does not hold up the result	not Linux only
+workflow process: on Windows a cancel ends the child, the cmd.exe under it and the grandchild	Windows only: descendants are ended with taskkill /T
+workflow process: on Windows a timeout ends the grandchild too	Windows only: descendants are ended with taskkill /T
+workflow process: on Windows without SystemRoot the direct child is ended and the reason is recorded	Windows only: descendants are ended with taskkill /T
+workflow plan: an npm batch file is refused on Windows with what to write instead	Windows 전용 (소스의 플랫폼 조건)
+workflow plan: on Windows a tracked path too long for the worktree is named before planning	Windows 전용 (소스의 플랫폼 조건)
+workflow plan: on Windows a short worktreeRoot lets a tracked path that is too long for the default worktree folder be planned	Windows 전용 (소스의 플랫폼 조건)
+workflow verify: a batch file is named as a problem on Windows	Windows 전용 (소스의 플랫폼 조건)

@@ -1,0 +1,5 @@
+workflow policy: worktreeRoot is stored only when set and must be an absolute path, in v1 and v2	통과
+workflow plan and run: worktreeRoot in the policy holds the temporary and the run worktrees, and resume reopens the run worktree there	통과
+workflow plan: a worktreeRoot inside the repository is refused with exit code 2 before any call	통과
+workflow plan: on Windows a short worktreeRoot lets a tracked path that is too long for the default worktree folder be planned	건너뜀
+v2: worktreeRoot holds the plan and run worktrees, and the stored policy reads back without issues	통과
