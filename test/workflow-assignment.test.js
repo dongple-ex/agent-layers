@@ -557,3 +557,17 @@ test('v2: an arbiter scope change reaches the planner prompt and the coder of th
   assert.deepEqual(run.state.addedWritePaths, { one: ['src/two/shared'] });
   assert.equal(run.policy.limits.maxScopeWidenings, 1);
 });
+
+test('v2: worktreeRoot holds the plan and run worktrees, and the stored policy reads back without issues', async (t) => {
+  const s = setup(t);
+  const root = path.join(s.root, 'w');
+  s.raw.worktreeRoot = root; s.save();
+  await cmdPlan(s.ctx, s.flags, YES); const id = s.runId();
+  assert.equal(await cmdRun(s.ctx, s.flags, id, YES), 0);
+  const real = fs.realpathSync.native(root);
+  assert.equal(path.dirname(s.calls()[0].cwd), real);
+  assert.ok(s.calls().filter((c) => c.request.role === 'coder').every((c) => c.cwd === path.join(real, id)));
+  const run = readRun(s.ctx, id);
+  assert.deepEqual(run.issues, []);
+  assert.equal(run.policy.worktreeRoot, root);
+});
