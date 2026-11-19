@@ -303,7 +303,7 @@ A v2 policy can assign different CLI tools and models to individual work steps. 
 
 The executor runs sequentially and passes the original goal, transitive dependency results, file hashes, current changes and check evidence. It fixes assignments in the saved plan and records CLI-reported model metadata separately from requested settings. Missing usage remains unknown. Kimi-style prompt arguments may be visible in process listings; prompts must not contain secrets. Four named CLI profiles have been tested with local fake processes; real Claude/Codex/Gemini/Kimi mixed execution is still unverified.
 
-V1 policies and existing v1 runs keep their command, hash and report contracts. V2 records need agent-layers 0.1.9 or later; do not open them with an older release. Changing an assigned tool, model or policy requires a new plan. Read [the guide](docs/GUIDE.en.md#task-level-ai-assignments-schema-v2) for the policy and result contracts.
+V1 policies and existing v1 runs keep their command, hash and report contracts. V2 records need agent-layers 0.1.9 or later, and records made by 0.1.10 need 0.1.10 or later; do not open them with an older release. Changing an assigned tool, model or policy requires a new plan. Read [the guide](docs/GUIDE.en.md#task-level-ai-assignments-schema-v2) for the policy and result contracts.
 
 ## Commands
 
