@@ -240,6 +240,25 @@ export function loadLayer(dir, name, os) {
   };
 }
 
+export function loadUserLayers(ctx, manifest, onMissing) {
+  const layers = [];
+  for (const e of manifest.extends) {
+    if (!e.dir) {
+      continue;
+    }
+    if (!isDir(e.dir)) {
+      if (e.optional) {
+        onMissing(`extends layer "${e.name}" not found at ${e.dir}; skipped`);
+        continue;
+      }
+      throw new Error(`extends layer "${e.name}" not found at ${e.dir}${e.git ? ` (clone ${e.git} there, or run "agent-layers sync")` : ''}`);
+    }
+    layers.push(loadLayer(e.dir, e.name, ctx.os));
+  }
+  layers.push(loadLayer(manifest.baseDir, 'base', ctx.os));
+  return layers;
+}
+
 export function mergeLayers(layers) {
   const merged = { layers: layers.map((l) => l.name), instructions: [], skills: [], commands: [], agents: [], mcp: [], settings: {}, forget: layers.flatMap((l) => (l.forget || []).map((f) => ({ ...f, layer: l.name }))), files: {}, shadowed: [], skipped: layers.flatMap((l) => l.skipped || []) };
   const byName = (key, item, layer) => {
