@@ -17,4 +17,5 @@ Your final message must be one JSON object and nothing else, in this form. Copy 
 
 - `status` is one of `completed`, `needs_changes`, `blocked`. A Coder uses only `completed` or `blocked`.
 - `artifacts`, `findings` and `needsInput` may be empty arrays. Each item of `needsInput` is a string.
+- Leave `path` out of a finding that is not about a specific file; never send an empty `path`. With `needs_changes`, every finding needs a `path`.
 - Never put secrets, tokens or passwords in this message, even when quoting a file or a log.
